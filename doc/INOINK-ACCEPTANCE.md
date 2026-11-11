@@ -71,9 +71,14 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | Page-turn latency with and without a running sync (same article) | NOT RUN |
 | Update preserves data (install a second build over the first) | NOT RUN |
 | Bulk "Mark list read" does not touch articles that arrive meanwhile | NOT RUN |
-| Live API contract (`inoink-cli acceptance --live`, read-only) | NOT RUN |
+| Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
 
 ## Known gaps
+
+- The first live account has 1938 subscriptions and 38 folders/tags. The drawer's Feeds list pages
+  ten entries at a time, which is impractical at that size; folders are the usable route.
+- The first live article fetched had 23 characters of content: some feeds deliver almost nothing,
+  which is what Load original page is for.
 
 - No live Inoreader account was available: request shapes follow the published documentation;
   the first live run may reveal differences (for example whether `categories` omit state tags
