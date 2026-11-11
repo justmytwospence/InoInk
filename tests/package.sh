@@ -4,6 +4,7 @@
 #   tests/package.sh            (optionally: tests/package.sh dist/inoink-<v>-kobo.tar.gz to also check a real package)
 set -u
 cd "$(dirname "$0")/.."
+export INOINK_NO_EJECT=1
 ROOT=$PWD
 FAILS=0
 ok() { echo "ok   $1"; }

@@ -35,6 +35,12 @@ rm -rf "$STAGE"
 cp -R "$TMP/inoink/release" "$STAGE"
 chmod +x "$STAGE/inoink" "$STAGE/inoink-run.sh"
 sync
+# Verify every copied file before activating the release.
+( cd "$TMP/inoink/release" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
+	a=$(cksum < "$f"); b=$(cksum < "$STAGE/$f" 2>/dev/null || echo missing)
+	[ "$a" = "$b" ] || { echo "error: $f did not copy correctly" >&2; exit 1; }
+done ) || { rm -rf "$STAGE"; echo "error: the copy to the Kobo is damaged; nothing was activated" >&2; exit 1; }
+[ "$(cd "$TMP/inoink/release" && find . -type f | wc -l)" = "$(cd "$STAGE" && find . -type f | wc -l)" ] || { rm -rf "$STAGE"; echo "error: unexpected files in the copy; nothing was activated" >&2; exit 1; }
 rm -rf "$BASE/releases/$VERSION"
 mv "$STAGE" "$BASE/releases/$VERSION"
 sync
@@ -65,4 +71,10 @@ if [ "$MENU" = 1 ]; then
 		echo "NickelMenu is not installed; no launcher entry was added." >&2
 	fi
 fi
-echo "InoInk $VERSION installed. Eject the Kobo safely."
+sync
+if [ "${INOINK_NO_EJECT:-}" != 1 ] && command -v diskutil >/dev/null 2>&1; then
+	diskutil eject "$MNT" >/dev/null && echo "InoInk $VERSION installed and the Kobo ejected; you can unplug it." && exit 0
+	echo "InoInk $VERSION installed, but the Kobo could not be ejected; eject it before unplugging." >&2
+	exit 0
+fi
+echo "InoInk $VERSION installed. Eject the Kobo before unplugging it."
