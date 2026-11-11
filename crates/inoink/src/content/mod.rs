@@ -57,7 +57,7 @@ pub fn format_read_time(words: u32) -> Option<String> {
     let m = words.div_ceil(230).max(1);
     Some(if m < 60 {
         format!("{m} min read")
-    } else if m % 60 == 0 {
+    } else if m.is_multiple_of(60) {
         format!("{} h read", m / 60)
     } else {
         format!("{} h {} min read", m / 60, m % 60)
