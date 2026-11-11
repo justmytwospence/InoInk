@@ -65,7 +65,16 @@ fn read_secret() -> Result<String> {
         let _ = std::process::Command::new("stty").arg("echo").stdin(std::process::Stdio::inherit()).status();
         eprintln!();
         r?;
-        let s = line.trim().to_string();
+        let mut s = line.trim().to_string();
+        // Terminals sometimes deliver a paste twice; a key repeated back to back is collapsed.
+        let n = s.chars().count();
+        if n.is_multiple_of(2) && n > 0 {
+            let half: String = s.chars().take(n / 2).collect();
+            if s == format!("{half}{half}") {
+                eprintln!("The key arrived twice; using it once.");
+                s = half;
+            }
+        }
         if s.is_empty() {
             eprintln!("Nothing was received. Try again.");
             continue;
@@ -115,9 +124,26 @@ fn receive_callback(redirect_uri: &str) -> Result<String> {
         }
     }
     std::thread::spawn(move || {
-        let mut line = String::new();
-        if std::io::stdin().lock().read_line(&mut line).is_ok() && line.contains("code=") {
-            let _ = tx.send(line.trim().to_string());
+        let stdin = std::io::stdin();
+        loop {
+            let mut line = String::new();
+            match stdin.lock().read_line(&mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line.contains("code=") || line.contains("error=") {
+                let _ = tx.send(line.to_string());
+                break;
+            }
+            if line.contains("/oauth2/auth") {
+                eprintln!("That is the approval page itself. Open it in your browser, approve, then paste the address the browser ends on (it starts with the redirect URI and contains code=).");
+            } else {
+                eprintln!("That address has no code= in it. Paste the address the browser shows after you approve.");
+            }
         }
     });
     eprintln!("Waiting for the browser to return here. If it does not, paste the address it ended on and press Enter:");
