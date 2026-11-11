@@ -23,13 +23,27 @@ document tests inside the build container, and the install/launcher tests).
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
+## Build and package (computer only)
+
+| Check | Result |
+|---|---|
+| `scripts/build-inoink.sh --target kobo` cross-builds the ARM binary with the pinned Linaro GCC 4.9.4 toolchain (rustc runs natively; the x86_64 toolchain compiles C and links) | PASS |
+| `scripts/package-inoink.sh` produces `inoink-<v>-kobo.tar.gz`, `-source.tar.gz`, `-third-party-sources.tar`, `SHA256SUMS` | PASS |
+| The binary is a 32-bit ARM hard-float ELF needing GLIBC <= 2.18 and the bundled libraries | PASS (readelf/objdump) |
+| `scripts/check-reproducibility.sh`: two clean builds on this computer give byte-identical artifacts | PASS on one machine; not checked on another host or architecture |
+| Package contents: licenses and notices present, no credentials, no unsafe paths, root-owned entries | PASS (`tests/package.sh <package>`) |
+| Binary actually runs on the Kobo and loads its libraries | NOT RUN (device) |
+
 ## Emulator
 
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 list opens on Starred; article opens at its first page; page turns; the bar (Back, Star, Done,
-More); the More menu; back to the list; a photo essay with colour images and captions.
-Result: PASS. Not covered by the tour (tested headlessly instead): Done/Undo, search, prompts.
+More); the More menu; back to the list; a photo essay with colour images, captions and a retryable
+placeholder for an image that failed. Positions are saved between runs. Each run works on a fresh
+copy of the fixtures. Result: PASS. Not covered by the tour (tested headlessly instead): Done/Undo,
+search, prompts, the enlargement view. The SDL dummy driver renders the framebuffer in software:
+this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
 ## Device (Kobo Libra Colour, firmware 4.46.23852)
 

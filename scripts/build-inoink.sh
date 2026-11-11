@@ -57,7 +57,10 @@ case "$TARGET" in
 esac
 
 if [ "$RUN" = 1 ]; then
-	rm -rf target/inoink-emulator-shots
+	rm -rf target/inoink-emulator-shots target/inoink-emulator-data
+	# Work on a copy so every tour starts from the same state (the app saves positions and changes).
+	cp -R "$DATA" target/inoink-emulator-data
+	DATA=target/inoink-emulator-data
 	scripts/container-run.sh sh -c "
 		cargo build --locked -p emulator &&
 		SDL_VIDEODRIVER=dummy PRODUCT=monza MODEL_NUMBER=390 INOINK_SETTINGS=/tmp/inoink-settings.toml \

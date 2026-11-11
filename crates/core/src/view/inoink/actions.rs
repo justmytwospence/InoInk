@@ -96,7 +96,8 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
             context.inoink.last_undo = Some((undo, title));
             context.inoink.changed();
-            Ok(ActionOutcome { message: Some("Done. Tap Undo in the list to restore.".into()), close: true })
+            // The Undo bar at the top of the list is the confirmation; no notification covers it.
+            Ok(ActionOutcome { message: None, close: true })
         }
         ArticleAction::LoadOriginal => {
             if context.inoink.handle.is_none() {

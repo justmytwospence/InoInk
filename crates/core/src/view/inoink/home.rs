@@ -676,6 +676,8 @@ impl View for InoInkHome {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
                 }
+                // Coming back from the reader (or a menu): repaint everything.
+                rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 true
             }
             Event::ClockTick => {
