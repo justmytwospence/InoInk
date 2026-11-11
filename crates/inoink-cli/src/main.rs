@@ -144,7 +144,14 @@ fn authorize(args: &[String]) -> Result<()> {
         println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
     }
     if let Some(o) = out {
-        std::fs::write(&o, serde_json::to_vec_pretty(&creds)?)?;
+        if let Some(dir) = o.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir)?;
+        }
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&o)?;
+            f.write_all(&serde_json::to_vec_pretty(&creds)?)?;
+        }
         println!("Wrote {} (plaintext credentials; delete it after provisioning).", o.display());
     }
     Ok(())
