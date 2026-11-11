@@ -36,8 +36,8 @@ replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`
 4. Quit InoInk (main menu, Quit), reconnect the Kobo, then sign in **on the computer**:
 
 ```sh
-export INOINK_CLIENT_SECRET=...          # or type it at the hidden prompt
-cargo run --release -p inoink-cli -- authorize \
+# inoink-cli from the release, or: cargo build --release -p inoink-cli
+inoink-cli authorize \
     --client-id YOUR_ID --redirect-uri http://localhost:8080/callback \
     --device /path/to/KOBOeReader
 ```
@@ -71,8 +71,10 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Tap the title for the collection drawer; the footer toggles Unread/All and shows sync status
   (tap it to sync now). Swipe or use the page buttons to move between pages of the list.
   Long-press a row for Star, Mark read, Done and Details.
-- In an article, tap the middle of the page for the bar: Back, Star, Done, More. More holds
-  Mark read/unread, Tags, Like, Broadcast, Text size, Details (including summaries and
+- In an article, tap the middle of the page for the bar: Back, Aa, Star, Done, More. Aa opens
+  the text panel (font, size, line spacing, margins, alignment); its settings apply to every
+  article. More holds
+  Mark read/unread, Tags, Like, Broadcast, Details (including summaries and
   annotations returned by Inoreader) and Load original page.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
@@ -80,4 +82,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Main menu: Sync now, Mark list read (shows a count first), Manage (follow feeds, rename or move feeds
   between folders, rename or delete folders, keep a folder offline, monitoring searches, offline
   storage).
-- USB sharing closes the database cleanly; suspend stops network work before the device sleeps.
+- Slide a finger up or down the left edge of the screen to change the brightness. InoInk starts
+  with the brightness and warmth the Kobo was using.
+- The Wi-Fi icon in the top bar shows the connection; tap it to switch Wi-Fi on or off. InoInk
+  uses the networks the Kobo already knows.
+- Quit InoInk before connecting the Kobo to a computer. Suspend stops network work before the
+  device sleeps.
