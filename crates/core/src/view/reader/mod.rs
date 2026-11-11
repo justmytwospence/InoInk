@@ -252,7 +252,7 @@ fn word_separator(lang: &str) -> &'static str {
 }
 
 impl Reader {
-    pub fn new(rect: Rectangle, mut info: Info, hub: &Hub, context: &mut Context) -> Option<Reader> {
+    pub fn new(rect: Rectangle, info: Info, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let path = info.file.path.clone();
         let doc = open(&path)?;
         Reader::with_document(rect, info, doc, hub, context)

@@ -65,5 +65,5 @@ TP=$(mktemp -d)
 cp build/inputs/*.tar.* "$TP/"
 cp build/inputs.lock.json "$TP/"
 ( cd "$TP" && find . -mindepth 1 | LC_ALL=C sort | tar --no-recursion --mtime="@$EPOCH" --owner=0 --group=0 --numeric-owner -T - -cf - ) > "$OUT/inoink-$VERSION-third-party-sources.tar"
-( cd "$OUT" && sha256sum ./* | sed 's# \./# #' > SHA256SUMS )
+( cd "$OUT" && sha256sum inoink-* > SHA256SUMS )
 cat "$OUT/SHA256SUMS"

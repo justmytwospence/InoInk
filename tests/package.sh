@@ -139,7 +139,7 @@ if [ -n "${1:-}" ]; then
 	PKG=$1
 	check "package lists no absolute or traversal paths" sh -c "! tar -tzf '$PKG' | grep -Eq '(^/|(^|/)\.\.(/|\$))'"
 	check "package has the license and notices" sh -c "tar -tzf '$PKG' | grep -q 'LICENSE-AGPLv3' && tar -tzf '$PKG' | grep -q 'THIRD-PARTY-NOTICES' && tar -tzf '$PKG' | grep -q 'licenses/mupdf/COPYING'"
-	check "entries are owned by root with a fixed mtime" sh -c "tar -tvzf '$PKG' | awk '{print \$2}' | sort -u | grep -qx 'root/root\\|0/0'"
+	check "entries are owned by root (numeric 0/0)" sh -c "tar -tvzf '$PKG' | awk '{ if (\$2 ~ /\\//) print \$2; else print \$3\"/\"\$4 }' | sort -u | grep -Eqx '0/0|root/root'"
 	EX="$WORK/extract"; mkdir -p "$EX"; tar -xzf "$PKG" -C "$EX"
 	check "no credentials in the package" sh -c "! grep -rIlE 'client_secret|refresh_token|access_token' '$EX' | grep -q ."
 fi

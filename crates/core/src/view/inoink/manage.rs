@@ -160,7 +160,7 @@ pub fn manage_entries(context: &Context) -> Vec<EntryKind> {
 
 /// Applies a management entry that changes data. Returns a user-facing message on success.
 pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&str>) -> Result<Option<String>, String> {
-    let mut enqueue = |context: &mut Context, kind: &str, payload: serde_json::Value| -> Result<(), String> {
+    let enqueue = |context: &mut Context, kind: &str, payload: serde_json::Value| -> Result<(), String> {
         let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
         store.enqueue_org(kind, &payload.to_string()).map_err(|_| SAVE_FAILED.to_string())?;
         context.inoink.changed();
