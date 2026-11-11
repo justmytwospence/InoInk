@@ -468,6 +468,9 @@ impl Default for UreqTransport {
 
 fn map_ureq(e: ureq::Error, sent_body: bool) -> Error {
     use ureq::Error as E;
+    if matches!(e, E::HostNotFound | E::ConnectionFailed | E::Io(_) | E::Timeout(_)) {
+        eprintln!("inoink: network error: {e}");
+    }
     match e {
         E::HostNotFound | E::ConnectionFailed | E::Io(_) if !sent_body => Error::Offline,
         E::HostNotFound | E::ConnectionFailed => Error::Offline,

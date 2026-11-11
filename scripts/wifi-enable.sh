@@ -16,13 +16,23 @@ case "$WIFI_MODULE" in
 		;;
 esac
 
-if [ "$POWER_TOGGLE" != wmt ]; then
+: "${INTERFACE:=wlan0}"
+
+# When the Kobo's interface left the Wi-Fi chip powered, reuse it as is (its wpa_supplicant
+# stays associated with the network the Kobo joined) and only ask for an address.
+echo "wifi-enable: INTERFACE=$INTERFACE WIFI_MODULE=$WIFI_MODULE PLATFORM=$PLATFORM" >&2
+if [ -e /sys/class/net/"$INTERFACE" ]; then
+	REUSE=1
+	echo "wifi-enable: reusing $INTERFACE" >&2
+elif [ "$POWER_TOGGLE" != wmt ]; then
 	grep -q "^${WIFI_MODULE}\b" /proc/modules && exit 1
 fi
 
 SCRIPTS_DIR=$(dirname "$0")
 PRE_UP_SCRIPT=$SCRIPTS_DIR/wifi-pre-up.sh
 [ -e "$PRE_UP_SCRIPT" ] && $PRE_UP_SCRIPT
+
+if [ -z "$REUSE" ]; then
 
 case "$POWER_TOGGLE" in
 	wmt)
@@ -74,6 +84,8 @@ if [ -e /drivers/"${PLATFORM}/${WIFI_MODULE}.ko" ]; then
 else
 	# shellcheck disable=SC2086
 	insmod "${MODULE_PATH}/${WIFI_MODULE}".ko$MODULE_PARAMETERS
+fi
+
 fi
 
 REM_TRIES=20

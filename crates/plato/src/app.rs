@@ -179,7 +179,33 @@ fn power_off(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut
     context.fb.update(interm.rect(), UpdateMode::Full).ok();
 }
 
-fn set_wifi(enable: bool, context: &mut Context) {
+/// Waits for the Wi-Fi to get an address, then reports the network as up. The Kobo's DHCP
+/// script does not always announce it, and syncing waits for that signal.
+fn watch_network(tx: &Sender<Event>) {
+    let tx = tx.clone();
+    thread::spawn(move || {
+        for _ in 0..90 {
+            thread::sleep(Duration::from_secs(1));
+            let ip = Command::new("scripts/ip.sh").output()
+                             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                             .unwrap_or_default();
+            if ip.split('.').count() == 4 {
+                eprintln!("network: address {}", ip);
+                tx.send(Event::Device(DeviceEvent::NetUp)).ok();
+                return;
+            }
+        }
+        eprintln!("network: no address after 90 s");
+        let _ = Command::new("sh").arg("-c")
+            .arg("echo \"INTERFACE=$INTERFACE WIFI_MODULE=$WIFI_MODULE PLATFORM=$PLATFORM\"; \
+                  ls /sys/class/net; ifconfig 2>&1; ps | grep -E 'wpa_supplicant|udhcpc|dhcpcd' | grep -v grep; \
+                  wpa_cli -i \"${INTERFACE:-wlan0}\" status 2>&1; wpa_cli -i \"${INTERFACE:-wlan0}\" list_networks 2>&1 | cut -c1-60; \
+                  grep -c '^network=' /etc/wpa_supplicant/wpa_supplicant.conf 2>&1") 
+            .status();
+    });
+}
+
+fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
     if context.settings.wifi == enable {
         return;
     }
@@ -188,6 +214,7 @@ fn set_wifi(enable: bool, context: &mut Context) {
         Command::new("scripts/wifi-enable.sh")
                 .status()
                 .ok();
+        watch_network(tx);
     } else {
         Command::new("scripts/wifi-disable.sh")
                 .status()
@@ -294,8 +321,12 @@ pub fn run() -> Result<(), Error> {
 
     context.fb.set_inverted(context.settings.inverted);
 
+    // InoInk needs the network to sync: always start with Wi-Fi on, using the networks the
+    // Kobo already knows. It can still be switched off from the main menu for the session.
+    context.settings.wifi = true;
     if context.settings.wifi {
         Command::new("scripts/wifi-enable.sh").status().ok();
+        watch_network(&tx);
     } else {
         Command::new("scripts/wifi-disable.sh").status().ok();
     }
@@ -980,10 +1011,10 @@ pub fn run() -> Result<(), Error> {
                 }
             },
             Event::SetWifi(enable) => {
-                set_wifi(enable, &mut context);
+                set_wifi(enable, &mut context, &tx);
             },
             Event::Select(EntryId::ToggleWifi) => {
-                set_wifi(!context.settings.wifi, &mut context);
+                set_wifi(!context.settings.wifi, &mut context, &tx);
             },
             Event::Select(EntryId::TakeScreenshot) => {
                 let name = Local::now().format("screenshot-%Y%m%d_%H%M%S.png");
