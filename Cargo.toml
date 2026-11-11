@@ -6,6 +6,8 @@ members = [
   "crates/emulator",
   "crates/importer",
   "crates/fetcher",
+  "crates/inoink",
+  "crates/inoink-cli",
 ]
 
 [profile.release-minsized]

@@ -1,0 +1,13 @@
+[package]
+name = "inoink-cli"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[[bin]]
+name = "inoink-cli"
+path = "src/main.rs"
+
+[dependencies]
+inoink = { path = "../inoink" }
+serde_json = "1.0.149"
