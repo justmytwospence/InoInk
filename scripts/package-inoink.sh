@@ -25,19 +25,23 @@ mkdir -p "$R/libs" "$R/scripts" "$STAGE/inoink/dispatch"
 cp "$BIN" "$R/inoink"
 arm-linux-gnueabihf-strip "$R/inoink"
 
-# Native libraries under the sonames Plato expects (see dist.sh).
+# Native libraries, each under the soname it declares (what the loader will look for).
 L=/opt/kobo/libs
-cp "$L/libz.so" "$R/libs/libz.so.1"
-cp "$L/libbz2.so" "$R/libs/libbz2.so.1.0"
-cp "$L/libpng16.so" "$R/libs/libpng16.so.16"
-cp "$L/libjpeg.so" "$R/libs/libjpeg.so.9"
-cp "$L/libopenjp2.so" "$R/libs/libopenjp2.so.7"
-cp "$L/libjbig2dec.so" "$R/libs/libjbig2dec.so.0"
-cp "$L/libfreetype.so" "$R/libs/libfreetype.so.6"
-cp "$L/libharfbuzz.so" "$R/libs/libharfbuzz.so.0"
-cp "$L/libgumbo.so" "$R/libs/libgumbo.so.2"
-cp "$L/libdjvulibre.so" "$R/libs/libdjvulibre.so.21"
-cp "$L/libmupdf.so" "$R/libs/libmupdf.so"
+for f in "$L"/*.so; do
+	soname=$(arm-linux-gnueabihf-readelf -d "$f" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')
+	[ -n "$soname" ] || soname=$(basename "$f")
+	cp "$f" "$R/libs/$soname"
+done
+# Every needed library must be bundled or part of the Kobo's base system.
+SYSTEM=" libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 libgcc_s.so.1 libstdc++.so.6 ld-linux-armhf.so.3 "
+MISSING=0
+for f in "$R/inoink" "$R"/libs/*; do
+	for n in $(arm-linux-gnueabihf-readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+		case "$SYSTEM" in *" $n "*) continue ;; esac
+		[ -e "$R/libs/$n" ] || { echo "error: $(basename "$f") needs $n, which is not bundled" >&2; MISSING=1; }
+	done
+done
+[ "$MISSING" = 0 ] || exit 1
 patchelf --remove-rpath "$R"/libs/*
 arm-linux-gnueabihf-strip "$R"/libs/*
 
