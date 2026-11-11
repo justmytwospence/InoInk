@@ -63,6 +63,8 @@ const EMBEDDED_ICONS: &[(&str, &[u8])] = &[
     ("gray", include_bytes!("../../../../icons/gray.svg")),
     ("star", include_bytes!("../../../../icons/star.svg")),
     ("star-filled", include_bytes!("../../../../icons/star-filled.svg")),
+    ("wifi", include_bytes!("../../../../icons/wifi.svg")),
+    ("wifi-off", include_bytes!("../../../../icons/wifi-off.svg")),
 ];
 
 lazy_static! {

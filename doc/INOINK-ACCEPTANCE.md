@@ -71,7 +71,7 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | Brightness and warmth match Nickel's at launch | NOT RUN |
 | Left-edge slide changes brightness without turning pages | NOT RUN |
 | Text panel: size, line spacing, margins, font and justification apply to all articles and survive a restart | NOT RUN |
-| Network is up shown once per connection | NOT RUN |
+| Wi-Fi icon in the top bar follows the connection (no popup) | NOT RUN |
 | Page-turn latency with and without a running sync (same article) | NOT RUN |
 | Update preserves data (install a second build over the first) | NOT RUN |
 | Bulk "Mark list read" does not touch articles that arrive meanwhile | NOT RUN |

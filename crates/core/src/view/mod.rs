@@ -370,6 +370,8 @@ pub enum Event {
     Validate,
     Cancel,
     Reseed,
+    /// Wi-Fi came up or went down (`Context::online` changed).
+    NetworkChanged,
     Back,
     Quit,
     WakeUp,

@@ -1,7 +1,7 @@
 use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::gesture::GestureEvent;
 use crate::input::DeviceEvent;
-use crate::view::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, ViewId, Align};
+use crate::view::{View, Event, EntryId, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, ViewId, Align};
 use crate::view::icon::Icon;
 use crate::view::clock::Clock;
 use crate::view::battery::Battery;
@@ -33,8 +33,8 @@ impl TopBar {
                                   root_event);
         children.push(Box::new(root_icon) as Box<dyn View>);
 
-        let mut clock_rect = rect![rect.max - pt!(4*side, side),
-                                   rect.max - pt!(3*side, 0)];
+        let mut clock_rect = rect![rect.max - pt!(5*side, side),
+                                   rect.max - pt!(4*side, 0)];
         let clock_label = Clock::new(&mut clock_rect, context);
         let title_rect = rect![rect.min.x + side, rect.min.y,
                                clock_rect.min.x, rect.max.y];
@@ -64,6 +64,13 @@ impl TopBar {
                                   Event::ToggleNear(ViewId::MainMenu, menu_rect));
         children.push(Box::new(menu_icon) as Box<dyn View>);
 
+        // Wi-Fi state, after the menu so the other children keep their indexes.
+        let wifi_icon = Icon::new(if context.online { "wifi" } else { "wifi-off" },
+                                  rect![rect.max - pt!(4*side, side),
+                                        rect.max - pt!(3*side, 0)],
+                                  Event::Select(EntryId::ToggleWifi));
+        children.push(Box::new(wifi_icon) as Box<dyn View>);
+
         TopBar {
             id,
             rect,
@@ -91,6 +98,16 @@ impl TopBar {
         rq.add(RenderData::new(icon.id(), *icon.rect(), UpdateMode::Gui));
     }
 
+    pub fn update_wifi_icon(&mut self, rq: &mut RenderQueue, context: &mut Context) {
+        let name = if context.online { "wifi" } else { "wifi-off" };
+        if let Some(icon) = self.children.get_mut(6).and_then(|c| c.downcast_mut::<Icon>()) {
+            if icon.name != name {
+                icon.name = name.to_string();
+                rq.add(RenderData::new(icon.id(), *icon.rect(), UpdateMode::Gui));
+            }
+        }
+    }
+
     pub fn update_clock_label(&mut self, rq: &mut RenderQueue) {
         if let Some(clock_label) = self.children[2].downcast_mut::<Clock>() {
             clock_label.update(rq);
@@ -105,6 +122,7 @@ impl TopBar {
 
     pub fn reseed(&mut self, rq: &mut RenderQueue, context: &mut Context) {
         self.update_frontlight_icon(rq, context);
+        self.update_wifi_icon(rq, context);
         self.update_clock_label(rq);
         self.update_battery_widget(rq, context);
     }

@@ -246,6 +246,7 @@ fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
                 .status()
                 .ok();
         context.online = false;
+        tx.send(Event::NetworkChanged).ok();
     }
 }
 
@@ -468,17 +469,10 @@ pub fn run() -> Result<(), Error> {
                         if context.online {
                             continue;
                         }
-                        let ip = Command::new("scripts/ip.sh").output()
-                                         .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
-                                         .unwrap_or_default();
-                        let essid = Command::new("scripts/essid.sh").output()
-                                            .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
-                                            .unwrap_or_default();
-                        let notif = Notification::new(format!("Network is up ({}, {}).", ip, essid),
-                                                      &tx, &mut rq, &mut context);
+                        // Shown as the Wi-Fi icon in the top bar, not a notification.
                         context.online = true;
                         context.inoink.lifecycle(Lifecycle::NetworkUp);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        tx.send(Event::NetworkChanged).ok();
                         if view.is::<InoInkHome>() {
                             view.handle_event(&evt, &tx, &mut bus, &mut rq, &mut context);
                         } else if let Some(entry) = history.get_mut(0).filter(|entry| entry.view.is::<InoInkHome>()) {
@@ -641,6 +635,7 @@ pub fn run() -> Result<(), Error> {
                             .status()
                             .ok();
                     context.online = false;
+                    tx.send(Event::NetworkChanged).ok();
                 }
                 // https://github.com/koreader/koreader/commit/71afe36
                 schedule_task(TaskId::Suspend, Event::Suspend,
@@ -724,6 +719,7 @@ pub fn run() -> Result<(), Error> {
                             .status()
                             .ok();
                     context.online = false;
+                    tx.send(Event::NetworkChanged).ok();
                 }
 
                 let interm = Intermission::new(context.fb.rect(), IntermKind::Share, &context);

@@ -698,6 +698,12 @@ impl View for InoInkHome {
                 }
                 true
             }
+            Event::NetworkChanged => {
+                if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
+                    top.update_wifi_icon(rq, context);
+                }
+                true
+            }
             _ => false,
         }
     }
