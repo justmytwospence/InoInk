@@ -1,55 +1,39 @@
-![Logo](artworks/plato-logo.svg)
+# InoInk
 
-*Plato* is a document reader for *Kobo*'s e-readers.
+An unofficial, standalone [Inoreader](https://www.inoreader.com) reader for the **Kobo Libra
+Colour** (firmware 4.46.23852), built on the [Plato](https://github.com/baskerville/plato)
+document renderer. It reads your Inoreader account directly: no KOReader, no Instapaper or
+Wallabag in between, no server of its own.
 
-Documentation: [GUIDE](doc/GUIDE.md), [MANUAL](doc/MANUAL.md) and [BUILD](doc/BUILD.md).
+- Opens on the last collection you used (Starred at first); Unread/All filter, local search,
+  collection drawer with folders, feeds and tags.
+- Reader: Back, Star, Done and More. **Done marks read and removes the star** (with Undo);
+  **Mark read** keeps the star. Opening an article never marks it read.
+- Works offline: text and colour images are cached; changes are saved first and sent when
+  the network allows. Image enlargement, adjustable text size.
+- Two-way sync with Inoreader's documented public API, within its daily quota.
 
-## Supported firmwares
+It is **not affiliated with Inoreader or Kobo**, and it does not claim parity with the Inoreader
+website: see [doc/INOINK-API.md](doc/INOINK-API.md) for exactly what the public API allows.
 
-Any 4.*X*.*Y* firmware, with *X* ≥ 6, will do.
+## Documentation
 
-## Supported devices
+| | |
+|---|---|
+| [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md) | Build, install, sign in, update, remove |
+| [doc/INOINK-API.md](doc/INOINK-API.md) | API capability matrix and genuine limitations |
+| [doc/INOINK-SYNC.md](doc/INOINK-SYNC.md) | How changes are saved, sent and reconciled |
+| [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) | What was tested, and how (automated, emulator, device) |
+| [doc/UPSTREAM.md](doc/UPSTREAM.md) | Plato provenance and the derivative policy |
+| [doc/LICENSES.md](doc/LICENSES.md) | Licenses of everything that ships |
+| [doc/PLATO-README.md](doc/PLATO-README.md) | The original Plato README |
 
-- *Libra Colour*.
-- *Clara Colour*.
-- *Clara BW*.
-- *Elipsa 2E*.
-- *Clara 2E*.
-- *Libra 2*.
-- *Sage*.
-- *Elipsa*.
-- *Nia*.
-- *Libra H₂O*.
-- *Forma*.
-- *Clara HD*.
-- *Aura H₂O Edition 2*.
-- *Aura Edition 2*.
-- *Aura ONE*.
-- *Glo HD*.
-- *Aura H₂O*.
-- *Aura*.
-- *Glo*.
-- *Touch C*.
-- *Touch B*.
+## Layout
 
-## Supported formats
+- `crates/inoink` - renderer-independent library: store, API client, content pipeline, cache, sync.
+- `crates/inoink-cli` - computer-side helper: `authorize`, `provision`, `fixtures`, `verify-cache`, `acceptance`.
+- `crates/core`, `crates/plato`, `crates/emulator` - inherited renderer, device layer and apps, with the InoInk views in `crates/core/src/view/inoink`.
 
-- PDF, CBZ, FB2, MOBI, XPS and TXT via [MuPDF](https://mupdf.com/index.html).
-- ePUB through a built-in renderer.
-- DJVU via [DjVuLibre](http://djvu.sourceforge.net/index.html).
+## License
 
-## Features
-
-- Crop the margins.
-- Continuous fit-to-width zoom mode with line preserving cuts.
-- Rotate the screen (portrait ↔ landscape).
-- Adjust the contrast.
-- Define words using *dictd* dictionaries.
-- Annotations, highlights and bookmarks.
-- Retrieve articles from online sources through [hooks](doc/HOOKS.md) (an example *wallabag* [article fetcher](doc/ARTICLE_FETCHER.md) is provided).
-
-[![Tn01](artworks/thumbnail01.png)](artworks/screenshot01.png) [![Tn02](artworks/thumbnail02.png)](artworks/screenshot02.png) [![Tn03](artworks/thumbnail03.png)](artworks/screenshot03.png) [![Tn04](artworks/thumbnail04.png)](artworks/screenshot04.png)
-
-## Donations
-
-[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=KNAR2VKYRYUV6)
+AGPL-3.0-or-later, as Plato. See `LICENSE-AGPLv3` and `THIRD-PARTY-NOTICES`.

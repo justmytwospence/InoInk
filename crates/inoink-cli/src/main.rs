@@ -75,13 +75,16 @@ fn receive_callback(redirect_uri: &str) -> Result<String> {
     let url = url::Url::parse(redirect_uri).map_err(|_| Error::InvalidRequest("bad redirect URI".into()))?;
     let loopback = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port().is_some();
     if loopback {
-        let listener = TcpListener::bind(("127.0.0.1", url.port().unwrap())).map_err(|e| Error::Io(format!("cannot listen on the redirect port: {e}")))?;
+        let listener = TcpListener::bind(("127.0.0.1", url.port().unwrap()))
+            .map_err(|e| Error::Io(format!("cannot listen on the redirect port: {e}")))?;
         eprintln!("Waiting for the browser redirect on {redirect_uri} ...");
         let (mut stream, _) = listener.accept()?;
         let mut reader = std::io::BufReader::new(stream.try_clone()?);
         let mut first = String::new();
         reader.read_line(&mut first)?;
-        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n");
+        let _ = stream.write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n",
+        );
         let path = first.split_whitespace().nth(1).unwrap_or("");
         return Ok(format!("{}://{}{}", url.scheme(), url.host_str().unwrap_or("localhost"), path));
     }
@@ -123,7 +126,12 @@ fn authorize(args: &[String]) -> Result<()> {
             Ok(())
         }
     }
-    let api = ApiClient::new(cfg.clone(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(Mem(std::sync::Mutex::new(Some(tokens.clone())))))?;
+    let api = ApiClient::new(
+        cfg.clone(),
+        Arc::new(UreqTransport::new()),
+        Arc::new(SystemClock),
+        Arc::new(Mem(std::sync::Mutex::new(Some(tokens.clone())))),
+    )?;
     let info = api.user_info()?;
     let mut creds = Credentials::new(&cfg, &tokens);
     creds.user_id = info.user_id.clone();
@@ -202,10 +210,11 @@ pub fn fixture_articles() -> Vec<(&'static str, String)> {
 <img src="https://img.example/missing-1.png" alt="This one never loads">
 <figure><img src="//img.example/wide-2.png" srcset="//img.example/small-2.png 400w, //img.example/wide-2.png 1200w" alt="Responsive"><figcaption>Responsive image.</figcaption></figure>"#
         .to_string();
-    let newsletter = r#"<div><h2>This week</h2><p>Hello reader, here is your weekly <a href="https://news.example/issue/42">newsletter</a>.</p>
+    let newsletter =
+        r#"<div><h2>This week</h2><p>Hello reader, here is your weekly <a href="https://news.example/issue/42">newsletter</a>.</p>
 <ul><li>First item with <b>bold</b> and <i>italic</i></li><li>Second item</li><li>Third item</li></ul>
 <blockquote><p>A pulled quote that should be indented.</p></blockquote><hr><p><small>Unsubscribe</small></p></div>"#
-        .to_string();
+            .to_string();
     let table = r#"<p>Quarterly numbers.</p><table><caption>Results</caption><thead><tr><th>Quarter</th><th>Revenue</th><th>Notes</th></tr></thead>
 <tbody><tr><td>Q1</td><td>1,200</td><td>Steady</td></tr><tr><td>Q2</td><td>1,450</td><td>Up</td></tr><tr><td colspan="2">Total</td><td>2,650</td></tr></tbody></table>"#
         .to_string();
@@ -217,7 +226,13 @@ pub fn fixture_articles() -> Vec<(&'static str, String)> {
 }
 </code></pre><p>Inline <code>code</code> too.</p>"#
         .to_string();
-    vec![("A long essay", essay), ("Photo essay with images", images), ("Weekly newsletter", newsletter), ("Table of results", table), ("Code listing", code)]
+    vec![
+        ("A long essay", essay),
+        ("Photo essay with images", images),
+        ("Weekly newsletter", newsletter),
+        ("Table of results", table),
+        ("Code listing", code),
+    ]
 }
 
 fn fixtures(args: &[String]) -> Result<()> {
@@ -228,7 +243,15 @@ fn fixtures(args: &[String]) -> Result<()> {
     let mut store = Store::open(&db, "local")?;
     let cache = Cache::new(&out.join("cache"), "local", CacheConfig::default());
     let feed = "feed/https://blog.example/rss";
-    store.replace_subscriptions(&[Subscription { id: feed.into(), title: "Example Blog".into(), url: "https://blog.example/rss".into(), html_url: String::new(), sort_id: String::new(), first_item_usec: 0, folders: vec!["Reading".into()] }])?;
+    store.replace_subscriptions(&[Subscription {
+        id: feed.into(),
+        title: "Example Blog".into(),
+        url: "https://blog.example/rss".into(),
+        html_url: String::new(),
+        sort_id: String::new(),
+        first_item_usec: 0,
+        folders: vec!["Reading".into()],
+    }])?;
     let base_ts = 1_800_000_000i64;
     let ctl = Control::new(Arc::new(AtomicBool::new(false)));
     for (i, (title, html)) in fixture_articles().into_iter().enumerate() {
@@ -286,7 +309,15 @@ fn acceptance(args: &[String]) -> Result<()> {
     let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials FILE is required".into()))?;
     let creds: Credentials = serde_json::from_slice(&std::fs::read(file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
     println!("Read-only live checks (each counts against your daily quota):");
-    for l in ["GET /user-info", "GET /subscription/list", "GET /tag/list?types=1&counts=1", "GET /unread-count", "GET /preference/stream/list", "GET /stream/items/ids (starred, n=5)", "GET /stream/contents (reading-list, n=2, annotations, summaries)"] {
+    for l in [
+        "GET /user-info",
+        "GET /subscription/list",
+        "GET /tag/list?types=1&counts=1",
+        "GET /unread-count",
+        "GET /preference/stream/list",
+        "GET /stream/items/ids (starred, n=5)",
+        "GET /stream/contents (reading-list, n=2, annotations, summaries)",
+    ] {
         println!("  - {l}");
     }
     println!("No state-changing requests are made.");
@@ -298,7 +329,8 @@ fn acceptance(args: &[String]) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let store = FileCredentials::new(&dir);
     store.save_credentials(&creds)?;
-    let api = ApiClient::new(creds.app_config(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(store))?.with_priority(inoink::api::Priority::Explicit);
+    let api = ApiClient::new(creds.app_config(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(store))?
+        .with_priority(inoink::api::Priority::Explicit);
     let mut failures = 0;
     let mut check = |name: &str, r: Result<String>| match r {
         Ok(d) => println!("PASS {name}: {d}"),
@@ -317,7 +349,11 @@ fn acceptance(args: &[String]) -> Result<()> {
     ids.only_starred = true;
     check("stream/items/ids", api.item_ids(&ids).map(|p| format!("{} ids", p.refs.len())));
     let params = inoink::api::ContentsParams { count: 2, annotations: true, summaries: true, exclude_read: true, ..Default::default() };
-    check("stream/contents", api.contents(&StreamId::new(STATE_READING_LIST), &params).map(|p| format!("{} items, first has {} chars", p.items.len(), p.items.first().map(|i| i.summary_html.len()).unwrap_or(0))));
+    check(
+        "stream/contents",
+        api.contents(&StreamId::new(STATE_READING_LIST), &params)
+            .map(|p| format!("{} items, first has {} chars", p.items.len(), p.items.first().map(|i| i.summary_html.len()).unwrap_or(0))),
+    );
     let q = api.quota();
     let z1 = q.remaining(inoink::api::Zone::One);
     println!("Zone 1 quota: {} of {} remaining ({}).", z1.remaining, z1.limit, if z1.estimated { "estimated" } else { "server-reported" });
