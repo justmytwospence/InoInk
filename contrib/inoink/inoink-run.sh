@@ -122,6 +122,8 @@ fi
 [ "$ORIG_BPP" ] && ./bin/utils/fbdepth -q -d 8
 
 echo "--- $(date) starting in $(pwd)" >> "$LOG"
+# The Kobo's disk check renames files it rejects to FSCK*.000: record any in this release.
+find . -iname 'FSCK*' -exec echo "warning: disk check leftover {}" \; >> "$LOG" 2>&1
 LIBC_FATAL_STDERR_=1 ./inoink >> "$LOG" 2>&1
 STATUS=$?
 if [ "$STATUS" = 127 ]; then

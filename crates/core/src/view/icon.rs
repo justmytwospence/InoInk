@@ -1,4 +1,3 @@
-use std::path::Path;
 use fxhash::FxHashMap;
 use lazy_static::lazy_static;
 use crate::device::CURRENT_DEVICE;
@@ -15,24 +14,71 @@ use crate::context::Context;
 
 const ICON_SCALE: f32 = 1.0 / 32.0;
 
+/// Icons are compiled into the program. Loose files on the Kobo's FAT storage proved fragile:
+/// its disk check renamed one of them on every mount after a copy from macOS.
+const EMBEDDED_ICONS: &[(&str, &[u8])] = &[
+    ("home", include_bytes!("../../../../icons/home.svg")),
+    ("search", include_bytes!("../../../../icons/search.svg")),
+    ("back", include_bytes!("../../../../icons/back.svg")),
+    ("frontlight", include_bytes!("../../../../icons/frontlight.svg")),
+    ("frontlight-disabled", include_bytes!("../../../../icons/frontlight-disabled.svg")),
+    ("menu", include_bytes!("../../../../icons/menu.svg")),
+    ("angle-left", include_bytes!("../../../../icons/angle-left.svg")),
+    ("angle-right", include_bytes!("../../../../icons/angle-right.svg")),
+    ("angle-left-small", include_bytes!("../../../../icons/angle-left-small.svg")),
+    ("angle-right-small", include_bytes!("../../../../icons/angle-right-small.svg")),
+    ("return", include_bytes!("../../../../icons/return.svg")),
+    ("shift", include_bytes!("../../../../icons/shift.svg")),
+    ("combine", include_bytes!("../../../../icons/combine.svg")),
+    ("alternate", include_bytes!("../../../../icons/alternate.svg")),
+    ("delete-backward", include_bytes!("../../../../icons/delete-backward.svg")),
+    ("delete-forward", include_bytes!("../../../../icons/delete-forward.svg")),
+    ("move-backward", include_bytes!("../../../../icons/move-backward.svg")),
+    ("move-backward-short", include_bytes!("../../../../icons/move-backward-short.svg")),
+    ("move-forward", include_bytes!("../../../../icons/move-forward.svg")),
+    ("move-forward-short", include_bytes!("../../../../icons/move-forward-short.svg")),
+    ("close", include_bytes!("../../../../icons/close.svg")),
+    ("check_mark-small", include_bytes!("../../../../icons/check_mark-small.svg")),
+    ("check_mark", include_bytes!("../../../../icons/check_mark.svg")),
+    ("check_mark-large", include_bytes!("../../../../icons/check_mark-large.svg")),
+    ("bullet", include_bytes!("../../../../icons/bullet.svg")),
+    ("arrow-left", include_bytes!("../../../../icons/arrow-left.svg")),
+    ("arrow-right", include_bytes!("../../../../icons/arrow-right.svg")),
+    ("angle-down", include_bytes!("../../../../icons/angle-down.svg")),
+    ("angle-up", include_bytes!("../../../../icons/angle-up.svg")),
+    ("crop", include_bytes!("../../../../icons/crop.svg")),
+    ("toc", include_bytes!("../../../../icons/toc.svg")),
+    ("font_family", include_bytes!("../../../../icons/font_family.svg")),
+    ("font_size", include_bytes!("../../../../icons/font_size.svg")),
+    ("line_height", include_bytes!("../../../../icons/line_height.svg")),
+    ("align-justify", include_bytes!("../../../../icons/align-justify.svg")),
+    ("align-left", include_bytes!("../../../../icons/align-left.svg")),
+    ("align-right", include_bytes!("../../../../icons/align-right.svg")),
+    ("align-center", include_bytes!("../../../../icons/align-center.svg")),
+    ("margin", include_bytes!("../../../../icons/margin.svg")),
+    ("plug", include_bytes!("../../../../icons/plug.svg")),
+    ("cover", include_bytes!("../../../../icons/cover.svg")),
+    ("enclosed_menu", include_bytes!("../../../../icons/enclosed_menu.svg")),
+    ("contrast", include_bytes!("../../../../icons/contrast.svg")),
+    ("gray", include_bytes!("../../../../icons/gray.svg")),
+    ("star", include_bytes!("../../../../icons/star.svg")),
+    ("star-filled", include_bytes!("../../../../icons/star-filled.svg")),
+];
+
 lazy_static! {
     pub static ref ICONS_PIXMAPS: FxHashMap<&'static str, Pixmap> = {
         let mut m = FxHashMap::default();
         let scale = scale_by_dpi_raw(ICON_SCALE, CURRENT_DEVICE.dpi);
-        let dir = Path::new("icons");
-        for name in ["home", "search", "back", "frontlight", "frontlight-disabled", "menu",
-                     "angle-left", "angle-right", "angle-left-small", "angle-right-small",
-                     "return", "shift", "combine", "alternate", "delete-backward", "delete-forward",
-                     "move-backward", "move-backward-short", "move-forward", "move-forward-short",
-                     "close",  "check_mark-small", "check_mark", "check_mark-large", "bullet",
-                     "arrow-left", "arrow-right", "angle-down", "angle-up", "crop", "toc", "font_family",
-                     "font_size", "line_height", "align-justify", "align-left", "align-right",
-                     "align-center", "margin", "plug", "cover", "enclosed_menu", "contrast", "gray",
-                     "star", "star-filled"].iter().cloned() {
-            let path = dir.join(&format!("{}.svg", name));
-            let doc = PdfOpener::new().and_then(|o| o.open(path)).unwrap();
-            let pixmap = doc.page(0).and_then(|p| p.pixmap(scale, 1)).unwrap();
-            m.insert(name, pixmap);
+        for (name, svg) in EMBEDDED_ICONS {
+            let pixmap = PdfOpener::new()
+                .and_then(|o| o.open_memory("svg", svg))
+                .and_then(|doc| doc.page(0).and_then(|p| p.pixmap(scale, 1)));
+            match pixmap {
+                Some(p) => {
+                    m.insert(*name, p);
+                }
+                None => eprintln!("Can't render icon {}.", name),
+            }
         }
         m
     };
@@ -130,7 +176,10 @@ impl View for Icon {
             TEXT_NORMAL
         };
 
-        let pixmap = ICONS_PIXMAPS.get(&self.name[..]).unwrap();
+        let Some(pixmap) = ICONS_PIXMAPS.get(&self.name[..]) else {
+            fb.draw_rectangle(&self.rect, self.background);
+            return;
+        };
         let dx = self.align.offset(pixmap.width as i32, self.rect.width() as i32);
         let dy = (self.rect.height() as i32 - pixmap.height as i32) / 2;
         let pt = self.rect.min + pt!(dx, dy);
