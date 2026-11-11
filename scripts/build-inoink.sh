@@ -21,17 +21,21 @@ while [ $# -gt 0 ]; do
 done
 
 kobo_image() {
+	# Stage 1 (amd64): pinned toolchain and native libraries. Stage 2: the compiler image.
 	if ! docker image inspect inoink-kobo:local >/dev/null 2>&1; then
 		scripts/fetch-inputs.sh
 		docker build --platform linux/amd64 -f build/Containerfile -t inoink-kobo:local .
+	fi
+	if ! docker image inspect inoink-kobo-rust:local >/dev/null 2>&1; then
+		docker build -f build/Containerfile.rust -t inoink-kobo-rust:local build
 	fi
 }
 
 kobo_run() {
 	kobo_image
 	mkdir -p target
-	docker run --rm --platform linux/amd64 -v "$PWD":/src -v inoink-cargo-kobo:/cargo-cache \
-		-e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -w /src inoink-kobo:local sh -c "$1"
+	docker run --rm -v "$PWD":/src -v inoink-cargo-kobo:/cargo-cache \
+		-e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -w /src inoink-kobo-rust:local sh -c "$1"
 }
 
 case "$TARGET" in

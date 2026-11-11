@@ -1,0 +1,19 @@
+# Kobo cross-build, compiler stage. rustc runs natively (arm64 on Apple silicon, amd64
+# elsewhere); the x86_64 Linaro GCC 4.9.4 toolchain and the native Kobo libraries come from the
+# image built by build/Containerfile and are used for C compilation and linking only.
+# (rustc itself crashes under amd64 emulation on some hosts, which is why it is not run there.)
+ARG TOOLS=inoink-kobo:local
+FROM --platform=linux/amd64 ${TOOLS} AS tools
+
+FROM rust:1.99.1-bookworm
+RUN dpkg --add-architecture amd64 && apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config ca-certificates jq patchelf file git \
+      libc6:amd64 libstdc++6:amd64 zlib1g:amd64 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=tools /opt/toolchain /opt/toolchain
+COPY --from=tools /opt/kobo /opt/kobo
+ENV PATH=/opt/toolchain/bin:$PATH
+RUN arm-linux-gnueabihf-gcc --version | head -1 \
+ && rustup target add arm-unknown-linux-gnueabihf
+ENV CARGO_HOME=/cargo-cache RUSTUP_TOOLCHAIN=1.99.1
+WORKDIR /src
