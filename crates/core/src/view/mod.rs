@@ -444,6 +444,7 @@ pub enum ViewId {
     MessageNotif(Id),
     SubMenu(u8),
     ArticleMenu,
+    TextPanel,
     ManageMenu,
     PromptDialog,
     PromptInput,
@@ -458,9 +459,20 @@ pub enum SliderId {
     LightWarmth,
     ContrastExponent,
     ContrastGray,
+    LineHeight,
+    MarginWidth,
 }
 
 impl SliderId {
+    /// Text shown next to the slider's knob.
+    pub fn format_value(self, v: f32) -> String {
+        match self {
+            SliderId::FontSize => format!("{:.1} pt", v),
+            SliderId::MarginWidth => format!("{:.0} mm", v),
+            _ => format!("{:.1}", v),
+        }
+    }
+
     pub fn label(self) -> String {
         match self {
             SliderId::LightIntensity => "Intensity".to_string(),
@@ -468,6 +480,8 @@ impl SliderId {
             SliderId::FontSize => "Font Size".to_string(),
             SliderId::ContrastExponent => "Contrast Exponent".to_string(),
             SliderId::ContrastGray => "Contrast Gray".to_string(),
+            SliderId::LineHeight => "Line Spacing".to_string(),
+            SliderId::MarginWidth => "Margins".to_string(),
         }
     }
 }

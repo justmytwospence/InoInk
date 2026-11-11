@@ -9,3 +9,4 @@ pub mod image_view;
 pub mod manage;
 pub mod row;
 pub mod state;
+pub mod text_panel;

@@ -29,11 +29,13 @@ impl ArticleBar {
         let more_rect = rect![rect.max.x - side, rect.min.y, rect.max.x, rect.max.y];
         let done_rect = rect![rect.max.x - 2 * side, rect.min.y, rect.max.x - side, rect.max.y];
         let star_rect = rect![rect.max.x - 3 * side, rect.min.y, rect.max.x - 2 * side, rect.max.y];
-        let title_rect = rect![rect.min.x + side, rect.min.y, star_rect.min.x, rect.max.y];
+        let aa_rect = rect![rect.max.x - 4 * side, rect.min.y, rect.max.x - 3 * side, rect.max.y];
+        let title_rect = rect![rect.min.x + side, rect.min.y, aa_rect.min.x, rect.max.y];
         children.push(Box::new(Label::new(title_rect, title, Align::Center)));
         children.push(Box::new(Icon::new(if starred { "star-filled" } else { "star" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
         children.push(Box::new(Icon::new("check_mark", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
         children.push(Box::new(Icon::new("menu", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
+        children.push(Box::new(Label::new(aa_rect, "Aa".to_string(), Align::Center).event(Some(Event::Toggle(ViewId::TextPanel)))));
         ArticleBar { id, rect, children, article }
     }
 

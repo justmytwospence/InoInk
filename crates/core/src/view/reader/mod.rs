@@ -268,7 +268,6 @@ impl Reader {
         };
         info.reader = Some(ReaderInfo {
             current_page: article.offset.unwrap_or(0),
-            font_size: context.inoink.store().and_then(|s| s.position(article.id).ok().flatten()).and_then(|p| p.font_size),
             .. Default::default()
         });
         let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone() };
@@ -1026,6 +1025,12 @@ impl Reader {
                                    .and_then(|r| if reflowable { r.margin_width } else { r.screen_margin_width })
                                    .unwrap_or_else(|| if reflowable { settings.reader.margin_width } else { 0 });
             tool_bar.update_margin_width(margin_width, rq);
+        }
+        if let Some(index) = locate_by_id(self, ViewId::TextPanel) {
+            let (family, font_size, line_height, margin, align) = self.text_style(context);
+            if let Some(panel) = self.children[index].downcast_mut::<crate::view::inoink::text_panel::TextPanel>() {
+                panel.update(&family, font_size, line_height, margin, align, rq);
+            }
         }
     }
 
@@ -2253,6 +2258,7 @@ impl Reader {
         self.update(None, hub, rq, context);
         self.update_tool_bar(rq, context);
         self.update_bottom_bar(rq);
+        self.remember_article_style(context);
     }
 
     fn set_text_align(&mut self, text_align: TextAlign, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -2284,6 +2290,7 @@ impl Reader {
         self.update(None, hub, rq, context);
         self.update_tool_bar(rq, context);
         self.update_bottom_bar(rq);
+        self.remember_article_style(context);
     }
 
     fn set_font_family(&mut self, font_family: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -2321,6 +2328,7 @@ impl Reader {
         self.update(None, hub, rq, context);
         self.update_tool_bar(rq, context);
         self.update_bottom_bar(rq);
+        self.remember_article_style(context);
     }
 
     fn set_line_height(&mut self, line_height: f32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -2352,6 +2360,7 @@ impl Reader {
         self.update(None, hub, rq, context);
         self.update_tool_bar(rq, context);
         self.update_bottom_bar(rq);
+        self.remember_article_style(context);
     }
 
     fn set_margin_width(&mut self, width: i32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -2403,6 +2412,7 @@ impl Reader {
         self.update(None, hub, rq, context);
         self.update_tool_bar(rq, context);
         self.update_bottom_bar(rq);
+        self.remember_article_style(context);
     }
 
     fn toggle_bookmark(&mut self, rq: &mut RenderQueue) {
@@ -2804,26 +2814,12 @@ impl Reader {
         }
         tag_entries.push(EntryKind::Separator);
         tag_entries.push(EntryKind::Command("New tag...".to_string(), EntryId::InoInk(InoInkEntry::PromptNewTag)));
-        let font_size = self.info.reader.as_ref().and_then(|r| r.font_size).unwrap_or(context.settings.reader.font_size);
-        let min_fs = context.settings.reader.font_size / 2.0;
-        let max_fs = 3.0 * context.settings.reader.font_size / 2.0;
-        let sizes: Vec<EntryKind> = (0..=20)
-            .filter_map(|v| {
-                let fs = font_size - 1.0 + v as f32 / 10.0;
-                if fs >= min_fs && fs <= max_fs {
-                    Some(EntryKind::RadioButton(format!("{:.1}", fs), EntryId::SetFontSize(v), (fs - font_size).abs() < 0.05))
-                } else {
-                    None
-                }
-            })
-            .collect();
         let entries = vec![
             EntryKind::Command(if read { "Mark unread" } else { "Mark read" }.to_string(), act(ArticleAction::ToggleRead)),
             EntryKind::SubMenu("Tags".to_string(), tag_entries),
             EntryKind::CheckBox("Like".to_string(), act(ArticleAction::ToggleLike), like),
             EntryKind::CheckBox("Broadcast".to_string(), act(ArticleAction::ToggleBroadcast), broadcast),
             EntryKind::Separator,
-            EntryKind::SubMenu("Text size".to_string(), sizes),
             EntryKind::Separator,
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
             EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
@@ -2831,6 +2827,65 @@ impl Reader {
         let menu = Menu::new(rect, ViewId::ArticleMenu, MenuKind::DropDown, entries, context);
         rq.add(RenderData::new(menu.id(), *menu.rect(), UpdateMode::Gui));
         self.children.push(Box::new(menu) as Box<dyn View>);
+    }
+
+    fn toggle_text_panel(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::text_panel::TextPanel;
+        if let Some(index) = locate_by_id(self, ViewId::TextPanel) {
+            if let Some(true) = enable {
+                return;
+            }
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+            return;
+        }
+        if let Some(false) = enable {
+            return;
+        }
+        if let Some(index) = locate_by_id(self, ViewId::ArticleMenu) {
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+        }
+        self.toggle_article_bar(Some(false), rq, context);
+        let dpi = CURRENT_DEVICE.dpi;
+        let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
+        let height = 5 * scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32 + thickness;
+        let rect = rect![self.rect.min.x, self.rect.max.y - height, self.rect.max.x, self.rect.max.y];
+        let (family, font_size, line_height, margin, align) = self.text_style(context);
+        let panel = TextPanel::new(rect, &family, font_size, line_height, margin, align, &context.settings.reader);
+        rq.add(RenderData::new(panel.id(), *panel.rect(), UpdateMode::Gui));
+        self.children.push(Box::new(panel) as Box<dyn View>);
+    }
+
+    fn text_style(&self, context: &Context) -> (String, f32, f32, i32, TextAlign) {
+        let s = &context.settings.reader;
+        let r = self.info.reader.as_ref();
+        (
+            r.and_then(|r| r.font_family.clone()).unwrap_or_else(|| s.font_family.clone()),
+            r.and_then(|r| r.font_size).unwrap_or(s.font_size),
+            r.and_then(|r| r.line_height).unwrap_or(s.line_height),
+            r.and_then(|r| r.margin_width).unwrap_or(s.margin_width),
+            r.and_then(|r| r.text_align).unwrap_or(s.text_align),
+        )
+    }
+
+    /// One reading style for every article: copies the current choices into the settings.
+    fn remember_article_style(&self, context: &mut Context) {
+        if self.article.is_none() {
+            return;
+        }
+        if let Some(r) = self.info.reader.as_ref() {
+            let s = &mut context.settings.reader;
+            if let Some(v) = r.font_size { s.font_size = v; }
+            if let Some(v) = r.margin_width { s.margin_width = v; }
+            if let Some(v) = r.line_height { s.line_height = v; }
+            if let Some(v) = r.font_family.clone() { s.font_family = v; }
+            if let Some(v) = r.text_align { s.text_align = v; }
+        }
+        let path = crate::settings::settings_path();
+        if let Err(e) = crate::helpers::save_toml(&context.settings, path.as_path()) {
+            eprintln!("Can't save settings: {:#}.", e);
+        }
     }
 
     fn toggle_tag_prompt(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -3787,7 +3842,24 @@ impl View for Reader {
                 true
             },
             Event::Slider(SliderId::FontSize, font_size, FingerStatus::Up) => {
+                let font_size = if self.article.is_some() { (font_size * 2.0).round() / 2.0 } else { font_size };
                 self.set_font_size(font_size, hub, rq, context);
+                true
+            },
+            Event::Slider(SliderId::LineHeight, v, FingerStatus::Up) => {
+                self.set_line_height((v * 10.0).round() / 10.0, hub, rq, context);
+                true
+            },
+            Event::Slider(SliderId::MarginWidth, v, FingerStatus::Up) => {
+                self.set_margin_width(v.round() as i32, hub, rq, context);
+                true
+            },
+            Event::Toggle(ViewId::TextPanel) if self.article.is_some() => {
+                self.toggle_text_panel(None, rq, context);
+                true
+            },
+            Event::Close(ViewId::TextPanel) => {
+                self.toggle_text_panel(Some(false), rq, context);
                 true
             },
             Event::Slider(SliderId::ContrastExponent, exponent, FingerStatus::Up) => {
