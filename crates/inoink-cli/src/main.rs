@@ -52,22 +52,29 @@ fn random_hex(n: usize) -> Result<String> {
 
 fn read_secret() -> Result<String> {
     if let Ok(s) = std::env::var("INOINK_CLIENT_SECRET") {
-        if !s.is_empty() {
-            return Ok(s);
+        if !s.trim().is_empty() {
+            eprintln!("Using the client secret from INOINK_CLIENT_SECRET.");
+            return Ok(s.trim().to_string());
         }
     }
-    eprint!("Client secret (hidden): ");
-    let _ = std::process::Command::new("stty").arg("-echo").status();
-    let mut line = String::new();
-    let r = std::io::stdin().lock().read_line(&mut line);
-    let _ = std::process::Command::new("stty").arg("echo").status();
-    eprintln!();
-    r?;
-    let s = line.trim().to_string();
-    if s.is_empty() {
-        return Err(Error::InvalidRequest("no client secret given".into()));
+    for _ in 0..3 {
+        eprint!("Paste the app key (client secret), then press Enter. Nothing is shown while you type: ");
+        let _ = std::process::Command::new("stty").arg("-echo").stdin(std::process::Stdio::inherit()).status();
+        let mut line = String::new();
+        let r = std::io::stdin().lock().read_line(&mut line);
+        let _ = std::process::Command::new("stty").arg("echo").stdin(std::process::Stdio::inherit()).status();
+        eprintln!();
+        r?;
+        let s = line.trim().to_string();
+        if s.is_empty() {
+            eprintln!("Nothing was received. Try again.");
+            continue;
+        }
+        // Confirm receipt without revealing the value.
+        eprintln!("Received a {}-character key ending in ...{}.", s.chars().count(), s.chars().rev().take(2).collect::<String>().chars().rev().collect::<String>());
+        return Ok(s);
     }
-    Ok(s)
+    Err(Error::InvalidRequest("no client secret was entered".into()))
 }
 
 /// Waits for the browser redirect on a loopback address and, at the same time, accepts the
