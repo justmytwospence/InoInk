@@ -745,3 +745,17 @@ fn extracted_content_is_a_new_version_and_the_feed_source_is_preserved() {
     assert_eq!(store.article_record(ArticleId(1)).unwrap().unwrap().summary_html, "<p>short feed text</p>", "API content is untouched");
     assert!(latest_html(&cache, &store, 1).contains("whole long original page"));
 }
+
+#[test]
+fn word_counts_and_read_time() {
+    use inoink::content::{format_read_time, word_count, word_count_html};
+    assert_eq!(word_count("Hello, world  -- 42"), 3);
+    assert_eq!(word_count_html("<p>One <b>two</b></p><script>x y z</script>"), 2);
+    assert_eq!(word_count_html("<style>p{a:b}</style><p>Un café</p>"), 2);
+    assert_eq!(format_read_time(0), None);
+    assert_eq!(format_read_time(1).unwrap(), "1 min read");
+    assert_eq!(format_read_time(230).unwrap(), "1 min read");
+    assert_eq!(format_read_time(231).unwrap(), "2 min read");
+    assert_eq!(format_read_time(13800).unwrap(), "1 h read");
+    assert_eq!(format_read_time(14030).unwrap(), "1 h 1 min read");
+}

@@ -377,6 +377,7 @@ fn migration_backs_up_and_rejects_newer_schema() {
     {
         let c = rusqlite::Connection::open(&path).unwrap();
         for t in [
+            "ALTER TABLE articles DROP COLUMN words",
             "DROP TABLE article_fts",
             "DROP TABLE leases",
             "DROP TABLE assets",
@@ -451,4 +452,38 @@ fn disk_full_leaves_no_partial_change() {
     let _ = before;
     s.conn().pragma_update(None, "max_page_count", 1_000_000).unwrap();
     assert!(s.done(id(1)).is_ok(), "recovers once space returns");
+}
+
+fn words_of(s: &Store, n: u64) -> u32 {
+    let page = s.query_articles(&ArticleQuery::default()).unwrap();
+    page.items.iter().find(|i| i.id == id(n)).unwrap().words
+}
+
+#[test]
+fn words_follow_summary_then_published_text() {
+    let mut s = store();
+    let mut r = rec(1, 10, &[]);
+    r.summary_html = "<p>one two three</p>".into();
+    let seq = s.seq().unwrap();
+    s.upsert_article(&r, seq).unwrap();
+    assert_eq!(words_of(&s, 1), 3);
+    let body = vec!["word"; 500].join(" ");
+    s.publish_version(id(1), "raw", "hash", "d/1", 10, "T", &body, DownloadState::Complete).unwrap();
+    assert_eq!(words_of(&s, 1), 500);
+    let seq = s.seq().unwrap();
+    s.upsert_article(&r, seq).unwrap();
+    assert_eq!(words_of(&s, 1), 500);
+}
+
+#[test]
+fn backfill_words_recomputes() {
+    let mut s = store();
+    let mut r = rec(2, 10, &[]);
+    r.summary_html = "<p>a b c d</p>".into();
+    let seq = s.seq().unwrap();
+    s.upsert_article(&r, seq).unwrap();
+    s.conn().execute("UPDATE articles SET words=0", []).unwrap();
+    assert_eq!(words_of(&s, 2), 0);
+    assert_eq!(s.backfill_words().unwrap(), 1);
+    assert_eq!(words_of(&s, 2), 4);
 }

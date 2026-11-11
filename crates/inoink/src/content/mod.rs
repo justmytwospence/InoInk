@@ -7,6 +7,63 @@ pub mod sanitize;
 
 use std::collections::HashMap;
 
+/// Words in plain text: whitespace-separated tokens with at least one letter or digit.
+pub fn word_count(text: &str) -> u32 {
+    text.split_whitespace().filter(|t| t.chars().any(|c| c.is_alphanumeric())).count() as u32
+}
+
+/// Words in an HTML fragment: tags are removed and script/style contents ignored.
+pub fn word_count_html(html: &str) -> u32 {
+    let lower = html.to_ascii_lowercase();
+    let mut text = String::with_capacity(html.len());
+    let mut i = 0;
+    let bytes = html.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'<' {
+            let skip_to = ["script", "style"].iter().find_map(|tag| {
+                if lower[i + 1..].starts_with(tag) {
+                    let close = format!("</{tag}");
+                    Some(lower[i..].find(&close).map(|p| i + p).unwrap_or(bytes.len()))
+                } else {
+                    None
+                }
+            });
+            if let Some(end) = skip_to {
+                // Resume at the closing tag; its own '>' ends the tag below.
+                i = end;
+                if i >= bytes.len() {
+                    break;
+                }
+            }
+            match html[i..].find('>') {
+                Some(p) => i += p + 1,
+                None => break,
+            }
+            text.push(' ');
+        } else {
+            let ch = html[i..].chars().next().unwrap();
+            text.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    word_count(&text)
+}
+
+/// Reading time at 230 words per minute, for example "6 min read" or "1 h 5 min read".
+pub fn format_read_time(words: u32) -> Option<String> {
+    if words == 0 {
+        return None;
+    }
+    let m = words.div_ceil(230).max(1);
+    Some(if m < 60 {
+        format!("{m} min read")
+    } else if m % 60 == 0 {
+        format!("{} h read", m / 60)
+    } else {
+        format!("{} h {} min read", m / 60, m % 60)
+    })
+}
+
 /// Largest article HTML accepted for processing.
 pub const MAX_HTML: usize = 16 * 1024 * 1024;
 /// Placeholder link scheme the reader handles to retry one image.

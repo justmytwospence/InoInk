@@ -242,6 +242,7 @@ pub struct ArticleSummary {
     pub read: bool,
     pub starred: bool,
     pub download: DownloadState,
+    pub words: u32,
 }
 
 #[derive(Clone, Debug, Default)]

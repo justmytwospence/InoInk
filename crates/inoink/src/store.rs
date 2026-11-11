@@ -11,7 +11,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001.sql"), include_str!("../migrations/0002.sql")];
+const MIGRATIONS: &[&str] =
+    &[include_str!("../migrations/0001.sql"), include_str!("../migrations/0002.sql"), include_str!("../migrations/0003.sql")];
 
 /// Highest schema version this build understands.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -268,6 +269,7 @@ impl Store {
                 self.conn.execute_batch(&format!("VACUUM INTO '{quoted}'"))?;
             }
         }
+        let upgraded_from = current;
         for (i, sql) in MIGRATIONS.iter().enumerate() {
             let version = i as i64 + 1;
             if version <= current {
@@ -278,7 +280,34 @@ impl Store {
             tx.pragma_update(None, "user_version", version)?;
             tx.commit()?;
         }
+        if upgraded_from > 0 && upgraded_from < 3 {
+            self.backfill_words()?;
+        }
         Ok(())
+    }
+
+    /// Recomputes every article's word count from the best text held (document text when
+    /// downloaded, else the feed summary).
+    pub fn backfill_words(&mut self) -> Result<usize> {
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let rows: Vec<(i64, String)> = {
+            let mut stmt = tx.prepare("SELECT id, summary_html FROM articles WHERE account=?1")?;
+            let r = stmt.query_map([&account], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+            r
+        };
+        for (id, summary) in &rows {
+            let body: Option<String> = tx
+                .query_row("SELECT body FROM article_fts WHERE account=?1 AND article=?2", params![account, id], |r| r.get(0))
+                .optional()?;
+            let words = match body {
+                Some(b) => crate::content::word_count(&b),
+                None => crate::content::word_count_html(summary),
+            };
+            tx.execute("UPDATE articles SET words=?3 WHERE account=?1 AND id=?2", params![account, id, words as i64])?;
+        }
+        tx.commit()?;
+        Ok(rows.len())
     }
 
     /// Folds the WAL into the main file so the database file alone is complete (before USB
@@ -325,15 +354,18 @@ impl Store {
             .optional()?
             .unwrap_or(false);
         let content_hash = sha256_hex(rec.summary_html.as_bytes());
+        let words = crate::content::word_count_html(&rec.summary_html) as i64;
         tx.execute(
             "INSERT INTO articles(account,id,title,author,origin_stream,origin_title,canonical_url,published,\
-             timestamp_usec,summary_html,content_hash,raw_json,excerpt) \
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) \
+             timestamp_usec,summary_html,content_hash,raw_json,excerpt,words) \
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14) \
              ON CONFLICT(account,id) DO UPDATE SET title=excluded.title, author=excluded.author, \
              origin_stream=excluded.origin_stream, origin_title=excluded.origin_title, \
              canonical_url=excluded.canonical_url, published=excluded.published, \
              timestamp_usec=excluded.timestamp_usec, summary_html=excluded.summary_html, \
-             content_hash=excluded.content_hash, excerpt=excluded.excerpt",
+             content_hash=excluded.content_hash, excerpt=excluded.excerpt, \
+             words=CASE WHEN EXISTS(SELECT 1 FROM content_versions WHERE account=articles.account AND article=articles.id) \
+             THEN articles.words ELSE excluded.words END",
             params![
                 account,
                 id.to_db(),
@@ -347,7 +379,8 @@ impl Store {
                 rec.summary_html,
                 content_hash,
                 rec.raw_json,
-                rec.excerpt as i64
+                rec.excerpt as i64,
+                words
             ],
         )?;
         // raw_json is immutable once stored: only set it when it is still the placeholder.
@@ -494,7 +527,7 @@ impl Store {
         sql.push_str(&flag_expr("read"));
         sql.push_str(" AS is_read, ");
         sql.push_str(&flag_expr("starred"));
-        sql.push_str(" AS is_starred FROM articles a WHERE a.account=?1");
+        sql.push_str(" AS is_starred, a.words FROM articles a WHERE a.account=?1");
         let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
         let mut push = |sql: &mut String, cond: &str, vals: Vec<rusqlite::types::Value>| {
             sql.push_str(" AND ");
@@ -571,6 +604,7 @@ impl Store {
                 download: DownloadState::parse(&r.get::<_, String>(5)?),
                 read: r.get::<_, i64>(6)? != 0,
                 starred: r.get::<_, i64>(7)? != 0,
+                words: r.get::<_, i64>(8)?.max(0) as u32,
             });
         }
         let next = if items.len() > limit {
@@ -1336,7 +1370,10 @@ impl Store {
             "INSERT INTO article_fts(account,article,title,body) VALUES(?1,?2,?3,?4)",
             params![account, article.to_db(), title, body_text],
         )?;
-        tx.execute("UPDATE articles SET download_state=?3 WHERE account=?1 AND id=?2", params![account, article.to_db(), state.as_str()])?;
+        tx.execute(
+            "UPDATE articles SET download_state=?3, words=?4 WHERE account=?1 AND id=?2",
+            params![account, article.to_db(), state.as_str(), crate::content::word_count(body_text) as i64],
+        )?;
         tx.commit()?;
         Ok(ContentVersion { version, hash: hash.into(), raw_hash: raw_hash.into(), dir: dir.into(), bytes })
     }
