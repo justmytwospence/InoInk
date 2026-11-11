@@ -21,7 +21,8 @@ esac
 # When the Kobo's interface left the Wi-Fi chip powered, reuse it as is (its wpa_supplicant
 # stays associated with the network the Kobo joined) and only ask for an address.
 echo "wifi-enable: INTERFACE=$INTERFACE WIFI_MODULE=$WIFI_MODULE PLATFORM=$PLATFORM" >&2
-if [ -e /sys/class/net/"$INTERFACE" ]; then
+ps | grep '[w]pa_supplicant' >&2
+if [ -e /sys/class/net/"$INTERFACE" ] && pidof wpa_supplicant > /dev/null; then
 	REUSE=1
 	echo "wifi-enable: reusing $INTERFACE" >&2
 elif [ "$POWER_TOGGLE" != wmt ]; then
@@ -33,6 +34,9 @@ PRE_UP_SCRIPT=$SCRIPTS_DIR/wifi-pre-up.sh
 [ -e "$PRE_UP_SCRIPT" ] && $PRE_UP_SCRIPT
 
 if [ -z "$REUSE" ]; then
+
+# A supplicant left from before the chip was powered down no longer drives it.
+killall -q wpa_supplicant
 
 case "$POWER_TOGGLE" in
 	wmt)

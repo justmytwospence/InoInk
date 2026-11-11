@@ -21,6 +21,8 @@ PRE_DOWN_SCRIPT=$SCRIPTS_DIR/wifi-pre-down.sh
 killall -q udhcpc default.script
 
 wpa_cli -i "$INTERFACE" terminate
+# The Kobo's own supplicant may not answer wpa_cli on the default socket.
+killall -q wpa_supplicant
 [ "$WIFI_MODULE" = dhd ] && wlarm_le -i "$INTERFACE" down
 ifconfig "$INTERFACE" down
 
