@@ -2,7 +2,7 @@
 name = "inoink-cli"
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "MIT OR AGPL-3.0-or-later"
 
 [[bin]]
 name = "inoink-cli"
