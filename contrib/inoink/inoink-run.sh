@@ -102,7 +102,7 @@ if [ -e "$KOBO_TAG" ] ; then
 	export SERIAL_NUMBER FIRMWARE_VERSION MODEL_NUMBER PRODUCT_ID
 fi
 
-export LD_LIBRARY_PATH="libs:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="$(pwd)/libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 LOG="$INOINK_DATA/inoink.log"
 [ -e "$LOG" ] && [ "$(stat -c '%s' "$LOG")" -gt $((1<<18)) ] && mv "$LOG" "$INOINK_DATA/inoink.old.log"
@@ -120,5 +120,16 @@ fi
 
 [ "$ORIG_BPP" ] && ./bin/utils/fbdepth -q -d 8
 
+echo "--- $(date) starting in $(pwd)" >> "$LOG"
 LIBC_FATAL_STDERR_=1 ./inoink >> "$LOG" 2>&1
+STATUS=$?
+if [ "$STATUS" = 127 ]; then
+	# The program could not be loaded: record why.
+	{
+		echo "--- loader failure; LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+		ls -la libs
+		LD_DEBUG=libs ./inoink 2>&1 | grep -iE 'find library|trying file|cannot|error' | head -60
+	} >> "$LOG" 2>&1
+fi
+echo "--- exited with status $STATUS" >> "$LOG"
 exit 0
