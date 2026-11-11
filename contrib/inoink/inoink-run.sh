@@ -30,7 +30,8 @@ restore() {
 	elif [ -e /tmp/power_off ] ; then
 		poweroff -f
 	else
-		./nickel.sh &
+		REL_DIR=$(pwd)
+		cd / && "$REL_DIR/nickel.sh" &
 	fi
 }
 trap 'restore; exit 1' INT TERM HUP
