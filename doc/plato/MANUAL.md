@@ -77,7 +77,7 @@ Tap the library label to bring up the library menu.
 
 The screen is divided into nine regions:
 
-![Touch Regions](../artworks/touch_regions.svg)
+![Touch Regions](artworks/touch_regions.svg)
 
 Tap gestures by region:
 
@@ -109,7 +109,7 @@ When the zoom mode is *custom*:
 
 The following swipe sequences are recognized:
 
-![Swipe Sequences](../artworks/swipe_sequences.svg)
+![Swipe Sequences](artworks/swipe_sequences.svg)
 
 - Arrow west/east: go to the previous/next chapter in normal mode, the first/last results in search mode.
 - Arrow north/south: start searching text backward/forward.

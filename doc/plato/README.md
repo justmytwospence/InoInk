@@ -2,7 +2,7 @@
 
 *Plato* is a document reader for *Kobo*'s e-readers.
 
-Documentation: [GUIDE](doc/GUIDE.md), [MANUAL](doc/MANUAL.md) and [BUILD](doc/BUILD.md).
+Documentation: [GUIDE](GUIDE.md), [MANUAL](MANUAL.md) and [BUILD](BUILD.md).
 
 ## Supported firmwares
 
@@ -46,7 +46,7 @@ Any 4.*X*.*Y* firmware, with *X* ≥ 6, will do.
 - Adjust the contrast.
 - Define words using *dictd* dictionaries.
 - Annotations, highlights and bookmarks.
-- Retrieve articles from online sources through [hooks](doc/HOOKS.md) (an example *wallabag* [article fetcher](doc/ARTICLE_FETCHER.md) is provided).
+- Retrieve articles from online sources through [hooks](HOOKS.md) (an example *wallabag* [article fetcher](ARTICLE_FETCHER.md) is provided).
 
 [![Tn01](artworks/thumbnail01.png)](artworks/screenshot01.png) [![Tn02](artworks/thumbnail02.png)](artworks/screenshot02.png) [![Tn03](artworks/thumbnail03.png)](artworks/screenshot03.png) [![Tn04](artworks/thumbnail04.png)](artworks/screenshot04.png)
 
