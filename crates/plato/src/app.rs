@@ -86,6 +86,29 @@ struct HistoryItem {
     dithered: bool,
 }
 
+/// Starts with the light the Kobo was using; the launcher reads it before Nickel stops.
+fn inherit_frontlight(settings: &mut Settings) {
+    let parse = |name: &str| env::var(name).ok().and_then(|v| v.trim().parse::<f32>().ok());
+    let white = parse("INOINK_FL_WHITE");
+    let color = parse("INOINK_FL_COLOR");
+    if let Some(v) = white {
+        if v > 0.0 {
+            settings.frontlight = true;
+            settings.frontlight_levels.intensity = v.clamp(0.0, 100.0);
+        } else {
+            settings.frontlight = false;
+        }
+    }
+    if CURRENT_DEVICE.frontlight_kind() == FrontlightKind::Premixed {
+        if let Some(raw) = color {
+            let raw = raw.clamp(0.0, 10.0);
+            let level = if CURRENT_DEVICE.mark() != 8 { 10.0 - raw } else { raw };
+            settings.frontlight_levels.warmth = level * 10.0;
+        }
+    }
+    eprintln!("frontlight: inherited intensity {:?} warmth {:?}", white, color);
+}
+
 fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Context, Error> {
     let rtc = Rtc::new(RTC_DEVICE)
                   .map_err(|e| eprintln!("Can't open RTC device: {:#}.", e))
@@ -113,6 +136,7 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
         Box::new(0u16) as Box<dyn LightSensor>
     };
 
+    inherit_frontlight(&mut settings);
     let levels = settings.frontlight_levels;
     let frontlight = match CURRENT_DEVICE.frontlight_kind() {
         FrontlightKind::Standard => Box::new(StandardFrontlight::new(levels.intensity)
@@ -152,6 +176,7 @@ fn resume(id: TaskId, tasks: &mut Vec<Task>, view: &mut dyn View, hub: &Sender<E
             Command::new("scripts/wifi-enable.sh")
                     .status()
                     .ok();
+            watch_network(hub);
         }
         context.inoink.lifecycle(Lifecycle::Resume);
     }
@@ -424,6 +449,10 @@ pub fn run() -> Result<(), Error> {
                     DeviceEvent::NetUp => {
                         if tasks.iter().any(|task| task.id == TaskId::PrepareSuspend ||
                                                    task.id == TaskId::Suspend) {
+                            continue;
+                        }
+                        // Both our own watcher and the DHCP script announce the network.
+                        if context.online {
                             continue;
                         }
                         let ip = Command::new("scripts/ip.sh").output()

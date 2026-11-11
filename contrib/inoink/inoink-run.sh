@@ -43,6 +43,14 @@ INOINK_SET_FRAMEBUFFER_DEPTH=1
 
 # shellcheck disable=SC2046
 export $(grep -sE '^(INTERFACE|WIFI_MODULE|DBUS_SESSION_BUS_ADDRESS|NICKEL_HOME|LANG)=' /proc/"$(pidof -s nickel)"/environ)
+# Start with the light the Kobo was using (read before Nickel stops).
+INOINK_FL_WHITE=$(cat /sys/class/backlight/mxc_msp430.0/brightness 2>/dev/null)
+[ -n "$INOINK_FL_WHITE" ] || INOINK_FL_WHITE=$(sed -n 's/^FrontLightLevel=//p' "/mnt/onboard/.kobo/Kobo/Kobo eReader.conf" 2>/dev/null | head -n 1)
+INOINK_FL_COLOR=
+for f in /sys/class/leds/aw99703-bl_FL1/color /sys/class/backlight/lm3630a_led/color /sys/class/backlight/tlc5947_bl/color; do
+	if [ -r "$f" ]; then INOINK_FL_COLOR=$(cat "$f" 2>/dev/null); break; fi
+done
+export INOINK_FL_WHITE INOINK_FL_COLOR
 sync
 killall -TERM nickel hindenburg sickel fickel adobehost foxitpdf iink dhcpcd-dbus dhcpcd fmon > /dev/null 2>&1
 
