@@ -5,7 +5,7 @@ use inoink::api::auth::{authorize_url, exchange_code, parse_callback, AppConfig}
 use inoink::api::{ApiClient, Clock, SystemClock, UreqTransport};
 use inoink::cache::{Cache, CacheConfig, Control};
 use inoink::content::images::{Fetched, Fetcher};
-use inoink::credentials::{encrypt_for, read_device_recipient, write_transfer, Credentials, FileCredentials};
+use inoink::credentials::{encrypt_for, read_device_recipient, write_transfer, Credentials};
 use inoink::error::{Error, Result};
 use inoink::model::*;
 use inoink::store::{ArticleRecord, Store, Subscription};
@@ -80,7 +80,11 @@ fn read_secret() -> Result<String> {
             continue;
         }
         // Confirm receipt without revealing the value.
-        eprintln!("Received a {}-character key ending in ...{}.", s.chars().count(), s.chars().rev().take(2).collect::<String>().chars().rev().collect::<String>());
+        eprintln!(
+            "Received a {}-character key ending in ...{}.",
+            s.chars().count(),
+            s.chars().rev().take(2).collect::<String>().chars().rev().collect::<String>()
+        );
         return Ok(s);
     }
     Err(Error::InvalidRequest("no client secret was entered".into()))
@@ -218,7 +222,7 @@ fn authorize(args: &[String]) -> Result<()> {
 fn provision(args: &[String]) -> Result<()> {
     let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials is required".into()))?;
     let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
-    let creds: Credentials = serde_json::from_slice(&std::fs::read(file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
+    let creds: Credentials = serde_json::from_slice(&std::fs::read(&file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
     let dir = data_dir_of(Path::new(&device));
     let enc = encrypt_for(&read_device_recipient(&dir)?, &creds)?;
     write_transfer(&dir, &enc)?;
@@ -372,7 +376,7 @@ fn acceptance(args: &[String]) -> Result<()> {
         return Err(Error::InvalidRequest("acceptance only runs with --live".into()));
     }
     let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials FILE is required".into()))?;
-    let creds: Credentials = serde_json::from_slice(&std::fs::read(file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
+    let creds: Credentials = serde_json::from_slice(&std::fs::read(&file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
     println!("Read-only live checks (each counts against your daily quota):");
     for l in [
         "GET /user-info",
@@ -390,10 +394,22 @@ fn acceptance(args: &[String]) -> Result<()> {
         println!("Re-run with --yes to proceed.");
         return Ok(());
     }
-    let dir = std::env::temp_dir().join(format!("inoink-acceptance-{}", random_hex(4)?));
-    std::fs::create_dir_all(&dir)?;
-    let store = FileCredentials::new(&dir);
-    store.save_credentials(&creds)?;
+    // Tokens refreshed during the checks are written back to the same file.
+    struct PathTokens(PathBuf, std::sync::Mutex<Credentials>);
+    impl inoink::api::TokenStore for PathTokens {
+        fn load(&self) -> Result<Option<inoink::api::Tokens>> {
+            Ok(Some(self.1.lock().unwrap().tokens()))
+        }
+        fn save(&self, t: &inoink::api::Tokens) -> Result<()> {
+            let mut c = self.1.lock().unwrap();
+            c.access_token = t.access_token.clone();
+            c.refresh_token = t.refresh_token.clone();
+            c.expires_at = t.expires_at;
+            c.scope = t.scope.clone();
+            inoink::cache::atomic_write(&self.0, &serde_json::to_vec_pretty(&*c)?)
+        }
+    }
+    let store = PathTokens(PathBuf::from(&file), std::sync::Mutex::new(creds.clone()));
     let api = ApiClient::new(creds.app_config(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(store))?
         .with_priority(inoink::api::Priority::Explicit);
     let mut failures = 0;
@@ -422,7 +438,6 @@ fn acceptance(args: &[String]) -> Result<()> {
     let q = api.quota();
     let z1 = q.remaining(inoink::api::Zone::One);
     println!("Zone 1 quota: {} of {} remaining ({}).", z1.remaining, z1.limit, if z1.estimated { "estimated" } else { "server-reported" });
-    let _ = std::fs::remove_dir_all(&dir);
     let _ = SystemClock.now();
     if failures > 0 {
         Err(Error::Data(format!("{failures} check(s) failed")))
