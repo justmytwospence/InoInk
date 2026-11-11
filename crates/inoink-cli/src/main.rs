@@ -1,1 +1,350 @@
-fn main() {}
+//! Computer-side helper for InoInk: authorize with Inoreader, provision a Kobo, build fixture
+//! data and check a cache. Secrets are never taken from command-line arguments.
+
+use inoink::api::auth::{authorize_url, exchange_code, parse_callback, AppConfig};
+use inoink::api::{ApiClient, Clock, SystemClock, UreqTransport};
+use inoink::cache::{Cache, CacheConfig, Control};
+use inoink::content::images::{Fetched, Fetcher};
+use inoink::credentials::{encrypt_for, read_device_recipient, write_transfer, Credentials, FileCredentials};
+use inoink::error::{Error, Result};
+use inoink::model::*;
+use inoink::store::{ArticleRecord, Store, Subscription};
+use std::io::{BufRead, Cursor, Read, Write};
+use std::net::TcpListener;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+const USAGE: &str = "inoink-cli <command>
+
+  authorize --client-id ID --redirect-uri URI [--scope 'read write'] (--device MOUNT | --out FILE)
+      Sign in with Inoreader on this computer. The client secret is read from the
+      INOINK_CLIENT_SECRET environment variable or a hidden prompt. With --device the encrypted
+      credentials are written to the mounted Kobo; with --out they are written to FILE
+      (plaintext: delete it after provisioning).
+  provision --credentials FILE --device MOUNT
+      Encrypt previously authorized credentials for the Kobo's key.
+  fixtures --output DIR
+      Build deterministic offline sample data (articles, images, tables, code).
+  verify-cache --data DIR [--account ID]
+      Check published content versions and images.
+  acceptance --live --credentials FILE [--yes]
+      Read-only checks against a real account (shows what it will request first).
+";
+
+fn arg(args: &[String], name: &str) -> Option<String> {
+    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+}
+
+fn flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|a| a == name)
+}
+
+fn data_dir_of(mount: &Path) -> PathBuf {
+    mount.join(".adds").join("inoink").join("data")
+}
+
+fn random_hex(n: usize) -> Result<String> {
+    let mut buf = vec![0u8; n];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn read_secret() -> Result<String> {
+    if let Ok(s) = std::env::var("INOINK_CLIENT_SECRET") {
+        if !s.is_empty() {
+            return Ok(s);
+        }
+    }
+    eprint!("Client secret (hidden): ");
+    let _ = std::process::Command::new("stty").arg("-echo").status();
+    let mut line = String::new();
+    let r = std::io::stdin().lock().read_line(&mut line);
+    let _ = std::process::Command::new("stty").arg("echo").status();
+    eprintln!();
+    r?;
+    let s = line.trim().to_string();
+    if s.is_empty() {
+        return Err(Error::InvalidRequest("no client secret given".into()));
+    }
+    Ok(s)
+}
+
+/// Waits for the browser redirect on a loopback address, or asks for the pasted callback URL.
+fn receive_callback(redirect_uri: &str) -> Result<String> {
+    let url = url::Url::parse(redirect_uri).map_err(|_| Error::InvalidRequest("bad redirect URI".into()))?;
+    let loopback = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port().is_some();
+    if loopback {
+        let listener = TcpListener::bind(("127.0.0.1", url.port().unwrap())).map_err(|e| Error::Io(format!("cannot listen on the redirect port: {e}")))?;
+        eprintln!("Waiting for the browser redirect on {redirect_uri} ...");
+        let (mut stream, _) = listener.accept()?;
+        let mut reader = std::io::BufReader::new(stream.try_clone()?);
+        let mut first = String::new();
+        reader.read_line(&mut first)?;
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n");
+        let path = first.split_whitespace().nth(1).unwrap_or("");
+        return Ok(format!("{}://{}{}", url.scheme(), url.host_str().unwrap_or("localhost"), path));
+    }
+    eprintln!("After approving, paste the full address you were redirected to:");
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(line.trim().to_string())
+}
+
+fn authorize(args: &[String]) -> Result<()> {
+    let client_id = arg(args, "--client-id").ok_or_else(|| Error::InvalidRequest("--client-id is required".into()))?;
+    let redirect = arg(args, "--redirect-uri").ok_or_else(|| Error::InvalidRequest("--redirect-uri is required".into()))?;
+    let scope = arg(args, "--scope").unwrap_or_else(|| "read write".into());
+    let device = arg(args, "--device").map(PathBuf::from);
+    let out = arg(args, "--out").map(PathBuf::from);
+    if device.is_none() && out.is_none() {
+        return Err(Error::InvalidRequest("give --device MOUNT or --out FILE".into()));
+    }
+    let recipient = match &device {
+        Some(m) => Some(read_device_recipient(&data_dir_of(m))?),
+        None => None,
+    };
+    let secret = read_secret()?;
+    let cfg = AppConfig::new(&client_id, &secret, &redirect);
+    let state = random_hex(16)?;
+    println!("Open this address in a browser and approve access:\n\n  {}\n", authorize_url(&cfg, &state, &scope));
+    let callback = receive_callback(&redirect)?;
+    let code = parse_callback(&callback, &state)?;
+    let transport = UreqTransport::new();
+    let tokens = exchange_code(&cfg, &transport, &SystemClock, &code)?;
+    // Learn the account id with a throwaway in-memory token store.
+    struct Mem(std::sync::Mutex<Option<inoink::api::Tokens>>);
+    impl inoink::api::TokenStore for Mem {
+        fn load(&self) -> Result<Option<inoink::api::Tokens>> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        fn save(&self, t: &inoink::api::Tokens) -> Result<()> {
+            *self.0.lock().unwrap() = Some(t.clone());
+            Ok(())
+        }
+    }
+    let api = ApiClient::new(cfg.clone(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(Mem(std::sync::Mutex::new(Some(tokens.clone())))))?;
+    let info = api.user_info()?;
+    let mut creds = Credentials::new(&cfg, &tokens);
+    creds.user_id = info.user_id.clone();
+    println!("Signed in as {}.", info.user_name);
+    if let Some(r) = recipient {
+        let enc = encrypt_for(&r, &creds)?;
+        let dir = data_dir_of(device.as_ref().unwrap());
+        write_transfer(&dir, &enc)?;
+        println!("Credentials were encrypted for this Kobo and written to {}.", dir.join("provision/credentials.age").display());
+        println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
+    }
+    if let Some(o) = out {
+        std::fs::write(&o, serde_json::to_vec_pretty(&creds)?)?;
+        println!("Wrote {} (plaintext credentials; delete it after provisioning).", o.display());
+    }
+    Ok(())
+}
+
+fn provision(args: &[String]) -> Result<()> {
+    let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials is required".into()))?;
+    let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
+    let creds: Credentials = serde_json::from_slice(&std::fs::read(file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
+    let dir = data_dir_of(Path::new(&device));
+    let enc = encrypt_for(&read_device_recipient(&dir)?, &creds)?;
+    write_transfer(&dir, &enc)?;
+    println!("Encrypted credentials written for the Kobo at {}.", dir.display());
+    Ok(())
+}
+
+// ---- fixtures ---------------------------------------------------------------------------------
+
+fn png_gradient(w: u32, h: u32, seed: u8) -> Vec<u8> {
+    let mut img = image::RgbImage::new(w, h);
+    for (x, y, p) in img.enumerate_pixels_mut() {
+        let r = ((x * 255) / w.max(1)) as u8;
+        let g = ((y * 255) / h.max(1)) as u8;
+        let b = seed.wrapping_mul(37).wrapping_add(((x + y) % 64) as u8 * 3);
+        *p = image::Rgb([r, g, b]);
+    }
+    let mut out = Vec::new();
+    img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+    out
+}
+
+struct FixtureImages;
+impl Fetcher for FixtureImages {
+    fn get(&self, url: &url::Url, _max: usize) -> Result<Fetched> {
+        let name = url.path().rsplit('/').next().unwrap_or("");
+        let seed = name.bytes().fold(7u8, |a, b| a.wrapping_mul(31).wrapping_add(b));
+        let (w, h) = match name {
+            n if n.starts_with("wide") => (1200, 600),
+            n if n.starts_with("tall") => (600, 1000),
+            n if n.starts_with("missing") => return Ok(Fetched { status: 404, ..Default::default() }),
+            _ => (800, 500),
+        };
+        Ok(Fetched { status: 200, content_type: Some("image/png".into()), location: None, body: png_gradient(w, h, seed) })
+    }
+}
+
+fn paragraph(i: usize) -> String {
+    format!(
+        "<p>Paragraph {i}. The quick brown fox jumps over the lazy dog while a long essay keeps unfolding across many pages, \
+         with enough words to wrap several lines on a six-inch display and exercise hyphenation, justification and pagination. \
+         Caf\u{e9} cr\u{e8}me br\u{fb}l\u{e9}e, na\u{ef}ve fa\u{e7}ades, and \u{201c}typographic quotes\u{201d} are included on purpose.</p>"
+    )
+}
+
+/// Deterministic sample articles: (title, html).
+pub fn fixture_articles() -> Vec<(&'static str, String)> {
+    let essay: String = (1..=60).map(paragraph).collect();
+    let images = r#"<p>An image-heavy photo essay.</p>
+<figure><img src="https://img.example/wide-1.png" alt="Wide landscape"><figcaption>A wide landscape with a long caption that wraps.</figcaption></figure>
+<p>Between the pictures there is some text.</p>
+<figure><img src="https://img.example/tall-1.png" alt="Tall portrait"><figcaption>A tall portrait.</figcaption></figure>
+<img src="https://img.example/small-1.png" alt="Inline image">
+<img src="https://img.example/missing-1.png" alt="This one never loads">
+<figure><img src="//img.example/wide-2.png" srcset="//img.example/small-2.png 400w, //img.example/wide-2.png 1200w" alt="Responsive"><figcaption>Responsive image.</figcaption></figure>"#
+        .to_string();
+    let newsletter = r#"<div><h2>This week</h2><p>Hello reader, here is your weekly <a href="https://news.example/issue/42">newsletter</a>.</p>
+<ul><li>First item with <b>bold</b> and <i>italic</i></li><li>Second item</li><li>Third item</li></ul>
+<blockquote><p>A pulled quote that should be indented.</p></blockquote><hr><p><small>Unsubscribe</small></p></div>"#
+        .to_string();
+    let table = r#"<p>Quarterly numbers.</p><table><caption>Results</caption><thead><tr><th>Quarter</th><th>Revenue</th><th>Notes</th></tr></thead>
+<tbody><tr><td>Q1</td><td>1,200</td><td>Steady</td></tr><tr><td>Q2</td><td>1,450</td><td>Up</td></tr><tr><td colspan="2">Total</td><td>2,650</td></tr></tbody></table>"#
+        .to_string();
+    let code = r#"<p>A code listing:</p><pre><code>fn main() {
+    let items = vec![1, 2, 3];
+    for (i, x) in items.iter().enumerate() {
+        println!("{i}: {x} &amp; a rather long line that has to be wrapped or scrolled because it exceeds the width");
+    }
+}
+</code></pre><p>Inline <code>code</code> too.</p>"#
+        .to_string();
+    vec![("A long essay", essay), ("Photo essay with images", images), ("Weekly newsletter", newsletter), ("Table of results", table), ("Code listing", code)]
+}
+
+fn fixtures(args: &[String]) -> Result<()> {
+    let out = PathBuf::from(arg(args, "--output").ok_or_else(|| Error::InvalidRequest("--output is required".into()))?);
+    std::fs::create_dir_all(&out)?;
+    let db = out.join("inoink.db");
+    let _ = std::fs::remove_file(&db);
+    let mut store = Store::open(&db, "fixture")?;
+    let cache = Cache::new(&out.join("cache"), "fixture", CacheConfig::default());
+    let feed = "feed/https://blog.example/rss";
+    store.replace_subscriptions(&[Subscription { id: feed.into(), title: "Example Blog".into(), url: "https://blog.example/rss".into(), html_url: String::new(), sort_id: String::new(), first_item_usec: 0, folders: vec!["Reading".into()] }])?;
+    let base_ts = 1_800_000_000i64;
+    let ctl = Control::new(Arc::new(AtomicBool::new(false)));
+    for (i, (title, html)) in fixture_articles().into_iter().enumerate() {
+        let id = 1000 + i as u64;
+        let mut cats = vec!["user/1/state/com.google/reading-list".to_string()];
+        if i == 0 || i == 1 {
+            cats.push("user/1/state/com.google/starred".into());
+        }
+        let rec = ArticleRecord {
+            id,
+            title: title.into(),
+            author: "Fixture Author".into(),
+            origin_stream: feed.into(),
+            origin_title: "Example Blog".into(),
+            canonical_url: format!("https://blog.example/posts/{id}"),
+            published: base_ts - i as i64 * 3600,
+            timestamp_usec: (base_ts - i as i64 * 3600) * 1_000_000,
+            summary_html: html,
+            raw_json: "{}".into(),
+            categories: cats,
+            excerpt: false,
+        };
+        store.upsert_article(&rec, 0)?;
+        let state = cache.cache_article(&mut store, &FixtureImages, ArticleId(id), &ctl)?;
+        println!("{id}: {title} -> {state:?}");
+    }
+    store.checkpoint()?;
+    println!("Fixture data written to {}", out.display());
+    Ok(())
+}
+
+fn verify_cache(args: &[String]) -> Result<()> {
+    let data = PathBuf::from(arg(args, "--data").ok_or_else(|| Error::InvalidRequest("--data is required".into()))?);
+    let account = arg(args, "--account").unwrap_or_else(|| "fixture".into());
+    let db = if data.join("inoink.db").exists() { data.join("inoink.db") } else { data.join("db.sqlite") };
+    let store = Store::open(&db, &account)?;
+    let cache = Cache::new(&data.join("cache"), &account, CacheConfig::default());
+    let rep = cache.verify(&store)?;
+    println!("Checked {} article(s).", rep.checked);
+    for p in &rep.problems {
+        println!("PROBLEM: {p}");
+    }
+    if rep.problems.is_empty() {
+        println!("Cache is consistent.");
+        Ok(())
+    } else {
+        Err(Error::Data(format!("{} problem(s)", rep.problems.len())))
+    }
+}
+
+fn acceptance(args: &[String]) -> Result<()> {
+    if !flag(args, "--live") {
+        return Err(Error::InvalidRequest("acceptance only runs with --live".into()));
+    }
+    let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials FILE is required".into()))?;
+    let creds: Credentials = serde_json::from_slice(&std::fs::read(file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
+    println!("Read-only live checks (each counts against your daily quota):");
+    for l in ["GET /user-info", "GET /subscription/list", "GET /tag/list?types=1&counts=1", "GET /unread-count", "GET /preference/stream/list", "GET /stream/items/ids (starred, n=5)", "GET /stream/contents (reading-list, n=2, annotations, summaries)"] {
+        println!("  - {l}");
+    }
+    println!("No state-changing requests are made.");
+    if !flag(args, "--yes") {
+        println!("Re-run with --yes to proceed.");
+        return Ok(());
+    }
+    let dir = std::env::temp_dir().join(format!("inoink-acceptance-{}", random_hex(4)?));
+    std::fs::create_dir_all(&dir)?;
+    let store = FileCredentials::new(&dir);
+    store.save_credentials(&creds)?;
+    let api = ApiClient::new(creds.app_config(), Arc::new(UreqTransport::new()), Arc::new(SystemClock), Arc::new(store))?.with_priority(inoink::api::Priority::Explicit);
+    let mut failures = 0;
+    let mut check = |name: &str, r: Result<String>| match r {
+        Ok(d) => println!("PASS {name}: {d}"),
+        Err(e) => {
+            failures += 1;
+            println!("FAIL {name}: {e}");
+        }
+    };
+    check("user-info", api.user_info().map(|u| format!("user {}", u.user_id)));
+    check("subscription/list", api.subscriptions().map(|s| format!("{} subscriptions", s.len())));
+    check("tag/list", api.tags().map(|t| format!("{} tags/folders", t.len())));
+    check("unread-count", api.unread_counts().map(|c| format!("{} streams", c.counts.len())));
+    check("preference/stream/list", api.stream_preferences().map(|p| format!("{} ordering entries", p.len())));
+    let mut ids = inoink::api::IdsParams::new(StreamId::new(STATE_STARRED));
+    ids.count = 5;
+    ids.only_starred = true;
+    check("stream/items/ids", api.item_ids(&ids).map(|p| format!("{} ids", p.refs.len())));
+    let params = inoink::api::ContentsParams { count: 2, annotations: true, summaries: true, exclude_read: true, ..Default::default() };
+    check("stream/contents", api.contents(&StreamId::new(STATE_READING_LIST), &params).map(|p| format!("{} items, first has {} chars", p.items.len(), p.items.first().map(|i| i.summary_html.len()).unwrap_or(0))));
+    let q = api.quota();
+    let z1 = q.remaining(inoink::api::Zone::One);
+    println!("Zone 1 quota: {} of {} remaining ({}).", z1.remaining, z1.limit, if z1.estimated { "estimated" } else { "server-reported" });
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = SystemClock.now();
+    if failures > 0 {
+        Err(Error::Data(format!("{failures} check(s) failed")))
+    } else {
+        Ok(())
+    }
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match args.first().map(String::as_str) {
+        Some("authorize") => authorize(&args[1..]),
+        Some("provision") => provision(&args[1..]),
+        Some("fixtures") => fixtures(&args[1..]),
+        Some("verify-cache") => verify_cache(&args[1..]),
+        Some("acceptance") => acceptance(&args[1..]),
+        _ => {
+            eprint!("{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}

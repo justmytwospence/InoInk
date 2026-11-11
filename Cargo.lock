@@ -1341,8 +1341,10 @@ dependencies = [
 name = "inoink-cli"
 version = "0.1.0"
 dependencies = [
+ "image",
  "inoink",
  "serde_json",
+ "url",
 ]
 
 [[package]]

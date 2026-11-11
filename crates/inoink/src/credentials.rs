@@ -31,6 +31,9 @@ pub struct Credentials {
     pub refresh_token: String,
     pub expires_at: i64,
     pub scope: String,
+    /// Inoreader user id; keys the database so accounts never mix.
+    #[serde(default)]
+    pub user_id: String,
 }
 
 impl fmt::Debug for Credentials {
@@ -54,6 +57,7 @@ impl Credentials {
             refresh_token: t.refresh_token.clone(),
             expires_at: t.expires_at,
             scope: t.scope.clone(),
+            user_id: String::new(),
         }
     }
 
