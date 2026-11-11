@@ -25,7 +25,7 @@ pub const BULK_LIMIT: usize = 1000;
 const FLAG_KEYS: [&str; 4] = ["read", "starred", "like", "broadcast"];
 
 /// An article as received from the API, ready to be stored.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ArticleRecord {
     pub id: u64,
     pub title: String,

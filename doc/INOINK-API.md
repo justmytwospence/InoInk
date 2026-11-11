@@ -19,7 +19,7 @@ Module paths are in `crates/inoink/src`.
 | Delete tag | `POST /disable-tag` s | `ApiClient::disable_tag` | `api_contract` | not run | |
 | Stream contents | `GET /stream/contents/{stream}` n<=100, r, ot, xt, it, c, annotations, summaries, includeAllDirectStreamIds | `ApiClient::contents` | `api_contract` | not run | Content may be an excerpt; no completeness flag; `ot` with r=o clamps to one month |
 | Item IDs | `GET /stream/items/ids` n<=1000, r, ot, xt, it, c, s, output=json, includeAllDirectStreamIds | `ApiClient::item_ids` | `api_contract`, `sync_faults` | not run | No consistent snapshot token |
-| Atom stream | `GET /reader/atom` | parse fixture only | `api_contract` | not run | Alternate representation of contents; not used for sync |
+| Atom stream | `GET /reader/atom` | not implemented | - | n/a | Documented compatibility alternative to the JSON contents endpoint; InoInk uses JSON only, as the docs advise |
 | Edit tag | `POST /edit-tag` a, r, repeated i (read, starred, broadcast, like, user label) | `ApiClient::edit_tag` | `api_contract`, `store_intent`, `sync_faults` | not run | Marking older than `firstitemmsec` unread is silently ignored |
 | Stream preferences | `GET /preference/stream/list` | `ApiClient::stream_preferences` | `api_contract` | not run | |
 | Set ordering | `POST /preference/stream/set` s, k=subscription-ordering, v | `ApiClient::set_stream_order` | `api_contract` | not run | Only `subscription-ordering` accepted |

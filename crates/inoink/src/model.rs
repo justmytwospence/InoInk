@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(id.to_long(), "tag:google.com,2005:reader/item/fffffffffffffffe");
         assert_eq!(ArticleId::parse("-2").unwrap(), id);
         assert_eq!(ArticleId::parse(&id.to_long()).unwrap(), id);
-        assert_eq!(ArticleId::from_short("3614359203").unwrap().to_long(), "tag:google.com,2005:reader/item/00000000d7eb6023");
+        assert_eq!(ArticleId::from_short("3614359203").unwrap().to_long(), "tag:google.com,2005:reader/item/00000000d76ebea3");
         assert!(ArticleId::from_long("tag:google.com,2005:reader/item/abc").is_err());
         assert_eq!(ArticleId::from_db(id.to_db()), id);
     }
