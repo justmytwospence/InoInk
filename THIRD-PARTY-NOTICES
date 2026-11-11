@@ -1,0 +1,29 @@
+InoInk third-party notices
+==========================
+
+InoInk is free software under the GNU Affero General Public License, version 3 or (at your
+option) any later version (see LICENSE-AGPLv3). It is a derivative of Plato, the document reader
+for Kobo e-readers by Bastien Dejean (https://github.com/baskerville/plato), copyright its
+authors, also AGPL-3.0-or-later. InoInk is an unofficial Inoreader client; it is not affiliated
+with or endorsed by Inoreader, Rakuten Kobo or the Plato project.
+
+Components distributed with the Kobo package:
+
+  MuPDF 1.27.0          AGPL-3.0-or-later   Artifex Software, Inc.
+  DjVuLibre 3.5.29      GPL-2.0-or-later
+  jbig2dec 0.20         AGPL-3.0-or-later   Artifex Software, Inc.
+  FreeType 2.14.1       FreeType License
+  HarfBuzz 12.3.0       MIT
+  Gumbo 0.10.1          Apache-2.0
+  libpng 1.6.53         libpng License
+  libjpeg (IJG) 9f      IJG License
+  OpenJPEG 2.5.4        BSD-2-Clause
+  zlib 1.3.1            zlib License
+  bzip2 1.0.8           bzip2 license
+  Fonts                 SIL Open Font License 1.1 (see doc/LICENSES.md for each font)
+  Rust crates           see doc/LICENSES.md
+
+Full license texts are in the `licenses/` directory of the package. The complete corresponding
+source of InoInk and of the bundled libraries is published with every release
+(inoink-<version>-source.tar.gz and inoink-<version>-third-party-sources.tar) and described in
+doc/UPSTREAM.md and doc/LICENSES.md. Hyphenation patterns and dictionaries are not included.

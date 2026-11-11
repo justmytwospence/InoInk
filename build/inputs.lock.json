@@ -1,0 +1,14 @@
+{
+  "gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf.tar.xz": "22914118fd963f953824b58107015c6953b5bbdccbdcf25ad9fd9a2f9f11ac07",
+  "zlib-1.3.1.tar.gz": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23",
+  "bzip2-1.0.8.tar.gz": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269",
+  "libpng-1.6.53.tar.gz": "da0b045cbb1d06a8fc9696f9441359f70645f280ff24ae453ccb7c722353654f",
+  "jpegsrc.v9f.tar.gz": "04705c110cb2469caa79fb71fba3d7bf834914706e9641a4589485c1f832565b",
+  "openjpeg-2.5.4.tar.gz": "a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a",
+  "jbig2dec-0.20.tar.gz": "7b63ff6470289547e7a3a0f145cb8ea6c2afffdd65645b7d87d3b7febc96fb3a",
+  "freetype-2.14.1.tar.gz": "174d9e53402e1bf9ec7277e22ec199ba3e55a6be2c0740cb18c0ee9850fc8c34",
+  "harfbuzz-12.3.0.tar.gz": "e93af4816128fc0a02d2e84106fdfe36a3fde01086b723be8f0656a65562ca9e",
+  "gumbo-parser-0.10.1.tar.gz": "28463053d44a5dfbc4b77bcf49c8cee119338ffa636cc17fc3378421d714efad",
+  "djvulibre-3.5.29.tar.gz": "d3b4b03ae2bdca8516a36ef6eb27b777f0528c9eda26745d9962824a3fdfeccf",
+  "mupdf-1.27.0-source.tar.gz": "ae2442416de499182d37a526c6fa2bacc7a3bed5a888d113ca04844484dfe7c6"
+}

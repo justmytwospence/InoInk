@@ -1,0 +1,25 @@
+# Kobo cross-build image: pinned Rust, the Linaro GCC 4.9.4 ARM toolchain Plato targets, and
+# the native libraries built from verified source archives. Build with scripts/build-inoink.sh.
+# The context is the repository root; build/inputs is filled by scripts/fetch-inputs.sh.
+FROM --platform=linux/amd64 rust:1.99.1-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config ca-certificates curl wget unzip xz-utils jq patchelf git file \
+      patch meson ninja-build cmake autoconf automake libtool python3 gperf \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY build/inputs /opt/inputs
+COPY build/inputs.lock.json /opt/inputs.lock.json
+# Fail closed: every input must match its pinned SHA-256.
+RUN cd /opt/inputs && jq -r 'to_entries[] | "\(.value)  \(.key)"' /opt/inputs.lock.json | sha256sum -c -
+
+RUN mkdir -p /opt/toolchain && tar -xJf /opt/inputs/gcc-linaro-4.9.4-2017.01-x86_64_arm-linux-gnueabihf.tar.xz -C /opt/toolchain --strip-components 1
+ENV PATH=/opt/toolchain/bin:$PATH
+RUN arm-linux-gnueabihf-gcc --version | head -1 && rustup target add arm-unknown-linux-gnueabihf
+
+COPY thirdparty /opt/kobo/thirdparty
+COPY scripts/kobo-libs.sh /opt/kobo/kobo-libs.sh
+RUN /opt/kobo/kobo-libs.sh /opt/inputs /opt/kobo/libs
+
+ENV CARGO_HOME=/cargo-cache
+WORKDIR /src

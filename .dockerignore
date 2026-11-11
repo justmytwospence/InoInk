@@ -1,0 +1,5 @@
+*
+!build/inputs
+!build/inputs.lock.json
+!thirdparty
+!scripts/kobo-libs.sh
