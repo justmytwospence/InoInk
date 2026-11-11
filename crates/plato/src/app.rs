@@ -439,16 +439,12 @@ pub fn run() -> Result<(), Error> {
                                     resume(TaskId::Suspend, &mut tasks, view.as_mut(), &tx, &mut rq, &mut context);
                                 }
 
-                                if context.settings.auto_share {
-                                    tx.send(Event::PrepareShare).ok();
-                                } else {
-                                    let dialog = Dialog::new(ViewId::ShareDialog,
-                                                             Some(Event::PrepareShare),
-                                                             "Share storage via USB?".to_string(),
-                                                             &mut context);
-                                    rq.add(RenderData::new(dialog.id(), *dialog.rect(), UpdateMode::Gui));
-                                    view.children_mut().push(Box::new(dialog) as Box<dyn View>);
-                                }
+                                // Sharing the storage from here is not safe: Plato's script unmounts it
+                                // lazily while files are still open, and both sides then write to it.
+                                // The Kobo's own interface shares it properly.
+                                let notif = Notification::new("To connect to a computer, quit InoInk first (menu, Quit).".to_string(),
+                                                              &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
 
                                 inactive_since = Instant::now();
                             },

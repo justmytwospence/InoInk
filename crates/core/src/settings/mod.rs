@@ -493,7 +493,8 @@ impl Default for Settings {
         Settings {
             keyboard_layout: "English".to_string(),
             frontlight: true,
-            wifi: false,
+            // Keep the Wi-Fi the Kobo already uses; syncing needs it.
+            wifi: true,
             inverted: false,
             sleep_cover: true,
             auto_share: false,
