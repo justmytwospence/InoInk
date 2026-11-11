@@ -487,3 +487,84 @@ fn backfill_words_recomputes() {
     assert_eq!(s.backfill_words().unwrap(), 1);
     assert_eq!(words_of(&s, 2), 4);
 }
+
+fn sorted_store() -> Store {
+    let mut s = store();
+    // (id, published, title, source, words)
+    let data: [(u64, i64, &str, &str, usize); 6] = [
+        (1, 1000, "delta", "Zeta Blog", 0),
+        (2, 2000, "Alpha", "alpha site", 1),
+        (3, 3000, "charlie", "Zeta Blog", 5),
+        (4, 4000, "Bravo", "alpha site", 20),
+        (5, 5000, "echo", "Zeta Blog", 50),
+        (6, 6000, "Foxtrot", "alpha site", 50),
+    ];
+    for (n, published, title, source, words) in data {
+        let mut r = rec(n, n as i64 * 10, &[]);
+        r.published = published;
+        r.title = title.into();
+        r.origin_title = source.into();
+        r.summary_html = format!("<p>{}</p>", vec!["w"; words].join(" "));
+        let seq = s.seq().unwrap();
+        s.upsert_article(&r, seq).unwrap();
+    }
+    s.apply_intent(id(2), &Membership::Read, true).unwrap();
+    s.apply_intent(id(5), &Membership::Read, true).unwrap();
+    s
+}
+
+fn order(s: &Store, group: ArticleGroup, sort: ArticleSort, limit: usize) -> Vec<u64> {
+    let mut out = Vec::new();
+    let mut after = None;
+    loop {
+        let q = ArticleQuery { group, sort, limit, after: after.clone(), ..Default::default() };
+        let page = s.query_articles(&q).unwrap();
+        out.extend(page.items.iter().map(|i| i.id.0));
+        match page.next {
+            Some(c) => after = Some(c),
+            None => break,
+        }
+    }
+    out
+}
+
+#[test]
+fn sorts_and_groups_order_and_page_consistently() {
+    let s = sorted_store();
+    for g in ArticleGroup::ALL {
+        for so in ArticleSort::ALL {
+            let full = order(&s, g, so, 100);
+            let paged = order(&s, g, so, 2);
+            assert_eq!(full, paged, "paging differs for {g:?} {so:?}");
+            let mut sorted = full.clone();
+            sorted.sort();
+            assert_eq!(sorted, vec![1, 2, 3, 4, 5, 6], "{g:?} {so:?}");
+        }
+    }
+    let n = ArticleGroup::None;
+    assert_eq!(order(&s, n, ArticleSort::Newest, 100), vec![6, 5, 4, 3, 2, 1]);
+    assert_eq!(order(&s, n, ArticleSort::Oldest, 100), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(order(&s, n, ArticleSort::Shortest, 100), vec![2, 3, 4, 6, 5, 1]);
+    assert_eq!(order(&s, n, ArticleSort::Longest, 100), vec![6, 5, 4, 3, 2, 1]);
+    assert_eq!(order(&s, n, ArticleSort::Title, 100), vec![2, 4, 3, 1, 5, 6]);
+    assert_eq!(order(&s, n, ArticleSort::Source, 100), vec![6, 4, 2, 5, 3, 1]);
+    // Unread first: unread (1, 3, 4, 6) before read (2, 5).
+    assert_eq!(order(&s, ArticleGroup::Unread, ArticleSort::Newest, 100), vec![6, 4, 3, 1, 5, 2]);
+    // By source, oldest first inside each source (case-insensitive source order).
+    assert_eq!(order(&s, ArticleGroup::Source, ArticleSort::Oldest, 100), vec![2, 4, 6, 1, 3, 5]);
+}
+
+#[test]
+fn published_zero_falls_back_to_arrival_time() {
+    let mut s = store();
+    let mut a = rec(1, 5_000_000_000, &[]);
+    a.published = 0;
+    let mut b = rec(2, 1_000_000, &[]);
+    b.published = 4000;
+    for r in [&a, &b] {
+        let seq = s.seq().unwrap();
+        s.upsert_article(r, seq).unwrap();
+    }
+    // Arrival time 5000 s beats published 4000.
+    assert_eq!(order(&s, ArticleGroup::None, ArticleSort::Newest, 100), vec![1, 2]);
+}

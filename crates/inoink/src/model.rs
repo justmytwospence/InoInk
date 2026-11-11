@@ -245,6 +245,131 @@ pub struct ArticleSummary {
     pub words: u32,
 }
 
+impl ArticleSummary {
+    /// Publish time, or arrival time when the feed gave none. Matches the SQL ordering key.
+    pub fn sort_time(&self) -> i64 {
+        if self.published > 0 {
+            self.published
+        } else {
+            self.timestamp_usec / 1_000_000
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArticleSort {
+    #[default]
+    Newest,
+    Oldest,
+    Shortest,
+    Longest,
+    Title,
+    Source,
+}
+
+impl ArticleSort {
+    pub const ALL: [ArticleSort; 6] =
+        [ArticleSort::Newest, ArticleSort::Oldest, ArticleSort::Shortest, ArticleSort::Longest, ArticleSort::Title, ArticleSort::Source];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ArticleSort::Newest => "Newest first",
+            ArticleSort::Oldest => "Oldest first",
+            ArticleSort::Shortest => "Shortest first",
+            ArticleSort::Longest => "Longest first",
+            ArticleSort::Title => "Title A\u{2013}Z",
+            ArticleSort::Source => "Source A\u{2013}Z",
+        }
+    }
+
+    pub fn short(self) -> &'static str {
+        match self {
+            ArticleSort::Newest => "Newest",
+            ArticleSort::Oldest => "Oldest",
+            ArticleSort::Shortest => "Shortest",
+            ArticleSort::Longest => "Longest",
+            ArticleSort::Title => "Title",
+            ArticleSort::Source => "Source",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArticleGroup {
+    #[default]
+    None,
+    Unread,
+    Source,
+}
+
+impl ArticleGroup {
+    pub const ALL: [ArticleGroup; 3] = [ArticleGroup::None, ArticleGroup::Unread, ArticleGroup::Source];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ArticleGroup::None => "No grouping",
+            ArticleGroup::Unread => "Unread first",
+            ArticleGroup::Source => "By source",
+        }
+    }
+
+    /// The header an item falls under, if this grouping has headers.
+    pub fn header(self, item: &ArticleSummary) -> Option<String> {
+        match self {
+            ArticleGroup::None => None,
+            ArticleGroup::Unread => Some(if item.read { "Read" } else { "Unread" }.to_string()),
+            ArticleGroup::Source => Some(if item.source.is_empty() { "Unknown source".to_string() } else { item.source.clone() }),
+        }
+    }
+}
+
+/// How one list is grouped (primary order) and sorted (secondary order).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewOptions {
+    pub group: ArticleGroup,
+    pub sort: ArticleSort,
+}
+
+impl ViewOptions {
+    pub fn default_for(c: &Collection) -> ViewOptions {
+        match c {
+            Collection::Starred => ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest },
+            Collection::Folder(_) => ViewOptions { group: ArticleGroup::Source, sort: ArticleSort::Newest },
+            _ => ViewOptions::default(),
+        }
+    }
+
+    /// What is actually applied: no "unread first" when only unread is shown, and no source
+    /// sort inside a source grouping.
+    pub fn effective(self, unread_only: bool, c: &Collection) -> ViewOptions {
+        let mut v = self;
+        if v.group == ArticleGroup::Unread && (unread_only || matches!(c, Collection::Unread)) {
+            v.group = ArticleGroup::None;
+        }
+        if v.group == ArticleGroup::Source && v.sort == ArticleSort::Source {
+            v.sort = ArticleSort::Newest;
+        }
+        v
+    }
+}
+
+/// Keyset position: the values of the last item shown, in every field an order can use.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Cursor {
+    pub read: bool,
+    pub source: String,
+    pub title: String,
+    pub time: i64,
+    pub words: u32,
+    pub id: ArticleId,
+}
+
+impl From<&ArticleSummary> for Cursor {
+    fn from(a: &ArticleSummary) -> Cursor {
+        Cursor { read: a.read, source: a.source.clone(), title: a.title.clone(), time: a.sort_time(), words: a.words, id: a.id }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ArticleQuery {
     pub collection: Option<Collection>,
@@ -252,14 +377,16 @@ pub struct ArticleQuery {
     /// Full-text query over downloaded articles.
     pub search: Option<String>,
     pub limit: usize,
-    /// Keyset cursor: continue strictly after (timestamp_usec, id) in newest-first order.
-    pub after: Option<(i64, ArticleId)>,
+    pub group: ArticleGroup,
+    pub sort: ArticleSort,
+    /// Keyset cursor: continue strictly after this item in the query's order.
+    pub after: Option<Cursor>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArticlePage {
     pub items: Vec<ArticleSummary>,
-    pub next: Option<(i64, ArticleId)>,
+    pub next: Option<Cursor>,
 }
 
 /// Position inside an article's published content version.
@@ -320,5 +447,44 @@ mod tests {
         assert_eq!(StreamId::new("user/1005921515/label/MTB").0, "user/-/label/MTB");
         assert_eq!(Membership::from_tag_id("user/1005921515/state/com.google/starred"), Some(Membership::Starred));
         assert_eq!(Membership::from_key("label:a b").unwrap().tag_id(), "user/-/label/a b");
+    }
+}
+
+#[cfg(test)]
+mod view_option_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_per_view() {
+        assert_eq!(ViewOptions::default_for(&Collection::Starred), ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest });
+        assert_eq!(ViewOptions::default_for(&Collection::Folder("x".into())).group, ArticleGroup::Source);
+        assert_eq!(ViewOptions::default_for(&Collection::All), ViewOptions::default());
+    }
+
+    #[test]
+    fn effective_options_drop_redundant_choices() {
+        let v = ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest };
+        assert_eq!(v.effective(true, &Collection::All).group, ArticleGroup::None);
+        assert_eq!(v.effective(false, &Collection::Unread).group, ArticleGroup::None);
+        assert_eq!(v.effective(false, &Collection::All).group, ArticleGroup::Unread);
+        let s = ViewOptions { group: ArticleGroup::Source, sort: ArticleSort::Source };
+        assert_eq!(s.effective(false, &Collection::All).sort, ArticleSort::Newest);
+    }
+
+    #[test]
+    fn empty_source_has_a_header() {
+        let a = ArticleSummary {
+            id: ArticleId(1),
+            title: String::new(),
+            source: String::new(),
+            published: 0,
+            timestamp_usec: 0,
+            read: false,
+            starred: false,
+            download: DownloadState::NotDownloaded,
+            words: 0,
+        };
+        assert_eq!(ArticleGroup::Source.header(&a).as_deref(), Some("Unknown source"));
+        assert_eq!(ArticleGroup::Unread.header(&a).as_deref(), Some("Unread"));
     }
 }

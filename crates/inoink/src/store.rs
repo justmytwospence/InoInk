@@ -585,10 +585,68 @@ impl Store {
                 None => return Ok(ArticlePage { items: vec![], next: None }),
             }
         }
-        if let Some((ts, id)) = q.after {
-            push(&mut sql, "(a.timestamp_usec, a.id) < (?, ?)", vec![ts.into(), id.to_db().into()]);
+        // Ordering: group keys first, then the sort keys, then the id. Each key is
+        // (expression, descending, the cursor's value for it).
+        let opts = ViewOptions { group: q.group, sort: q.sort }.effective(q.unread_only, q.collection.as_ref().unwrap_or(&Collection::All));
+        let read_expr = flag_expr("read");
+        let time_expr = "CASE WHEN a.published > 0 THEN a.published ELSE a.timestamp_usec / 1000000 END".to_string();
+        let src_expr = "a.origin_title COLLATE NOCASE".to_string();
+        let title_expr = "a.title COLLATE NOCASE".to_string();
+        type Key = (String, bool, Option<rusqlite::types::Value>);
+        let cur = q.after.as_ref();
+        let int = |v: i64| Some(rusqlite::types::Value::Integer(v));
+        let mut keys: Vec<Key> = Vec::new();
+        match opts.group {
+            ArticleGroup::None => {}
+            ArticleGroup::Unread => keys.push((read_expr.clone(), false, cur.and_then(|c| int(c.read as i64)))),
+            ArticleGroup::Source => keys.push((src_expr.clone(), false, cur.map(|c| c.source.clone().into()))),
         }
-        sql.push_str(" ORDER BY a.timestamp_usec DESC, a.id DESC LIMIT ?");
+        let time_key = |desc: bool| -> Key { (time_expr.clone(), desc, cur.and_then(|c| int(c.time))) };
+        let unknown_key = || -> Key { ("(a.words = 0)".to_string(), false, cur.and_then(|c| int((c.words == 0) as i64))) };
+        let words_key = |desc: bool| -> Key { ("a.words".to_string(), desc, cur.and_then(|c| int(c.words as i64))) };
+        match opts.sort {
+            ArticleSort::Newest => keys.push(time_key(true)),
+            ArticleSort::Oldest => keys.push(time_key(false)),
+            ArticleSort::Shortest => {
+                keys.push(unknown_key());
+                keys.push(words_key(false));
+                keys.push(time_key(true));
+            }
+            ArticleSort::Longest => {
+                keys.push(unknown_key());
+                keys.push(words_key(true));
+                keys.push(time_key(true));
+            }
+            ArticleSort::Title => {
+                keys.push((title_expr.clone(), false, cur.map(|c| c.title.clone().into())));
+                keys.push(time_key(true));
+            }
+            ArticleSort::Source => {
+                keys.push((src_expr.clone(), false, cur.map(|c| c.source.clone().into())));
+                keys.push(time_key(true));
+            }
+        }
+        keys.push(("a.id".to_string(), true, cur.and_then(|c| int(c.id.to_db()))));
+        if cur.is_some() {
+            let mut alternatives = Vec::new();
+            let mut vals: Vec<rusqlite::types::Value> = Vec::new();
+            for i in 0..keys.len() {
+                let mut parts = Vec::new();
+                for (expr, _, v) in &keys[..i] {
+                    parts.push(format!("{expr} = ?"));
+                    vals.push(v.clone().unwrap_or(rusqlite::types::Value::Null));
+                }
+                let (expr, desc, v) = &keys[i];
+                parts.push(format!("{expr} {} ?", if *desc { "<" } else { ">" }));
+                vals.push(v.clone().unwrap_or(rusqlite::types::Value::Null));
+                alternatives.push(format!("({})", parts.join(" AND ")));
+            }
+            push(&mut sql, &format!("({})", alternatives.join(" OR ")), vals);
+        }
+        let order: Vec<String> = keys.iter().map(|(e, d, _)| format!("{e} {}", if *d { "DESC" } else { "ASC" })).collect();
+        sql.push_str(" ORDER BY ");
+        sql.push_str(&order.join(", "));
+        sql.push_str(" LIMIT ?");
         args.push((limit as i64 + 1).into());
         // Bare `?` placeholders are numbered after `?1`, so `args` binds in order.
         let mut stmt = self.conn.prepare(&sql)?;
@@ -609,7 +667,7 @@ impl Store {
         }
         let next = if items.len() > limit {
             items.truncate(limit);
-            items.last().map(|l| (l.timestamp_usec, l.id))
+            items.last().map(Cursor::from)
         } else {
             None
         };
