@@ -78,7 +78,7 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
         ArticleAction::ToggleBroadcast => flag_action(context, id, Membership::Broadcast),
         ArticleAction::AddTag(name) | ArticleAction::RemoveTag(name) => {
             let name = name.trim();
-            if name.is_empty() || name.contains('/') && name.starts_with("user/") {
+            if name.is_empty() || name.starts_with("user/") || name.chars().any(|c| c.is_control()) {
                 return Err("Enter a tag name".into());
             }
             let add = matches!(action, ArticleAction::AddTag(_));

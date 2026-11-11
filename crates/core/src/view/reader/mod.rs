@@ -2878,6 +2878,11 @@ impl Reader {
                     }
                 }
                 if outcome.close {
+                    // Back sent through the hub bypasses this view, so settle first.
+                    self.quit(context);
+                    if let Some(a) = self.article.clone() {
+                        crate::view::inoink::actions::release_article(context, a.id, a.version);
+                    }
                     hub.send(Event::Back).ok();
                 }
             }
