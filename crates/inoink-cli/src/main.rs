@@ -70,28 +70,51 @@ fn read_secret() -> Result<String> {
     Ok(s)
 }
 
-/// Waits for the browser redirect on a loopback address, or asks for the pasted callback URL.
+/// Waits for the browser redirect on a loopback address and, at the same time, accepts the
+/// redirected address pasted into the terminal. Whichever arrives first wins.
 fn receive_callback(redirect_uri: &str) -> Result<String> {
     let url = url::Url::parse(redirect_uri).map_err(|_| Error::InvalidRequest("bad redirect URI".into()))?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
     let loopback = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port().is_some();
     if loopback {
-        let listener = TcpListener::bind(("127.0.0.1", url.port().unwrap()))
-            .map_err(|e| Error::Io(format!("cannot listen on the redirect port: {e}")))?;
-        eprintln!("Waiting for the browser redirect on {redirect_uri} ...");
-        let (mut stream, _) = listener.accept()?;
-        let mut reader = std::io::BufReader::new(stream.try_clone()?);
-        let mut first = String::new();
-        reader.read_line(&mut first)?;
-        let _ = stream.write_all(
-            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n",
-        );
-        let path = first.split_whitespace().nth(1).unwrap_or("");
-        return Ok(format!("{}://{}{}", url.scheme(), url.host_str().unwrap_or("localhost"), path));
+        match TcpListener::bind(("127.0.0.1", url.port().unwrap())) {
+            Ok(listener) => {
+                let tx = tx.clone();
+                let base = format!("{}://{}", url.scheme(), url.host_str().unwrap_or("localhost"));
+                std::thread::spawn(move || {
+                    for stream in listener.incoming() {
+                        let Ok(mut stream) = stream else { continue };
+                        let mut reader = std::io::BufReader::new(match stream.try_clone() {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        });
+                        let mut first = String::new();
+                        if reader.read_line(&mut first).is_err() {
+                            continue;
+                        }
+                        let path = first.split_whitespace().nth(1).unwrap_or("").to_string();
+                        if !path.contains("code=") && !path.contains("error=") {
+                            // Favicon and other stray requests.
+                            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+                            continue;
+                        }
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n");
+                        let _ = tx.send(format!("{base}{path}"));
+                        break;
+                    }
+                });
+            }
+            Err(e) => eprintln!("(Could not listen on the redirect port: {e}. Paste the address instead.)"),
+        }
     }
-    eprintln!("After approving, paste the full address you were redirected to:");
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        if std::io::stdin().lock().read_line(&mut line).is_ok() && line.contains("code=") {
+            let _ = tx.send(line.trim().to_string());
+        }
+    });
+    eprintln!("Waiting for the browser to return here. If it does not, paste the address it ended on and press Enter:");
+    rx.recv().map_err(|_| Error::InvalidRequest("no authorization was received".into()))
 }
 
 fn authorize(args: &[String]) -> Result<()> {
@@ -110,7 +133,9 @@ fn authorize(args: &[String]) -> Result<()> {
     let secret = read_secret()?;
     let cfg = AppConfig::new(&client_id, &secret, &redirect);
     let state = random_hex(16)?;
-    println!("Open this address in a browser and approve access:\n\n  {}\n", authorize_url(&cfg, &state, &scope));
+    let consent = authorize_url(&cfg, &state, &scope);
+    println!("Approve access in the browser. If it does not open, open this address:\n\n  {consent}\n");
+    let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(&consent).status();
     let callback = receive_callback(&redirect)?;
     let code = parse_callback(&callback, &state)?;
     let transport = UreqTransport::new();
