@@ -214,6 +214,10 @@ impl View for TextPanel {
         self.id
     }
 
+    fn is_background(&self) -> bool {
+        true
+    }
+
     fn view_id(&self) -> Option<ViewId> {
         Some(ViewId::TextPanel)
     }

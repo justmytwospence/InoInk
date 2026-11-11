@@ -26,6 +26,7 @@ use plato_core::gesture::{GestureEvent, gesture_events};
 use plato_core::helpers::{load_toml, save_toml};
 use plato_core::settings::{ButtonScheme, Settings, settings_path, RotationLock, IntermKind};
 use plato_core::frontlight::{Frontlight, StandardFrontlight, NaturalFrontlight, PremixedFrontlight};
+use plato_core::frontlight::edge_slide::EdgeSlide;
 use plato_core::lightsensor::{LightSensor, KoboLightSensor};
 use plato_core::battery::{Battery, KoboBattery};
 use plato_core::geom::{Rectangle, DiagDir, Region};
@@ -365,6 +366,7 @@ pub fn run() -> Result<(), Error> {
         context.frontlight.set_warmth(0.0);
     }
 
+    let mut edge_slide = EdgeSlide::default();
     let mut tasks: Vec<Task> = Vec::new();
     let mut history: Vec<HistoryItem> = Vec::new();
     let mut rq = RenderQueue::new();
@@ -387,6 +389,17 @@ pub fn run() -> Result<(), Error> {
     while let Ok(evt) = rx.recv() {
         match evt {
             Event::Device(de) => {
+                if let DeviceEvent::Finger { id, status, position, .. } = de {
+                    if !context.shared && !context.covered {
+                        let intensity = context.frontlight.levels().intensity;
+                        if let Some(v) = edge_slide.feed(id, status, position, context.fb.rect(), intensity) {
+                            if !context.settings.frontlight {
+                                context.set_frontlight(true);
+                            }
+                            context.frontlight.set_intensity(v);
+                        }
+                    }
+                }
                 match de {
                     DeviceEvent::Button { code: ButtonCode::Power, status: ButtonStatus::Released, .. } => {
                         if context.shared || context.covered {
@@ -728,6 +741,9 @@ pub fn run() -> Result<(), Error> {
                 Command::new("scripts/usb-enable.sh").status().ok();
             },
             Event::Gesture(ge) => {
+                if edge_slide.swallows(&ge) {
+                    continue;
+                }
                 match ge {
                     GestureEvent::HoldButtonLong(ButtonCode::Power) => {
                         power_off(view.as_mut(), &mut history, &mut updating, &mut context);

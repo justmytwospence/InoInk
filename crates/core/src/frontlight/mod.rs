@@ -1,6 +1,7 @@
 mod standard;
 mod natural;
 mod premixed;
+pub mod edge_slide;
 
 use serde::{Serialize, Deserialize};
 pub use self::standard::StandardFrontlight;
