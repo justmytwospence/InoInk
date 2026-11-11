@@ -42,8 +42,20 @@ pub struct HtmlDocument {
 }
 
 impl ResourceFetcher for PathBuf {
+    /// Reads a resource strictly inside the document root: absolute paths, `..` and symlinks
+    /// that leave the root are refused.
     fn fetch(&mut self, name: &str) -> Result<Vec<u8>, Error> {
-        let mut file = File::open(self.join(name))?;
+        use std::path::Component;
+        let rel = Path::new(name);
+        if rel.is_absolute() || rel.components().any(|c| matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir)) {
+            return Err(anyhow::format_err!("resource outside the document root"));
+        }
+        let root = fs::canonicalize(&*self)?;
+        let full = fs::canonicalize(root.join(rel))?;
+        if !full.starts_with(&root) {
+            return Err(anyhow::format_err!("resource outside the document root"));
+        }
+        let mut file = File::open(full)?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
         Ok(buf)
@@ -348,6 +360,24 @@ impl Document for HtmlDocument {
         Some((self.pages[page_index].iter().filter_map(|dc| {
             match dc {
                 DrawCommand::Image(ImageCommand { rect, .. }) => Some((*rect).into()),
+                _ => None,
+            }
+        }).collect(), offset))
+    }
+
+    fn image_sources(&mut self, loc: Location) -> Option<(Vec<BoundedText>, usize)> {
+        let offset = self.resolve_location(loc)?;
+        let page_index = self.page_index(offset)?;
+
+        Some((self.pages[page_index].iter().filter_map(|dc| {
+            match dc {
+                DrawCommand::Image(ImageCommand { path, rect, offset, .. }) if !path.is_empty() => {
+                    Some(BoundedText {
+                        text: path.clone(),
+                        rect: (*rect).into(),
+                        location: TextLocation::Dynamic(*offset),
+                    })
+                },
                 _ => None,
             }
         }).collect(), offset))

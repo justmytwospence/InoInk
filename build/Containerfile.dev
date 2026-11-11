@@ -1,0 +1,26 @@
+# Desktop development and test image: Linux, system libraries, MuPDF 1.27.0 from source.
+# Used by scripts/test-inoink.sh and scripts/build-inoink.sh --target desktop.
+FROM rust:1.99.1-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential pkg-config ca-certificates curl wget unzip xz-utils jq patchelf git \
+      libfreetype-dev libharfbuzz-dev libdjvulibre-dev libgumbo-dev libjbig2dec0-dev \
+      libopenjp2-7-dev libjpeg-dev libpng-dev zlib1g-dev libbz2-dev libsdl2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG MUPDF_URL=https://casper.mupdf.com/downloads/archive/mupdf-1.27.0-source.tar.gz
+RUN mkdir -p /opt/mupdf-src /opt/mupdf/lib && cd /opt/mupdf-src \
+ && curl -fsSL -o mupdf.tgz "$MUPDF_URL" \
+ && echo "ae2442416de499182d37a526c6fa2bacc7a3bed5a888d113ca04844484dfe7c6  mupdf.tgz" | sha256sum -c - \
+ && tar -xzf mupdf.tgz --strip-components 1 && rm mupdf.tgz \
+ && make -j"$(nproc)" verbose=no generate \
+ && make -j"$(nproc)" verbose=no XCFLAGS="-fPIC -DTOFU_CJK_LANG -DTOFU_CJK_EXT -DFZ_ENABLE_ICC=0 -DFZ_ENABLE_SPOT_RENDERING=0 -DFZ_ENABLE_ODT_OUTPUT=0 -DFZ_ENABLE_OCR_OUTPUT=0" mujs=no tesseract=no extract=no archive=no brotli=no barcode=no commercial=no USE_SYSTEM_LIBS=yes build=release libs \
+ && gcc -Wl,--gc-sections -o /opt/mupdf/lib/libmupdf.so \
+      $(find build/release -name '*.o' | grep -Ev '(SourceHanSerif-Regular|DroidSansFallbackFull|NotoSerifTangut|color-lcms)') \
+      -lm -lfreetype -lharfbuzz -lgumbo -ljbig2dec -ljpeg -lopenjp2 -lz -shared -Wl,-soname -Wl,libmupdf.so \
+ && ar rcs /opt/mupdf/lib/libmupdf-third.a \
+ && cp -r include /opt/mupdf/include \
+ && cd / && rm -rf /opt/mupdf-src
+
+ENV LIBRARY_PATH=/opt/mupdf/lib LD_LIBRARY_PATH=/opt/mupdf/lib CARGO_HOME=/cargo-cache CARGO_TARGET_DIR=/src/target/linux
+WORKDIR /src

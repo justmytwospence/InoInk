@@ -8,6 +8,7 @@ edition = "2021"
 crate-type = ["rlib"]
 
 [dependencies]
+inoink = { path = "../inoink" }
 bitflags = "2.10.0"
 downcast-rs = "2.0.2"
 lazy_static = "1.5.0"

@@ -3,7 +3,6 @@ use std::thread;
 use std::fs::File;
 use std::sync::mpsc;
 use std::collections::VecDeque;
-use std::path::Path;
 use std::time::Duration;
 use plato_core::anyhow::{Error, Context as ResultExt};
 use plato_core::chrono::Local;
@@ -19,7 +18,10 @@ use plato_core::input::{DeviceEvent, FingerStatus, ButtonCode, ButtonStatus};
 use plato_core::document::sys_info_as_html;
 use plato_core::view::{View, Event, ViewId, EntryId, AppCmd, EntryKind};
 use plato_core::view::{process_render_queue, wait_for_all, handle_event, RenderQueue, RenderData};
-use plato_core::view::home::Home;
+use plato_core::view::inoink::home::InoInkHome;
+use plato_core::view::inoink::actions::{open_article, OpenResult};
+use plato_core::view::inoink::image_view::ImageView;
+use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
 use plato_core::view::notification::Notification;
 use plato_core::view::dialog::Dialog;
@@ -28,13 +30,12 @@ use plato_core::view::menu::{Menu, MenuKind};
 use plato_core::view::intermission::Intermission;
 use plato_core::view::dictionary::Dictionary;
 use plato_core::view::calculator::Calculator;
-use plato_core::view::sketch::Sketch;
 use plato_core::view::touch_events::TouchEvents;
 use plato_core::view::rotation_values::RotationValues;
 use plato_core::view::common::{locate, locate_by_id, transfer_notifications, overlapping_rectangle};
 use plato_core::view::common::{toggle_input_history_menu, toggle_keyboard_layout_menu};
 use plato_core::helpers::{load_toml, save_toml};
-use plato_core::settings::{Settings, SETTINGS_PATH, IntermKind};
+use plato_core::settings::{Settings, settings_path, IntermKind};
 use plato_core::geom::{Rectangle, Axis};
 use plato_core::color::Color;
 use plato_core::gesture::{GestureEvent, gesture_events};
@@ -42,28 +43,52 @@ use plato_core::device::CURRENT_DEVICE;
 use plato_core::battery::{Battery, FakeBattery};
 use plato_core::frontlight::{Frontlight, LightLevels};
 use plato_core::lightsensor::LightSensor;
-use plato_core::library::Library;
 use plato_core::font::Fonts;
 use plato_core::context::Context;
 use plato_core::pt;
 use plato_core::png;
 
-pub const APP_NAME: &str = "Plato";
+pub const APP_NAME: &str = "InoInk";
 const DEFAULT_ROTATION: i8 = 1;
 
 const CLOCK_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
-pub fn build_context(fb: Box<dyn Framebuffer>) -> Result<Context, Error> {
-    let settings = load_toml::<Settings, _>(SETTINGS_PATH)?;
-    let library_settings = &settings.libraries[settings.selected_library];
-    let library = Library::new(&library_settings.path, library_settings.mode)?;
+pub struct Options {
+    data: Option<String>,
+    online: bool,
+    tour: bool,
+    shots: Option<String>,
+}
+
+fn parse_options() -> Options {
+    let mut o = Options { data: None, online: false, tour: false, shots: None };
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--data" => o.data = args.next(),
+            "--online" => o.online = true,
+            "--scripted-tour" => o.tour = true,
+            "--screenshots" => o.shots = args.next(),
+            _ => {}
+        }
+    }
+    o
+}
+
+pub fn build_context(fb: Box<dyn Framebuffer>, opts: &Options, hub: &mpsc::Sender<Event>) -> Result<Context, Error> {
+    let path = settings_path();
+    let mut settings = if path.exists() { load_toml::<Settings, _>(&path)? } else { Settings::default() };
+    if let Some(d) = &opts.data {
+        settings.inoink.data_dir = d.into();
+    }
+    let inoink = InoInk::open(&settings.inoink, hub.clone(), opts.online).map_err(|e| plato_core::anyhow::format_err!("{}", e))?;
 
     let battery = Box::new(FakeBattery::new()) as Box<dyn Battery>;
     let frontlight = Box::new(LightLevels::default()) as Box<dyn Frontlight>;
     let lightsensor = Box::new(0u16) as Box<dyn LightSensor>;
     let fonts = Fonts::load()?;
 
-    Ok(Context::new(fb, None, library, settings,
+    Ok(Context::new(fb, None, inoink, settings,
                     fonts, battery, frontlight, lightsensor))
 }
 
@@ -241,16 +266,13 @@ fn main() -> Result<(), Error> {
     let mut fb = window.into_canvas().software().build().unwrap();
     fb.set_blend_mode(BlendMode::Blend);
 
-    let mut context = build_context(Box::new(FBCanvas(fb)))?;
-
-    if context.settings.import.startup_trigger {
-        context.batch_import();
-    }
+    let opts = parse_options();
+    let (tx, rx) = mpsc::channel();
+    let mut context = build_context(Box::new(FBCanvas(fb)), &opts, &tx)?;
 
     context.load_dictionaries();
     context.load_keyboard_layouts();
 
-    let (tx, rx) = mpsc::channel();
     let (ty, ry) = mpsc::channel();
     let touch_screen = gesture_events(ry);
 
@@ -271,8 +293,12 @@ fn main() -> Result<(), Error> {
 
     let mut history: Vec<Box<dyn View>> = Vec::new();
     let mut rq = RenderQueue::new();
-    let mut view: Box<dyn View> = Box::new(Home::new(context.fb.rect(), &tx,
-                                                     &mut rq, &mut context)?);
+    let mut view: Box<dyn View> = Box::new(InoInkHome::new(context.fb.rect(), &tx, &mut rq, &mut context));
+    let mut tour = if opts.tour { scripted_tour(context.fb.rect()) } else { VecDeque::new() };
+    let mut tour_next = std::time::Instant::now() + Duration::from_millis(800);
+    if let Some(dir) = &opts.shots {
+        std::fs::create_dir_all(dir).ok();
+    }
 
     let mut updating = Vec::new();
 
@@ -397,6 +423,56 @@ fn main() -> Result<(), Error> {
 
         while let Ok(evt) = rx.recv_timeout(Duration::from_millis(20)) {
             match evt {
+                Event::OpenArticle(id) => {
+                    view.children_mut().retain(|child| !child.is::<Menu>());
+                    match open_article(&mut context, id) {
+                        OpenResult::Ready(article) => {
+                            if let Some(r) = Reader::new_article(context.fb.rect(), &article, &tx, &mut context) {
+                                let mut next_view = Box::new(r) as Box<dyn View>;
+                                transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                                history.push(view as Box<dyn View>);
+                                view = next_view;
+                            } else {
+                                plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
+                                handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
+                            }
+                        },
+                        OpenResult::Fetching => {
+                            let notif = Notification::new("Downloading the article".to_string(), &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        },
+                        OpenResult::Unavailable(why) => {
+                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
+                        },
+                    }
+                },
+                Event::OpenDetails(id) => {
+                    view.children_mut().retain(|child| !child.is::<Menu>());
+                    let html = context.inoink.store().and_then(|s| s.article_record(id).ok().flatten().map(|r| plato_core::view::inoink::details::details_html(s, id, &r)));
+                    if let Some(html) = html {
+                        let r = Reader::from_html(context.fb.rect(), &html, None, &tx, &mut context);
+                        let mut next_view = Box::new(r) as Box<dyn View>;
+                        transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                        history.push(view as Box<dyn View>);
+                        view = next_view;
+                    }
+                },
+                Event::OpenImage(ref path) => {
+                    let inside = path.canonicalize().ok().zip(context.inoink.cache.root().canonicalize().ok()).is_some_and(|(p, root)| p.starts_with(root));
+                    if inside {
+                        let iv = ImageView::new(context.fb.rect(), path.clone(), &mut context);
+                        let next_view = Box::new(iv) as Box<dyn View>;
+                        rq.add(RenderData::new(next_view.id(), context.fb.rect(), UpdateMode::Full));
+                        history.push(view as Box<dyn View>);
+                        view = next_view;
+                    }
+                },
+                Event::Sync(ref u) => {
+                    context.inoink.apply(u);
+                    handle_event(view.as_mut(), &evt, &tx, &mut bus, &mut rq, &mut context);
+                },
                 Event::Open(info) => {
                     let rotation = context.display.rotation;
                     if let Some(n) = info.reader.as_ref()
@@ -435,9 +511,6 @@ fn main() -> Result<(), Error> {
                 Event::Select(EntryId::Launch(app_cmd)) => {
                     view.children_mut().retain(|child| !child.is::<Menu>());
                     let mut next_view: Box<dyn View> = match app_cmd {
-                        AppCmd::Sketch => {
-                            Box::new(Sketch::new(context.fb.rect(), &mut rq, &mut context))
-                        },
                         AppCmd::Calculator => {
                             Box::new(Calculator::new(context.fb.rect(), &tx, &mut rq, &mut context)?)
                         },
@@ -458,7 +531,7 @@ fn main() -> Result<(), Error> {
                 Event::Back => {
                     if let Some(v) = history.pop() {
                         view = v;
-                        if view.is::<Home>() {
+                        if view.is::<InoInkHome>() {
                             if context.display.rotation % 2 != 1 {
                                 if let Ok(dims) = context.fb.set_rotation(DEFAULT_ROTATION) {
                                     context.display.rotation = DEFAULT_ROTATION;
@@ -564,12 +637,8 @@ fn main() -> Result<(), Error> {
                     let notif = Notification::new(msg, &tx, &mut rq, &mut context);
                     view.children_mut().push(Box::new(notif) as Box<dyn View>);
                 },
-                Event::Device(DeviceEvent::NetUp) |
-                Event::CheckFetcher(..) |
-                Event::FetcherAddDocument(..) |
-                Event::FetcherRemoveDocument(..) |
-                Event::FetcherSearch { .. } if !view.is::<Home>() => {
-                    if let Some(home) = history.get_mut(0).filter(|view| view.is::<Home>()) {
+                Event::Device(DeviceEvent::NetUp) if !view.is::<InoInkHome>() => {
+                    if let Some(home) = history.get_mut(0).filter(|view| view.is::<InoInkHome>()) {
                         let (tx, _rx) = mpsc::channel();
                         home.handle_event(&evt, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut context);
                     }
@@ -602,6 +671,30 @@ fn main() -> Result<(), Error> {
 
         process_render_queue(view.as_ref(), &mut rq, &mut context, &mut updating);
 
+        // Scripted tour: replays taps and takes screenshots for emulator verification.
+        if !tour.is_empty() && std::time::Instant::now() >= tour_next {
+            match tour.pop_front().unwrap() {
+                TourStep::Wait(ms) => tour_next = std::time::Instant::now() + Duration::from_millis(ms),
+                TourStep::Tap(x, y) => {
+                    tx.send(Event::Gesture(GestureEvent::Tap(pt!(x, y)))).ok();
+                    tour_next = std::time::Instant::now() + Duration::from_millis(900);
+                },
+                TourStep::Send(e) => {
+                    tx.send(e).ok();
+                    tour_next = std::time::Instant::now() + Duration::from_millis(900);
+                },
+                TourStep::Shot(name) => {
+                    if let Some(dir) = &opts.shots {
+                        let path = format!("{}/{}.png", dir, name);
+                        context.fb.save(&path).map_err(|e| eprintln!("screenshot {}: {:#}", path, e)).ok();
+                        println!("screenshot {}", path);
+                    }
+                    tour_next = std::time::Instant::now() + Duration::from_millis(200);
+                },
+                TourStep::Quit => break 'outer,
+            }
+        }
+
         while let Some(ce) = bus.pop_front() {
             tx.send(ce).ok();
         }
@@ -619,10 +712,58 @@ fn main() -> Result<(), Error> {
         context.settings.frontlight_levels = context.frontlight.levels();
     }
 
-    context.library.flush();
+    if let Some(h) = context.inoink.handle.take() {
+        h.shutdown();
+    }
+    if let Some(store) = context.inoink.store() {
+        store.checkpoint().ok();
+    }
 
-    let path = Path::new(SETTINGS_PATH);
-    save_toml(&context.settings, path).context("can't save settings")?;
+    let path = settings_path();
+    save_toml(&context.settings, path.as_path()).context("can't save settings")?;
 
     Ok(())
+}
+
+enum TourStep {
+    Wait(u64),
+    Tap(i32, i32),
+    Send(Event),
+    Shot(&'static str),
+    Quit,
+}
+
+/// A deterministic walk through the list, an article, its menu, details and the image viewer.
+fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
+    use plato_core::geom::CycleDir;
+    let w = rect.width() as i32;
+    let h = rect.height() as i32;
+    let dpi = CURRENT_DEVICE.dpi as f32 / 300.0;
+    let bar = (121.0 * dpi) as i32;
+    let row = (163.0 * dpi) as i32;
+    let first_row_y = bar + row / 2 + 5;
+    let mut t = VecDeque::new();
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("01-list-starred"));
+    t.push_back(TourStep::Tap(w / 2, first_row_y));
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("02-article-first-page"));
+    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
+    t.push_back(TourStep::Shot("03-article-page-2"));
+    t.push_back(TourStep::Tap(w / 2, h / 2));
+    t.push_back(TourStep::Shot("04-article-bar"));
+    t.push_back(TourStep::Tap(w - bar / 2, bar / 2));
+    t.push_back(TourStep::Shot("05-article-menu"));
+    t.push_back(TourStep::Send(Event::Back));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Shot("06-back-to-list"));
+    t.push_back(TourStep::Tap(w / 2, first_row_y + row));
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("07-photo-essay-p1"));
+    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
+    t.push_back(TourStep::Shot("08-photo-essay-p2"));
+    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
+    t.push_back(TourStep::Shot("09-photo-essay-p3"));
+    t.push_back(TourStep::Quit);
+    t
 }

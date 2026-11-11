@@ -225,8 +225,8 @@ fn fixtures(args: &[String]) -> Result<()> {
     std::fs::create_dir_all(&out)?;
     let db = out.join("inoink.db");
     let _ = std::fs::remove_file(&db);
-    let mut store = Store::open(&db, "fixture")?;
-    let cache = Cache::new(&out.join("cache"), "fixture", CacheConfig::default());
+    let mut store = Store::open(&db, "local")?;
+    let cache = Cache::new(&out.join("cache"), "local", CacheConfig::default());
     let feed = "feed/https://blog.example/rss";
     store.replace_subscriptions(&[Subscription { id: feed.into(), title: "Example Blog".into(), url: "https://blog.example/rss".into(), html_url: String::new(), sort_id: String::new(), first_item_usec: 0, folders: vec!["Reading".into()] }])?;
     let base_ts = 1_800_000_000i64;
@@ -262,7 +262,7 @@ fn fixtures(args: &[String]) -> Result<()> {
 
 fn verify_cache(args: &[String]) -> Result<()> {
     let data = PathBuf::from(arg(args, "--data").ok_or_else(|| Error::InvalidRequest("--data is required".into()))?);
-    let account = arg(args, "--account").unwrap_or_else(|| "fixture".into());
+    let account = arg(args, "--account").unwrap_or_else(|| "local".into());
     let db = if data.join("inoink.db").exists() { data.join("inoink.db") } else { data.join("db.sqlite") };
     let store = Store::open(&db, &account)?;
     let cache = Cache::new(&data.join("cache"), &account, CacheConfig::default());

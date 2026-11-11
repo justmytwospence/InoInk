@@ -61,6 +61,11 @@ pub fn transfer_notifications(view1: &mut dyn View, view2: &mut dyn View, rq: &m
 }
 
 pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
+    toggle_main_menu_with(view, rect, enable, Vec::new(), rq, context)
+}
+
+/// Like [`toggle_main_menu`], with `extra` entries above the standard ones.
+pub fn toggle_main_menu_with(view: &mut dyn View, rect: Rectangle, enable: Option<bool>, extra: Vec<EntryKind>, rq: &mut RenderQueue, context: &mut Context) {
     if let Some(index) = locate_by_id(view, ViewId::MainMenu) {
         if let Some(true) = enable {
             return;
@@ -83,14 +88,14 @@ pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<boo
                                            EntryId::Launch(AppCmd::Dictionary { query: "".to_string(), language: "".to_string() })),
                         EntryKind::Command("Calculator".to_string(),
                                            EntryId::Launch(AppCmd::Calculator)),
-                        EntryKind::Command("Sketch".to_string(),
-                                           EntryId::Launch(AppCmd::Sketch)),
                         EntryKind::Separator,
                         EntryKind::Command("Touch Events".to_string(),
                                            EntryId::Launch(AppCmd::TouchEvents)),
                         EntryKind::Command("Rotation Values".to_string(),
                                            EntryId::Launch(AppCmd::RotationValues))];
-        let mut entries = vec![EntryKind::Command("About".to_string(),
+        let base = extra.len();
+        let mut entries = extra;
+        entries.extend(vec![EntryKind::Command("About".to_string(),
                                                   EntryId::About),
                                EntryKind::Command("System Info".to_string(),
                                                   EntryId::SystemInfo),
@@ -107,7 +112,7 @@ pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<boo
                                                   EntryId::TakeScreenshot),
                                EntryKind::Separator,
                                EntryKind::SubMenu("Applications".to_string(), apps),
-                               EntryKind::Separator];
+                               EntryKind::Separator]);
 
         entries.push(EntryKind::Command("Reboot".to_string(), EntryId::Reboot));
         entries.push(EntryKind::Command("Quit".to_string(), EntryId::Quit));
@@ -118,7 +123,7 @@ pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<boo
                 EntryKind::RadioButton(ButtonScheme::Natural.to_string(), EntryId::SetButtonScheme(ButtonScheme::Natural), button_scheme == ButtonScheme::Natural),
                 EntryKind::RadioButton(ButtonScheme::Inverted.to_string(), EntryId::SetButtonScheme(ButtonScheme::Inverted), button_scheme == ButtonScheme::Inverted),
             ];
-            entries.insert(5, EntryKind::SubMenu("Button Scheme".to_string(), button_schemes));
+            entries.insert(base + 5, EntryKind::SubMenu("Button Scheme".to_string(), button_schemes));
         }
 
         if CURRENT_DEVICE.has_gyroscope() {
@@ -130,7 +135,7 @@ pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<boo
                 EntryKind::RadioButton("Landscape".to_string(), EntryId::SetRotationLock(Some(RotationLock::Landscape)), rotation_lock == Some(RotationLock::Landscape)),
                 EntryKind::RadioButton("Ignore".to_string(), EntryId::SetRotationLock(Some(RotationLock::Current)), rotation_lock == Some(RotationLock::Current)),
             ];
-            entries.insert(5, EntryKind::SubMenu("Gyroscope".to_string(), gyro));
+            entries.insert(base + 5, EntryKind::SubMenu("Gyroscope".to_string(), gyro));
         }
 
         let main_menu = Menu::new(rect, ViewId::MainMenu, MenuKind::DropDown, entries, context);

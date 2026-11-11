@@ -35,11 +35,10 @@ pub mod clock;
 pub mod battery;
 pub mod keyboard;
 pub mod key;
-pub mod home;
+pub mod inoink;
 pub mod reader;
 pub mod dictionary;
 pub mod calculator;
-pub mod sketch;
 pub mod touch_events;
 pub mod rotation_values;
 
@@ -62,6 +61,9 @@ use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::input::{DeviceEvent, FingerStatus};
 use crate::gesture::GestureEvent;
 use self::calculator::LineOrigin;
+use self::inoink::actions::{ArticleAction, InoInkEntry};
+use ::inoink::model::ArticleId;
+use ::inoink::runtime::Update;
 use self::key::KeyKind;
 use crate::context::Context;
 
@@ -296,6 +298,13 @@ pub enum Event {
     Keyboard(KeyboardEvent),
     Key(KeyKind),
     Open(Box<Info>),
+    OpenArticle(ArticleId),
+    OpenDetails(ArticleId),
+    ArticleAction(ArticleId, ArticleAction),
+    ArticleChanged(ArticleId),
+    OpenImage(PathBuf),
+    RetryImage(String),
+    Sync(Update),
     OpenHtml(String, Option<String>),
     LoadPixmap(usize),
     Update(UpdateMode),
@@ -368,7 +377,6 @@ pub enum Event {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AppCmd {
-    Sketch,
     Calculator,
     Dictionary {
         query: String,
@@ -408,7 +416,6 @@ pub enum ViewId {
     PresetMenu,
     MarginCropperMenu,
     SearchMenu,
-    SketchMenu,
     RenameDocument,
     RenameDocumentInput,
     GoToPage,
@@ -436,6 +443,12 @@ pub enum ViewId {
     TableOfContents,
     MessageNotif(Id),
     SubMenu(u8),
+    ArticleMenu,
+    ManageMenu,
+    PromptDialog,
+    PromptInput,
+    ConfirmDialog,
+    ImageViewer,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -506,6 +519,7 @@ pub enum EntryKind {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum EntryId {
+    InoInk(InoInkEntry),
     About,
     SystemInfo,
     LoadLibrary(usize),

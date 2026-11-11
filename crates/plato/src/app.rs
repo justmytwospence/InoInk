@@ -17,7 +17,6 @@ use plato_core::view::frontlight::FrontlightWindow;
 use plato_core::view::menu::{Menu, MenuKind};
 use plato_core::view::dictionary::Dictionary as DictionaryApp;
 use plato_core::view::calculator::Calculator;
-use plato_core::view::sketch::Sketch;
 use plato_core::view::touch_events::TouchEvents;
 use plato_core::view::rotation_values::RotationValues;
 use plato_core::document::sys_info_as_html;
@@ -25,23 +24,26 @@ use plato_core::input::{DeviceEvent, PowerSource, ButtonCode, ButtonStatus, VAL_
 use plato_core::input::{raw_events, device_events, usb_events, display_rotate_event, button_scheme_event};
 use plato_core::gesture::{GestureEvent, gesture_events};
 use plato_core::helpers::{load_toml, save_toml};
-use plato_core::settings::{ButtonScheme, Settings, SETTINGS_PATH, RotationLock, IntermKind};
+use plato_core::settings::{ButtonScheme, Settings, settings_path, RotationLock, IntermKind};
 use plato_core::frontlight::{Frontlight, StandardFrontlight, NaturalFrontlight, PremixedFrontlight};
 use plato_core::lightsensor::{LightSensor, KoboLightSensor};
 use plato_core::battery::{Battery, KoboBattery};
 use plato_core::geom::{Rectangle, DiagDir, Region};
-use plato_core::view::home::Home;
+use plato_core::view::inoink::home::InoInkHome;
+use plato_core::view::inoink::actions::{open_article, OpenResult};
+use plato_core::view::inoink::image_view::ImageView;
+use plato_core::view::inoink::state::InoInk;
+use plato_core::inoink::runtime::Lifecycle;
 use plato_core::view::reader::Reader;
 use plato_core::view::dialog::Dialog;
 use plato_core::view::intermission::Intermission;
 use plato_core::view::notification::Notification;
 use plato_core::device::{CURRENT_DEVICE, Orientation, FrontlightKind};
-use plato_core::library::Library;
 use plato_core::font::Fonts;
 use plato_core::rtc::Rtc;
 use plato_core::context::Context;
 
-pub const APP_NAME: &str = "Plato";
+pub const APP_NAME: &str = "InoInk";
 const FB_DEVICE: &str = "/dev/fb0";
 const RTC_DEVICE: &str = "/dev/rtc0";
 const TOUCH_INPUTS: [&str; 5] = ["/dev/input/by-path/platform-2-0010-event",
@@ -84,27 +86,22 @@ struct HistoryItem {
     dithered: bool,
 }
 
-fn build_context(fb: Box<dyn Framebuffer>) -> Result<Context, Error> {
+fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Context, Error> {
     let rtc = Rtc::new(RTC_DEVICE)
                   .map_err(|e| eprintln!("Can't open RTC device: {:#}.", e))
                   .ok();
-    let path = Path::new(SETTINGS_PATH);
+    let path = settings_path();
+    let path = path.as_path();
     let mut settings = if path.exists() {
         load_toml::<Settings, _>(path).context("can't load settings")?
     } else {
         Default::default()
     };
 
-    if settings.libraries.is_empty() {
-        return Err(format_err!("no libraries found"));
+    if let Some(dir) = env::var_os("INOINK_DATA") {
+        settings.inoink.data_dir = dir.into();
     }
-
-    if settings.selected_library >= settings.libraries.len() {
-        settings.selected_library = 0;
-    }
-
-    let library_settings = &settings.libraries[settings.selected_library];
-    let library = Library::new(&library_settings.path, library_settings.mode)?;
+    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
 
     let fonts = Fonts::load().context("can't load fonts")?;
 
@@ -126,7 +123,7 @@ fn build_context(fb: Box<dyn Framebuffer>) -> Result<Context, Error> {
                                         .context("can't create premixed frontlight")?) as Box<dyn Frontlight>,
     };
 
-    Ok(Context::new(fb, rtc, library, settings,
+    Ok(Context::new(fb, rtc, inoink, settings,
                     fonts, battery, frontlight, lightsensor))
 }
 
@@ -156,6 +153,7 @@ fn resume(id: TaskId, tasks: &mut Vec<Task>, view: &mut dyn View, hub: &Sender<E
                     .status()
                     .ok();
         }
+        context.inoink.lifecycle(Lifecycle::Resume);
     }
     if id == TaskId::Suspend || id == TaskId::PrepareSuspend {
         tasks.retain(|task| task.id != TaskId::PrepareSuspend);
@@ -221,13 +219,11 @@ pub fn run() -> Result<(), Error> {
         fb.set_rotation(startup_rotation).ok();
     }
 
-    let mut context = build_context(fb).context("can't build context")?;
+    let (tx, rx) = mpsc::channel();
+    let mut context = build_context(fb, &tx).context("can't build context")?;
 
     context.plugged = context.battery.status().is_ok_and(|v| v[0].is_wired());
 
-    if context.settings.import.startup_trigger {
-        context.batch_import();
-    }
     context.load_dictionaries();
     context.load_keyboard_layouts();
 
@@ -255,7 +251,6 @@ pub fn run() -> Result<(), Error> {
     let touch_screen = gesture_events(device_events(raw_receiver, context.display, context.settings.button_scheme));
     let usb_port = usb_events();
 
-    let (tx, rx) = mpsc::channel();
     let tx2 = tx.clone();
 
     thread::spawn(move || {
@@ -317,8 +312,7 @@ pub fn run() -> Result<(), Error> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut history: Vec<HistoryItem> = Vec::new();
     let mut rq = RenderQueue::new();
-    let mut view: Box<dyn View> = Box::new(Home::new(context.fb.rect(), &tx,
-                                                     &mut rq, &mut context)?);
+    let mut view: Box<dyn View> = Box::new(InoInkHome::new(context.fb.rect(), &tx, &mut rq, &mut context));
 
     let mut updating = Vec::new();
     let current_dir = env::current_dir()?;
@@ -410,10 +404,11 @@ pub fn run() -> Result<(), Error> {
                         let notif = Notification::new(format!("Network is up ({}, {}).", ip, essid),
                                                       &tx, &mut rq, &mut context);
                         context.online = true;
+                        context.inoink.lifecycle(Lifecycle::NetworkUp);
                         view.children_mut().push(Box::new(notif) as Box<dyn View>);
-                        if view.is::<Home>() {
+                        if view.is::<InoInkHome>() {
                             view.handle_event(&evt, &tx, &mut bus, &mut rq, &mut context);
-                        } else if let Some(entry) = history.get_mut(0).filter(|entry| entry.view.is::<Home>()) {
+                        } else if let Some(entry) = history.get_mut(0).filter(|entry| entry.view.is::<InoInkHome>()) {
                             let (tx, _rx) = mpsc::channel();
                             entry.view.handle_event(&evt, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut context);
                         }
@@ -472,8 +467,8 @@ pub fn run() -> Result<(), Error> {
                             env::set_current_dir(&current_dir)
                                 .map_err(|e| eprintln!("Can't set current directory to {}: {:#}.", current_dir.display(), e))
                                 .ok();
-                            let path = Path::new(SETTINGS_PATH);
-                            if let Ok(settings) = load_toml::<Settings, _>(path)
+                            let path = settings_path();
+                            if let Ok(settings) = load_toml::<Settings, _>(path.as_path())
                                                             .map_err(|e| eprintln!("Can't load settings: {:#}.", e)) {
                                 context.settings = settings;
                             }
@@ -495,10 +490,7 @@ pub fn run() -> Result<(), Error> {
                             if Path::new(KOBO_UPDATE_BUNDLE).exists() {
                                 tx.send(Event::Select(EntryId::Reboot)).ok();
                             }
-                            context.library.reload();
-                            if context.settings.import.unshare_trigger {
-                                context.batch_import();
-                            }
+                            context.inoink.usb_unshare();
                             view.handle_event(&Event::Reseed, &tx, &mut bus, &mut rq, &mut context);
                         } else {
                             context.plugged = false;
@@ -564,9 +556,11 @@ pub fn run() -> Result<(), Error> {
             Event::PrepareSuspend => {
                 tasks.retain(|task| task.id != TaskId::PrepareSuspend);
                 wait_for_all(&mut updating, &mut context);
-                let path = Path::new(SETTINGS_PATH);
-                save_toml(&context.settings, path).map_err(|e| eprintln!("Can't save settings: {:#}.", e)).ok();
-                context.library.flush();
+                let path = settings_path();
+                save_toml(&context.settings, path.as_path()).map_err(|e| eprintln!("Can't save settings: {:#}.", e)).ok();
+                // Stop network work and settle the database before the device sleeps.
+                context.inoink.lifecycle(Lifecycle::Suspend);
+                context.inoink.quiesce(Duration::from_secs(3));
 
                 if context.settings.frontlight {
                     context.settings.frontlight_levels = context.frontlight.levels();
@@ -647,10 +641,9 @@ pub fn run() -> Result<(), Error> {
                     }
                     view = item.view;
                 }
-                let path = Path::new(SETTINGS_PATH);
-                save_toml(&context.settings, path)
+                let path = settings_path();
+                save_toml(&context.settings, path.as_path())
                          .map_err(|e| eprintln!("Can't save settings: {:#}.", e)).ok();
-                context.library.flush();
 
                 if context.settings.frontlight {
                     context.settings.frontlight_levels = context.frontlight.levels();
@@ -675,6 +668,7 @@ pub fn run() -> Result<(), Error> {
                 }
 
                 context.shared = true;
+                context.inoink.usb_share();
                 Command::new("scripts/usb-enable.sh").status().ok();
             },
             Event::Gesture(ge) => {
@@ -713,6 +707,77 @@ pub fn run() -> Result<(), Error> {
             Event::ToggleFrontlight => {
                 context.set_frontlight(!context.settings.frontlight);
                 view.handle_event(&Event::ToggleFrontlight, &tx, &mut bus, &mut rq, &mut context);
+            },
+            Event::OpenArticle(id) => {
+                view.children_mut().retain(|child| !child.is::<Menu>());
+                match open_article(&mut context, id) {
+                    OpenResult::Ready(article) => {
+                        let dithered = context.fb.dithered();
+                        context.fb.set_dithered(false);
+                        if let Some(r) = Reader::new_article(context.fb.rect(), &article, &tx, &mut context) {
+                            let mut next_view = Box::new(r) as Box<dyn View>;
+                            transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                            history.push(HistoryItem {
+                                view,
+                                rotation: context.display.rotation,
+                                monochrome: context.fb.monochrome(),
+                                dithered,
+                            });
+                            view = next_view;
+                        } else {
+                            context.fb.set_dithered(dithered);
+                            plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
+                            let notif = Notification::new("This article could not be opened".to_string(), &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
+                        }
+                    },
+                    OpenResult::Fetching => {
+                        let notif = Notification::new("Downloading the article".to_string(), &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    },
+                    OpenResult::Unavailable(why) => {
+                        let notif = Notification::new(why, &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
+                    },
+                }
+            },
+            Event::OpenDetails(id) => {
+                view.children_mut().retain(|child| !child.is::<Menu>());
+                let html = context.inoink.store().and_then(|s| s.article_record(id).ok().flatten().map(|r| plato_core::view::inoink::details::details_html(s, id, &r)));
+                if let Some(html) = html {
+                    let r = Reader::from_html(context.fb.rect(), &html, None, &tx, &mut context);
+                    let mut next_view = Box::new(r) as Box<dyn View>;
+                    transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                    history.push(HistoryItem {
+                        view,
+                        rotation: context.display.rotation,
+                        monochrome: context.fb.monochrome(),
+                        dithered: context.fb.dithered(),
+                    });
+                    view = next_view;
+                }
+            },
+            Event::OpenImage(ref path) => {
+                // Only images inside the cache may be enlarged.
+                let inside = path.canonicalize().ok().zip(context.inoink.cache.root().canonicalize().ok()).is_some_and(|(p, root)| p.starts_with(root));
+                if inside {
+                    let iv = ImageView::new(context.fb.rect(), path.clone(), &mut context);
+                    let next_view = Box::new(iv) as Box<dyn View>;
+                    history.push(HistoryItem {
+                        view,
+                        rotation: context.display.rotation,
+                        monochrome: context.fb.monochrome(),
+                        dithered: context.fb.dithered(),
+                    });
+                    rq.add(RenderData::new(next_view.id(), context.fb.rect(), UpdateMode::Full));
+                    view = next_view;
+                }
+            },
+            Event::Sync(ref u) => {
+                context.inoink.apply(u);
+                handle_event(view.as_mut(), &evt, &tx, &mut bus, &mut rq, &mut context);
             },
             Event::Open(info) => {
                 let rotation = context.display.rotation;
@@ -794,10 +859,6 @@ pub fn run() -> Result<(), Error> {
                 view.children_mut().retain(|child| !child.is::<Menu>());
                 let monochrome = context.fb.monochrome();
                 let mut next_view: Box<dyn View> = match app_cmd {
-                    AppCmd::Sketch => {
-                        context.fb.set_monochrome(true);
-                        Box::new(Sketch::new(context.fb.rect(), &mut rq, &mut context))
-                    },
                     AppCmd::Calculator => Box::new(Calculator::new(context.fb.rect(), &tx, &mut rq, &mut context)?),
                     AppCmd::Dictionary { ref query, ref language } => Box::new(DictionaryApp::new(context.fb.rect(), query,
                                                                                                   language, &tx, &mut rq, &mut context)),
@@ -835,7 +896,7 @@ pub fn run() -> Result<(), Error> {
                         }
                     }
                     view.handle_event(&Event::Reseed, &tx, &mut bus, &mut rq, &mut context);
-                } else if !view.is::<Home>() {
+                } else if !view.is::<InoInkHome>() {
                     break;
                 }
             },
@@ -937,15 +998,6 @@ pub fn run() -> Result<(), Error> {
                 let notif = Notification::new(msg, &tx, &mut rq, &mut context);
                 view.children_mut().push(Box::new(notif) as Box<dyn View>);
             },
-            Event::CheckFetcher(..) |
-            Event::FetcherAddDocument(..) |
-            Event::FetcherRemoveDocument(..) |
-            Event::FetcherSearch { .. } if !view.is::<Home>() => {
-                if let Some(entry) = history.get_mut(0).filter(|entry| entry.view.is::<Home>()) {
-                    let (tx, _rx) = mpsc::channel();
-                    entry.view.handle_event(&evt, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut context);
-                }
-            },
             Event::Notify(msg) => {
                 let notif = Notification::new(msg, &tx, &mut rq, &mut context);
                 view.children_mut().push(Box::new(notif) as Box<dyn View>);
@@ -995,10 +1047,15 @@ pub fn run() -> Result<(), Error> {
         }
     }
 
-    context.library.flush();
+    if let Some(h) = context.inoink.handle.take() {
+        h.shutdown();
+    }
+    if let Some(store) = context.inoink.store() {
+        store.checkpoint().ok();
+    }
 
-    let path = Path::new(SETTINGS_PATH);
-    save_toml(&context.settings, path).context("can't save settings")?;
+    let path = settings_path();
+    save_toml(&context.settings, path.as_path()).context("can't save settings")?;
 
     match exit_status {
         ExitStatus::Reboot => {

@@ -16,6 +16,12 @@ use crate::unit::mm_to_px;
 pub use self::preset::{LightPreset, guess_frontlight};
 
 pub const SETTINGS_PATH: &str = "Settings.toml";
+
+/// Where settings are stored: `INOINK_SETTINGS` if set (the launcher points it into the data
+/// directory so updates keep them), else `Settings.toml` in the working directory.
+pub fn settings_path() -> std::path::PathBuf {
+    std::env::var_os("INOINK_SETTINGS").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(SETTINGS_PATH))
+}
 pub const DEFAULT_FONT_PATH: &str = "/mnt/onboard/fonts";
 pub const INTERNAL_CARD_ROOT: &str = "/mnt/onboard";
 pub const EXTERNAL_CARD_ROOT: &str = "/mnt/sd";
@@ -96,7 +102,6 @@ impl Index<IntermKind> for Intermissions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Settings {
-    pub selected_library: usize,
     pub keyboard_layout: String,
     pub frontlight: bool,
     pub wifi: bool,
@@ -110,21 +115,15 @@ pub struct Settings {
     pub auto_power_off: f32,
     pub time_format: String,
     pub date_format: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub external_urls_queue: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub libraries: Vec<LibrarySettings>,
     pub intermissions: Intermissions,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub frontlight_presets: Vec<LightPreset>,
-    pub home: HomeSettings,
     pub reader: ReaderSettings,
-    pub import: ImportSettings,
     pub dictionary: DictionarySettings,
-    pub sketch: SketchSettings,
     pub calculator: CalculatorSettings,
     pub battery: BatterySettings,
     pub frontlight_levels: LightLevels,
+    pub inoink: InoInkSettings,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -492,39 +491,6 @@ impl Default for BatterySettings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            selected_library: 0,
-            libraries: vec![
-                LibrarySettings {
-                    name: "On Board".to_string(),
-                    path: PathBuf::from(INTERNAL_CARD_ROOT),
-                    hooks: vec![
-                        Hook {
-                            path: PathBuf::from("Articles"),
-                            program: PathBuf::from("bin/article_fetcher/article_fetcher"),
-                            sort_method: Some(SortMethod::Added),
-                            first_column: Some(FirstColumn::TitleAndAuthor),
-                            second_column: Some(SecondColumn::Progress),
-                        }
-                    ],
-                    .. Default::default()
-                },
-                LibrarySettings {
-                    name: "Removable".to_string(),
-                    path: PathBuf::from(EXTERNAL_CARD_ROOT),
-                    .. Default::default()
-                },
-                LibrarySettings {
-                    name: "Dropbox".to_string(),
-                    path: PathBuf::from("/mnt/onboard/.kobo/dropbox"),
-                    .. Default::default()
-                },
-                LibrarySettings {
-                    name: "KePub".to_string(),
-                    path: PathBuf::from("/mnt/onboard/.kobo/kepub"),
-                    .. Default::default()
-                },
-            ],
-            external_urls_queue: Some(PathBuf::from("bin/article_fetcher/urls.txt")),
             keyboard_layout: "English".to_string(),
             frontlight: true,
             wifi: false,
@@ -542,15 +508,42 @@ impl Default for Settings {
                 power_off: PathBuf::from(LOGO_SPECIAL_PATH),
                 share: PathBuf::from(LOGO_SPECIAL_PATH),
             },
-            home: HomeSettings::default(),
             reader: ReaderSettings::default(),
-            import: ImportSettings::default(),
             dictionary: DictionarySettings::default(),
-            sketch: SketchSettings::default(),
             calculator: CalculatorSettings::default(),
             battery: BatterySettings::default(),
             frontlight_levels: LightLevels::default(),
+            inoink: InoInkSettings::default(),
             frontlight_presets: Vec::new(),
+        }
+    }
+}
+
+
+/// InoInk preferences. Credentials are never stored here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct InoInkSettings {
+    /// Where the database, cache and credentials live (default: `data` next to the program).
+    pub data_dir: PathBuf,
+    /// Soft cache budget in MiB.
+    pub cache_budget_mb: u64,
+    /// Unread articles newer than this many days are cached automatically.
+    pub recent_unread_days: i64,
+    /// Folders whose articles are always kept offline.
+    pub pinned_folders: Vec<String>,
+    /// Opening an article never marks it read unless this is set.
+    pub mark_read_on_open: bool,
+}
+
+impl Default for InoInkSettings {
+    fn default() -> Self {
+        InoInkSettings {
+            data_dir: PathBuf::from("data"),
+            cache_budget_mb: 512,
+            recent_unread_days: 30,
+            pinned_folders: Vec::new(),
+            mark_read_on_open: false,
         }
     }
 }

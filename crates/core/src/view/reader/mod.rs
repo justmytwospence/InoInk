@@ -58,6 +58,7 @@ use crate::geom::{Point, Vec2, Rectangle, Boundary, CornerSpec, BorderSpec};
 use crate::geom::{Dir, DiagDir, CycleDir, LinearDir, Axis, Region, halves};
 use crate::color::{BLACK, WHITE};
 use crate::context::Context;
+use inoink::model::{ArticleId, ReadingPosition};
 
 const HISTORY_SIZE: usize = 32;
 const RECT_DIST_JITTER: f32 = 24.0;
@@ -93,6 +94,18 @@ pub struct Reader {
     reflowable: bool,
     ephemeral: bool,
     finished: bool,
+    /// Set when this reader shows an InoInk article (positions go to the database).
+    article: Option<ArticleBinding>,
+    last_checkpoint: std::time::Instant,
+    last_saved_page: usize,
+}
+
+/// The article a reader is showing.
+#[derive(Debug, Clone)]
+pub struct ArticleBinding {
+    pub id: ArticleId,
+    pub version: i64,
+    pub content_hash: String,
 }
 
 #[derive(Debug)]
@@ -240,11 +253,35 @@ fn word_separator(lang: &str) -> &'static str {
 
 impl Reader {
     pub fn new(rect: Rectangle, mut info: Info, hub: &Hub, context: &mut Context) -> Option<Reader> {
+        let path = info.file.path.clone();
+        let doc = open(&path)?;
+        Reader::with_document(rect, info, doc, hub, context)
+    }
+
+    /// Opens a cached InoInk article: the document root is the article's cache directory.
+    pub fn new_article(rect: Rectangle, article: &crate::view::inoink::actions::OpenArticle, hub: &Hub, context: &mut Context) -> Option<Reader> {
+        let mut doc = HtmlDocument::new(&article.path).map_err(|e| eprintln!("{}: {:#}.", article.path.display(), e)).ok()?;
+        doc.set_viewer_stylesheet("css/inoink.css");
+        let mut info = Info {
+            file: FileInfo { path: article.path.clone(), kind: "html".to_string(), size: 0 },
+            .. Default::default()
+        };
+        info.reader = Some(ReaderInfo {
+            current_page: article.offset.unwrap_or(0),
+            font_size: context.inoink.store().and_then(|s| s.position(article.id).ok().flatten()).and_then(|p| p.font_size),
+            .. Default::default()
+        });
+        let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone() };
+        let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
+        reader.article = Some(binding);
+        Some(reader)
+    }
+
+    fn with_document(rect: Rectangle, mut info: Info, doc: Box<dyn Document>, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let id = ID_FEEDER.next();
         let settings = &context.settings;
-        let path = context.library.home.join(&info.file.path);
 
-        open(&path).and_then(|mut doc| {
+        Some(doc).and_then(|mut doc| {
             let (width, height) = context.display.dims;
             let font_size = info.reader.as_ref().and_then(|r| r.font_size)
                                 .unwrap_or(settings.reader.font_size);
@@ -390,6 +427,9 @@ impl Reader {
                 ephemeral: false,
                 reflowable,
                 finished: false,
+                article: None,
+                last_checkpoint: std::time::Instant::now(),
+                last_saved_page: 0,
             })
         })
     }
@@ -455,6 +495,9 @@ impl Reader {
             ephemeral: true,
             reflowable: true,
             finished: false,
+            article: None,
+            last_checkpoint: std::time::Instant::now(),
+            last_saved_page: 0,
         }
     }
 
@@ -1472,6 +1515,11 @@ impl Reader {
     }
 
     fn toggle_bars(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if self.article.is_some() {
+            self.toggle_article_bar(enable, rq, context);
+            return;
+        }
+
         if let Some(top_index) = locate::<TopBar>(self) {
             if let Some(true) = enable {
                 return;
@@ -2627,6 +2675,11 @@ impl Reader {
             return;
         }
 
+        if self.article.is_some() {
+            self.save_article_position(context);
+            return;
+        }
+
         if let Some(ref mut r) = self.info.reader {
             r.current_page = self.current_page;
             r.pages_count = self.pages_count;
@@ -2660,9 +2713,190 @@ impl Reader {
                 r.contrast_exponent = None;
                 r.contrast_gray = None;
             }
-
-            context.library.sync_reader_info(&self.info.file.path, r);
         }
+    }
+
+    /// Writes the reading position (text offset plus a short text anchor) to the database.
+    fn save_article_position(&mut self, context: &mut Context) {
+        let Some(binding) = self.article.clone() else { return };
+        let anchor = {
+            let mut doc = self.doc.lock().unwrap();
+            doc.words(Location::Exact(self.current_page))
+               .map(|(words, _)| words.iter().take(2).map(|w| w.text.clone()).collect::<Vec<_>>().join(" "))
+               .unwrap_or_default()
+        };
+        let font_size = self.info.reader.as_ref().and_then(|r| r.font_size);
+        let pos = ReadingPosition { content_hash: binding.content_hash, offset: self.current_page as u64, anchor, font_size };
+        if let Some(store) = context.inoink.store_mut() {
+            let _ = store.save_position(binding.id, &pos);
+        }
+        self.last_checkpoint = std::time::Instant::now();
+        self.last_saved_page = self.current_page;
+    }
+
+    /// Saves the position after page turns, at most every few seconds, so an interruption
+    /// never loses a whole session.
+    fn checkpoint_position(&mut self, context: &mut Context) {
+        if self.article.is_some() && self.current_page != self.last_saved_page && self.last_checkpoint.elapsed() >= std::time::Duration::from_secs(4) {
+            self.save_article_position(context);
+        }
+    }
+
+    // ---- InoInk article chrome and actions ------------------------------------------------
+
+    fn article_title(&self, context: &Context) -> String {
+        let id = self.article.as_ref().map(|a| a.id);
+        id.and_then(|id| context.inoink.store().and_then(|s| s.article_record(id).ok().flatten())).map(|r| r.title).unwrap_or_default()
+    }
+
+    fn toggle_article_bar(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::article_bar::ArticleBar;
+        if let Some(index) = locate::<ArticleBar>(self) {
+            if let Some(true) = enable {
+                return;
+            }
+            let mut rect = *self.child(index).rect();
+            rect.absorb(self.child(index + 1).rect());
+            self.children.drain(index..=index + 1);
+            rq.add(RenderData::expose(rect, UpdateMode::Gui));
+        } else {
+            if let Some(false) = enable {
+                return;
+            }
+            let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+            let dpi = CURRENT_DEVICE.dpi;
+            let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
+            let (small_thickness, big_thickness) = halves(thickness);
+            let small_height = scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32;
+            let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+            let title = self.article_title(context);
+            let bar = ArticleBar::new(rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + small_height - small_thickness], id, title, starred, context);
+            let separator = Filler::new(rect![self.rect.min.x, self.rect.min.y + small_height - small_thickness, self.rect.max.x, self.rect.min.y + small_height + big_thickness], BLACK);
+            rq.add(RenderData::new(bar.id(), *bar.rect(), UpdateMode::Gui));
+            rq.add(RenderData::new(separator.id(), *separator.rect(), UpdateMode::Gui));
+            self.children.insert(0, Box::new(bar) as Box<dyn View>);
+            self.children.insert(1, Box::new(separator) as Box<dyn View>);
+        }
+    }
+
+    fn toggle_article_menu(&mut self, rect: Rectangle, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::actions::{ArticleAction, InoInkEntry};
+        if let Some(index) = locate_by_id(self, ViewId::ArticleMenu) {
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+            return;
+        }
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        let (read, like, broadcast, labels, known) = match context.inoink.store() {
+            Some(s) => (
+                s.effective(id, &inoink::model::Membership::Read).unwrap_or(false),
+                s.effective(id, &inoink::model::Membership::Like).unwrap_or(false),
+                s.effective(id, &inoink::model::Membership::Broadcast).unwrap_or(false),
+                s.effective_labels(id).unwrap_or_default(),
+                s.tags().unwrap_or_default().into_iter().filter(|t| t.kind == "tag").filter_map(|t| t.id.strip_prefix("user/-/label/").map(String::from)).collect::<Vec<_>>(),
+            ),
+            None => (false, false, false, vec![], vec![]),
+        };
+        let act = |a: ArticleAction| EntryId::InoInk(InoInkEntry::Article(a));
+        let mut tag_entries: Vec<EntryKind> = labels.iter().map(|l| EntryKind::CheckBox(l.clone(), act(ArticleAction::RemoveTag(l.clone())), true)).collect();
+        for k in known.iter().filter(|k| !labels.contains(k)) {
+            tag_entries.push(EntryKind::CheckBox(k.clone(), act(ArticleAction::AddTag(k.clone())), false));
+        }
+        tag_entries.push(EntryKind::Separator);
+        tag_entries.push(EntryKind::Command("New tag...".to_string(), EntryId::InoInk(InoInkEntry::PromptNewTag)));
+        let font_size = self.info.reader.as_ref().and_then(|r| r.font_size).unwrap_or(context.settings.reader.font_size);
+        let min_fs = context.settings.reader.font_size / 2.0;
+        let max_fs = 3.0 * context.settings.reader.font_size / 2.0;
+        let sizes: Vec<EntryKind> = (0..=20)
+            .filter_map(|v| {
+                let fs = font_size - 1.0 + v as f32 / 10.0;
+                if fs >= min_fs && fs <= max_fs {
+                    Some(EntryKind::RadioButton(format!("{:.1}", fs), EntryId::SetFontSize(v), (fs - font_size).abs() < 0.05))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let entries = vec![
+            EntryKind::Command(if read { "Mark unread" } else { "Mark read" }.to_string(), act(ArticleAction::ToggleRead)),
+            EntryKind::SubMenu("Tags".to_string(), tag_entries),
+            EntryKind::CheckBox("Like".to_string(), act(ArticleAction::ToggleLike), like),
+            EntryKind::CheckBox("Broadcast".to_string(), act(ArticleAction::ToggleBroadcast), broadcast),
+            EntryKind::Separator,
+            EntryKind::SubMenu("Text size".to_string(), sizes),
+            EntryKind::Separator,
+            EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
+            EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
+        ];
+        let menu = Menu::new(rect, ViewId::ArticleMenu, MenuKind::DropDown, entries, context);
+        rq.add(RenderData::new(menu.id(), *menu.rect(), UpdateMode::Gui));
+        self.children.push(Box::new(menu) as Box<dyn View>);
+    }
+
+    fn toggle_tag_prompt(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if let Some(index) = locate_by_id(self, ViewId::PromptDialog) {
+            if let Some(true) = enable {
+                return;
+            }
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+            if self.focus == Some(ViewId::PromptInput) {
+                self.toggle_keyboard(false, None, hub, rq, context);
+            }
+        } else {
+            if let Some(false) = enable {
+                return;
+            }
+            let input = NamedInput::new("New tag".to_string(), ViewId::PromptDialog, ViewId::PromptInput, 16, context);
+            rq.add(RenderData::new(input.id(), *input.rect(), UpdateMode::Gui));
+            hub.send(Event::Focus(Some(ViewId::PromptInput))).ok();
+            self.children.push(Box::new(input) as Box<dyn View>);
+        }
+    }
+
+    fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        let notif = Notification::new(text.to_string(), hub, rq, context);
+        self.children.push(Box::new(notif) as Box<dyn View>);
+    }
+
+    fn run_article_action(&mut self, action: &crate::view::inoink::actions::ArticleAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::article_bar::ArticleBar;
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        match crate::view::inoink::actions::apply_article_action(context, id, action) {
+            Ok(outcome) => {
+                if let Some(index) = locate::<ArticleBar>(self) {
+                    let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+                    if let Some(bar) = self.child_mut(index).downcast_mut::<ArticleBar>() {
+                        bar.set_starred(starred, rq);
+                    }
+                }
+                if let Some(m) = outcome.message {
+                    if outcome.close {
+                        context.inoink.notice = Some(m);
+                    } else {
+                        self.notify(&m, hub, rq, context);
+                    }
+                }
+                if outcome.close {
+                    hub.send(Event::Back).ok();
+                }
+            }
+            Err(m) => self.notify(&m, hub, rq, context),
+        }
+    }
+
+    /// The image under `pt`, if any: its path inside the document root.
+    fn image_at(&self, pt: Point) -> Option<PathBuf> {
+        for chunk in &self.chunks {
+            let (images, _) = self.doc.lock().ok().and_then(|mut doc| doc.image_sources(Location::Exact(chunk.location))).unwrap_or((Vec::new(), 0));
+            for img in images {
+                let rect = (img.rect * chunk.scale).to_rect() - chunk.frame.min + chunk.position;
+                if rect.includes(pt) {
+                    return self.info.file.path.parent().map(|root| root.join(&img.text));
+                }
+            }
+        }
+        None
     }
 
     fn scale_page(&mut self, center: Point, factor: f32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -2694,7 +2928,79 @@ impl Reader {
 
 impl View for Reader {
     fn handle_event(&mut self, evt: &Event, hub: &Hub, _bus: &mut Bus, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        self.checkpoint_position(context);
         match *evt {
+            Event::ArticleAction(id, ref action) if self.article.as_ref().map(|a| a.id) == Some(id) => {
+                self.run_article_action(action, hub, rq, context);
+                true
+            },
+            Event::Select(EntryId::InoInk(crate::view::inoink::actions::InoInkEntry::Article(ref action))) if self.article.is_some() => {
+                self.run_article_action(action, hub, rq, context);
+                true
+            },
+            Event::Select(EntryId::InoInk(crate::view::inoink::actions::InoInkEntry::PromptNewTag)) if self.article.is_some() => {
+                self.toggle_tag_prompt(Some(true), hub, rq, context);
+                true
+            },
+            Event::Select(EntryId::InoInk(crate::view::inoink::actions::InoInkEntry::OpenDetails(id))) if self.article.is_some() => {
+                hub.send(Event::OpenDetails(id)).ok();
+                true
+            },
+            Event::ToggleNear(ViewId::ArticleMenu, rect) => {
+                self.toggle_article_menu(rect, rq, context);
+                true
+            },
+            Event::Close(ViewId::ArticleMenu) => {
+                if let Some(index) = locate_by_id(self, ViewId::ArticleMenu) {
+                    rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+                    self.children.remove(index);
+                }
+                true
+            },
+            Event::Close(ViewId::PromptDialog) => {
+                self.toggle_tag_prompt(Some(false), hub, rq, context);
+                true
+            },
+            Event::Submit(ViewId::PromptInput, ref text) if self.article.is_some() => {
+                self.toggle_tag_prompt(Some(false), hub, rq, context);
+                self.run_article_action(&crate::view::inoink::actions::ArticleAction::AddTag(text.clone()), hub, rq, context);
+                true
+            },
+            Event::RetryImage(ref name) if self.article.is_some() => {
+                if let Some(id) = self.article.as_ref().map(|a| a.id) {
+                    context.inoink.submit(inoink::runtime::Command::RetryImage(id, name.clone()));
+                    self.notify("Retrying the image", hub, rq, context);
+                }
+                true
+            },
+            Event::Sync(ref u) if self.article.is_some() => {
+                context.inoink.apply(u);
+                let mine = self.article.as_ref().map(|a| a.id);
+                match u {
+                    inoink::runtime::Update::Extracted(id, r) if Some(*id) == mine => {
+                        let m = match r {
+                            Ok(_) => "Original page loaded. Reopen the article to read it.".to_string(),
+                            Err(why) => format!("Could not load the original page: {why}"),
+                        };
+                        self.notify(&m, hub, rq, context);
+                    },
+                    inoink::runtime::Update::Cached(id, _) if Some(*id) == mine => {
+                        self.notify("Image updated. Reopen the article to see it.", hub, rq, context);
+                    },
+                    inoink::runtime::Update::CacheFailed(id, _) if Some(*id) == mine => {
+                        self.notify("The image could not be downloaded", hub, rq, context);
+                    },
+                    _ => (),
+                }
+                true
+            },
+            Event::Back if self.article.is_some() => {
+                self.quit(context);
+                if let Some(a) = self.article.clone() {
+                    crate::view::inoink::actions::release_article(context, a.id, a.version);
+                }
+                false
+            },
             Event::Gesture(GestureEvent::Rotate { quarter_turns, .. }) if quarter_turns != 0 => {
                 let (_, dir) = CURRENT_DEVICE.mirroring_scheme();
                 let n = (4 + (context.display.rotation - dir * quarter_turns)) % 4;
@@ -3134,26 +3440,24 @@ impl View for Reader {
                         if let Some(location) = doc.resolve_location(loc) {
                             hub.send(Event::GoTo(location)).ok();
                         } else {
-                            if link.text.starts_with("https:") || link.text.starts_with("http:") {
-                                if let Some(path) = context.settings.external_urls_queue.as_ref() {
-                                    if let Ok(mut file) = OpenOptions::new().create(true)
-                                                                            .append(true)
-                                                                            .open(path) {
-                                        if let Err(e) = writeln!(file, "{}", link.text) {
-                                            eprintln!("Couldn't write to {}: {:#}.", path.display(), e);
-                                        } else {
-                                            let message = format!("Queued {}.", link.text);
-                                            let notif = Notification::new(message, hub, rq, context);
-                                            self.children.push(Box::new(notif) as Box<dyn View>);
-                                        }
-                                    }
-                                }
+                            if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
+                                hub.send(Event::RetryImage(name.to_string())).ok();
+                            } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
+                                let notif = Notification::new(link.text.clone(), hub, rq, context);
+                                self.children.push(Box::new(notif) as Box<dyn View>);
                             } else {
                                 eprintln!("Can't resolve URI: {}.", link.text);
                             }
                         }
                     }
                     return true;
+                }
+
+                if self.article.is_some() {
+                    if let Some(path) = self.image_at(center) {
+                        hub.send(Event::OpenImage(path)).ok();
+                        return true;
+                    }
                 }
 
                 if let ZoomMode::Custom(_) = self.view_port.zoom_mode {

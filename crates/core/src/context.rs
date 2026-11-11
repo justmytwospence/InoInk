@@ -17,7 +17,7 @@ use crate::lightsensor::LightSensor;
 use crate::battery::Battery;
 use crate::geom::Rectangle;
 use crate::device::CURRENT_DEVICE;
-use crate::library::Library;
+use crate::view::inoink::state::InoInk;
 use crate::font::Fonts;
 use crate::rtc::Rtc;
 
@@ -31,7 +31,7 @@ pub struct Context {
     pub rtc: Option<Rtc>,
     pub display: Display,
     pub settings: Settings,
-    pub library: Library,
+    pub inoink: InoInk,
     pub fonts: Fonts,
     pub dictionaries: BTreeMap<String, Dictionary>,
     pub keyboard_layouts: BTreeMap<String, Layout>,
@@ -49,33 +49,18 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(fb: Box<dyn Framebuffer>, rtc: Option<Rtc>, library: Library,
+    pub fn new(fb: Box<dyn Framebuffer>, rtc: Option<Rtc>, inoink: InoInk,
                settings: Settings, fonts: Fonts, battery: Box<dyn Battery>,
                frontlight: Box<dyn Frontlight>, lightsensor: Box<dyn LightSensor>) -> Context {
         let dims = fb.dims();
         let rotation = CURRENT_DEVICE.transformed_rotation(fb.rotation());
         let rng = Xoroshiro128Plus::seed_from_u64(Local::now().timestamp_subsec_nanos() as u64);
         Context { fb, rtc, display: Display { dims, rotation },
-                  library, settings, fonts, dictionaries: BTreeMap::new(),
+                  inoink, settings, fonts, dictionaries: BTreeMap::new(),
                   keyboard_layouts: BTreeMap::new(), input_history: FxHashMap::default(),
                   battery, frontlight, lightsensor, notification_index: 0,
                   kb_rect: Rectangle::default(), rng, plugged: false, covered: false,
                   shared: false, online: false }
-    }
-
-    pub fn batch_import(&mut self) {
-        self.library.import(&self.settings.import);
-        let selected_library = self.settings.selected_library;
-        for (index, library_settings) in self.settings.libraries.iter().enumerate() {
-            if index == selected_library {
-                continue;
-            }
-            if let Ok(mut library) = Library::new(&library_settings.path, library_settings.mode)
-                                             .map_err(|e| eprintln!("{:#?}", e)) {
-                library.import(&self.settings.import);
-                library.flush();
-            }
-        }
     }
 
     pub fn load_keyboard_layouts(&mut self) {

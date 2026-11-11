@@ -6,7 +6,6 @@ use crate::font::{Fonts, font_from_style, DISPLAY_STYLE};
 use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue};
 use crate::framebuffer::Framebuffer;
 use crate::settings::{IntermKind, LOGO_SPECIAL_PATH, COVER_SPECIAL_PATH};
-use crate::metadata::{SortMethod, BookQuery, sort};
 use crate::color::{TEXT_NORMAL, TEXT_INVERTED_HARD};
 use crate::context::Context;
 
@@ -29,19 +28,8 @@ impl Intermission {
         let path = &context.settings.intermissions[kind];
         let message = match path.to_str() {
             Some(LOGO_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
-            Some(COVER_SPECIAL_PATH) => {
-                let query = BookQuery {
-                    reading: Some(true),
-                    .. Default::default()
-                };
-                let (mut files, _) = context.library.list(&context.library.home, Some(&query), false);
-                sort(&mut files, SortMethod::Opened, true);
-                if !files.is_empty() {
-                    Message::Cover(context.library.home.join(&files[0].file.path))
-                } else {
-                    Message::Text(kind.text().to_string())
-                }
-            },
+            // InoInk has no book covers: the cover setting falls back to the logo text.
+            Some(COVER_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
             _ => Message::Image(path.clone()),
         };
         Intermission {

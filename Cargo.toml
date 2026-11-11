@@ -4,8 +4,6 @@ members = [
   "crates/core",
   "crates/plato",
   "crates/emulator",
-  "crates/importer",
-  "crates/fetcher",
   "crates/inoink",
   "crates/inoink-cli",
 ]

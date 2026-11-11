@@ -455,6 +455,26 @@ impl Store {
         Ok(v.unwrap_or(0) != 0)
     }
 
+    /// Tags currently on an article (effective state), by bare name.
+    pub fn effective_labels(&self, article: ArticleId) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT k FROM (\
+               SELECT key AS k, COALESCE((SELECT desired FROM intents i WHERE i.account=r.account AND i.article=r.article AND i.key=r.key), r.present) AS v \
+               FROM remote_state r WHERE r.account=?1 AND r.article=?2 AND r.key LIKE 'label:%' \
+               UNION \
+               SELECT key, desired FROM intents WHERE account=?1 AND article=?2 AND key LIKE 'label:%') WHERE v=1 ORDER BY k",
+        )?;
+        let rows = stmt.query_map(params![self.account, article.to_db()], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            if let Some(n) = r?.strip_prefix("label:") {
+                out.push(n.to_string());
+            }
+        }
+        out.dedup();
+        Ok(out)
+    }
+
     /// Server-known (not effective) state, if ever observed.
     pub fn remote(&self, article: ArticleId, m: &Membership) -> Result<Option<bool>> {
         let v: Option<i64> = self

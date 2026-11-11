@@ -101,6 +101,12 @@ pub trait Document: Send+Sync {
     fn links(&mut self, loc: Location) -> Option<(Vec<BoundedText>, usize)>;
     fn images(&mut self, loc: Location) -> Option<(Vec<Boundary>, usize)>;
 
+    /// Images on the page with the path they were loaded from (relative to the document
+    /// root), for enlargement. Only HTML documents provide it.
+    fn image_sources(&mut self, _loc: Location) -> Option<(Vec<BoundedText>, usize)> {
+        None
+    }
+
     fn pixmap(&mut self, loc: Location, scale: f32, samples: usize) -> Option<(Pixmap, usize)>;
     fn layout(&mut self, width: u32, height: u32, font_size: f32, dpi: u16);
     fn set_font_family(&mut self, family_name: &str, search_path: &str);

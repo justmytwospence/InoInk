@@ -1,0 +1,141 @@
+/* Article styling for InoInk: restrained, readable, images fitted to the page. */
+html > head {
+	display: none;
+}
+
+body {
+	text-align: left;
+}
+
+a {
+	color: #333;
+}
+
+i, em, cite, var, address {
+	font-style: italic;
+}
+
+b, strong {
+	font-weight: bold;
+}
+
+h1 {
+	font-size: 1.5em;
+	margin: 0.4em 0 0.2em 0;
+	text-align: left;
+}
+
+h2 {
+	font-size: 1.3em;
+	margin: 0.9em 0 0.4em 0;
+}
+
+h3 {
+	font-size: 1.12em;
+	margin: 0.8em 0 0.3em 0;
+}
+
+h4, h5, h6 {
+	font-size: 1em;
+	margin: 0.8em 0 0.3em 0;
+	font-weight: bold;
+}
+
+p {
+	margin: 0.8em 0;
+}
+
+p.inoink-meta {
+	font-size: 0.8em;
+	margin: 0 0 0.4em 0;
+	color: #666;
+}
+
+p.inoink-caption {
+	font-size: 0.8em;
+	font-style: italic;
+	text-align: center;
+	margin: 0.2em 0 1em 0;
+}
+
+p.inoink-missing {
+	font-size: 0.85em;
+	text-align: center;
+	margin: 0.6em 0;
+}
+
+blockquote {
+	margin: 0.8em 1.2em;
+	font-style: italic;
+}
+
+dl {
+	margin: 0.8em 0;
+}
+
+dd {
+	margin-left: 1.5em;
+}
+
+pre, code, samp, kbd, tt {
+	font-family: monospace;
+	font-size: 0.85em;
+}
+
+pre {
+	margin: 0.8em 0;
+	white-space: pre-wrap;
+}
+
+ul, ol {
+	margin: 0.6em 0 0.6em 1.5em;
+}
+
+li > ul, li > ol {
+	margin-top: 0;
+	margin-bottom: 0;
+}
+
+img {
+	display: block;
+	margin: 0.8em auto;
+	max-width: 100%;
+}
+
+table {
+	margin: 0.8em 0;
+	font-size: 0.9em;
+}
+
+caption {
+	font-weight: bold;
+	margin-bottom: 0.3em;
+}
+
+th {
+	font-weight: bold;
+}
+
+sub, sup {
+	font-size: 0.83em;
+}
+
+sub {
+	vertical-align: sub;
+}
+
+small {
+	font-size: 0.83em;
+}
+
+hr {
+	margin: 0.6em 0;
+}
+
+th, td {
+	padding: 0.67em;
+}
+
+table {
+	text-align: left;
+}
