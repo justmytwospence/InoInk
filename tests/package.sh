@@ -86,7 +86,7 @@ STUBS="$WORK/stubs"
 mkdir -p "$STUBS"
 for c in killall sync pidof reboot poweroff; do printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$c" "$WORK" > "$STUBS/$c"; chmod +x "$STUBS/$c"; done
 rm -f /tmp/reboot /tmp/power_off
-rmdir /tmp/inoink.lock 2>/dev/null
+rm -rf /tmp/inoink.lock
 run_launcher() { PATH="$STUBS:$PATH" INOINK_DATA="$B/data" sh "$B/releases/1.2.0/inoink-run.sh" > /dev/null 2>&1 < /dev/null; }
 
 rm -f "$B/data/nickel.log" "$B/data/ran.log" "$WORK/calls.log"
@@ -101,12 +101,20 @@ FAKE_EXIT=3 run_launcher; sleep 2
 check "Nickel restored once after a failing app" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
 
 # A second launch while one runs does nothing.
-mkdir /tmp/inoink.lock
+sleep 30 & HOLDER=$!
+mkdir /tmp/inoink.lock; echo $HOLDER > /tmp/inoink.lock/pid
 rm -f "$B/data/nickel.log" "$B/data/ran.log"
 run_launcher; sleep 2
 check "double launch is ignored" test ! -e "$B/data/ran.log"
 check "double launch does not touch Nickel" test ! -e "$B/data/nickel.log"
-rmdir /tmp/inoink.lock
+kill $HOLDER 2>/dev/null; rm -rf /tmp/inoink.lock
+
+# A lock whose process is gone does not block the launch.
+mkdir /tmp/inoink.lock; echo 999999 > /tmp/inoink.lock/pid
+rm -f "$B/data/ran.log"
+run_launcher; sleep 2
+check "stale lock is cleared and the app runs" grep -q "inoink 1.2.0 ran" "$B/data/ran.log"
+check "stale lock is released afterwards" test ! -d /tmp/inoink.lock
 
 # Reboot intent is honoured instead of restarting Nickel.
 touch /tmp/reboot
@@ -124,7 +132,7 @@ LPID=$!
 sleep 1; kill -TERM $LPID; wait $LPID 2>/dev/null; sleep 1
 check "SIGTERM restores Nickel once" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
 pkill -f "sleep 30" 2>/dev/null
-rmdir /tmp/inoink.lock 2>/dev/null
+rm -rf /tmp/inoink.lock
 
 # --- removal ---------------------------------------------------------------------------------------
 check "removal succeeds" sh scripts/remove-inoink.sh "$KOBO"

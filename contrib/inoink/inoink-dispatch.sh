@@ -13,7 +13,7 @@ valid() { # release name: letters, digits, dot, dash, underscore; no leading dot
 REL=$(cat "$BASE/active-release" 2>/dev/null | tr -d '\r\n ')
 if ! valid "$REL"; then
 	REL=$(cat "$BASE/previous-release" 2>/dev/null | tr -d '\r\n ')
-	valid "$REL" || { echo "InoInk: no valid release installed" >&2; exit 1; }
+	valid "$REL" || { echo "--- $(date) no valid release installed" >> "$BASE/data/inoink.log"; echo "InoInk: no valid release installed" >&2; exit 1; }
 fi
 
 export INOINK_DATA="$BASE/data"

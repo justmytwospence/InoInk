@@ -13,10 +13,20 @@ export INOINK_SETTINGS
 mkdir -p "$INOINK_DATA"
 
 # Do not start twice (a double tap on the menu entry would stop Nickel twice).
+# A lock left by a run that died without cleaning up (its process is gone) is removed, so
+# InoInk never silently refuses to start until the next reboot.
 LOCK=/tmp/inoink.lock
 if ! mkdir "$LOCK" 2>/dev/null; then
-	exit 0
+	OLD=$(cat "$LOCK/pid" 2>/dev/null)
+	if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+		echo "--- $(date) already running (pid $OLD); launch ignored" >> "$INOINK_DATA/inoink.log"
+		exit 0
+	fi
+	echo "--- $(date) removing a stale lock (pid ${OLD:-unknown})" >> "$INOINK_DATA/inoink.log"
+	rm -rf "$LOCK"
+	mkdir "$LOCK" || exit 1
 fi
+echo $$ > "$LOCK/pid"
 
 # Restore the Kobo interface exactly once, however we leave.
 RESTORED=0
@@ -24,7 +34,7 @@ restore() {
 	[ "$RESTORED" = 1 ] && return
 	RESTORED=1
 	[ "$ORIG_BPP" ] && ./bin/utils/fbdepth -q -d "$ORIG_BPP" 2>/dev/null
-	rmdir "$LOCK" 2>/dev/null
+	rm -rf "$LOCK"
 	if [ -e /tmp/reboot ] ; then
 		reboot
 	elif [ -e /tmp/power_off ] ; then
