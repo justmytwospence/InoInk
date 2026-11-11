@@ -62,7 +62,16 @@ pub const DISPLAY_STYLE: Style = Style {
     size: DISPLAY_FONT_SIZE,
 };
 
+/// Article list typography: sans for everything that is not prose.
+pub const LIST_META: Style = Style {
+    family: Family::SansSerif,
+    variant: Variant::REGULAR,
+    size: 448,
+};
+
 lazy_static! {
+    pub static ref LIST_TITLE: Style = Style { family: Family::SansSerif, variant: Variant::BOLD, size: MD_TITLE.size };
+    pub static ref LIST_TITLE_READ: Style = Style { family: Family::SansSerif, variant: Variant::REGULAR, size: MD_TITLE.size };
     pub static ref MD_TITLE: Style = {
         // Compute the ratio between the physical width of the
         // current device and that of the Aura ONE.

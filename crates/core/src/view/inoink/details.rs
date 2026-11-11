@@ -35,7 +35,7 @@ pub fn details_html(store: &Store, id: ArticleId, rec: &ArticleRecord) -> String
     if !rec.author.is_empty() {
         h.push_str(&row("Author", &rec.author));
     }
-    h.push_str(&row("Published", &crate::view::inoink::row::ArticleRow::date_text(rec.published)));
+    h.push_str(&row("Published", &inoink::cache::format_date(rec.published)));
     if !rec.canonical_url.is_empty() {
         h.push_str(&row("Address", &rec.canonical_url));
     }
