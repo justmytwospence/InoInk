@@ -68,6 +68,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 
 ## Everyday use
 
+- The footer label next to Unread/All (for example "Newest ▾") opens the group and sort menu. Group:
+  none, unread first, or by source. Sort: newest, oldest, shortest, longest, title or source.
+  Each view remembers its own choice; defaults are unread first for Starred, by source for
+  folders, and newest first elsewhere. Loading older articles from Inoreader at the end of the
+  list only works with no grouping and newest first.
 - Tap the title for the collection drawer; the footer toggles Unread/All and shows sync status
   (tap it to sync now). Swipe or use the page buttons to move between pages of the list.
   Long-press a row for Star, Mark read, Done and Details.

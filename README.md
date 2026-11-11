@@ -94,7 +94,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 ## Using it
 
 - **List:** tap an article to read it. Tap the title for collections, use the footer for
-  Unread/All and sync status, and long-press a row for Star, Mark read, Done and Details.
+  Unread/All, the group and sort menu (per view: Starred puts unread first, folders group by
+  source; sort by newest, oldest, shortest, longest, title or source) and sync status, and long-press a row for Star, Mark read, Done and Details.
 - **Article:** tap the middle of the page for the bar: Back, **Aa** (text settings), Star, Done
   and More (Mark read, Tags, Like, Broadcast, Details, Load original page). Tap an image to
   enlarge it.

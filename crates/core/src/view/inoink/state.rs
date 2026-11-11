@@ -139,6 +139,26 @@ impl InoInk {
         }
     }
 
+    fn view_key(&self) -> String {
+        format!("view:{}", serde_json::to_string(&self.collection).unwrap_or_default())
+    }
+
+    /// The group and sort chosen for the current collection, or its default.
+    pub fn view_options(&self) -> ViewOptions {
+        self.store
+            .as_ref()
+            .and_then(|s| s.get_meta(&self.view_key()).ok().flatten())
+            .and_then(|v| serde_json::from_str::<ViewOptions>(&v).ok())
+            .unwrap_or_else(|| ViewOptions::default_for(&self.collection))
+    }
+
+    pub fn set_view_options(&mut self, v: ViewOptions) {
+        let key = self.view_key();
+        if let Some(store) = self.store.as_mut() {
+            let _ = store.set_meta(&key, &serde_json::to_string(&v).unwrap_or_default());
+        }
+    }
+
     pub fn store(&self) -> Option<&Store> {
         self.store.as_ref()
     }

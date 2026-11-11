@@ -14,6 +14,7 @@ use crate::view::dialog::Dialog;
 use crate::view::filler::Filler;
 use crate::view::icon::Icon;
 use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleAction, InoInkEntry};
+use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
 use crate::view::inoink::row::ArticleRow;
 use crate::view::keyboard::Keyboard;
@@ -25,6 +26,13 @@ use crate::view::top_bar::TopBar;
 use crate::view::{Align, Bus, EntryId, EntryKind, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::view::{BIG_BAR_HEIGHT, SMALL_BAR_HEIGHT, THICKNESS_MEDIUM};
 use inoink::model::*;
+
+/// One slot of the list page: a half-height header or a full-height article.
+#[derive(Debug, Clone)]
+enum Slot {
+    Header(String),
+    Item(usize),
+}
 
 #[derive(Debug, Clone)]
 enum Prompt {
@@ -38,9 +46,10 @@ pub struct InoInkHome {
     children: Vec<Box<dyn View>>,
     items: Vec<ArticleSummary>,
     /// Cursor that loads each page; page 0 starts at the top.
-    cursors: Vec<Option<(i64, ArticleId)>>,
+    cursors: Vec<Option<Cursor>>,
     page: usize,
-    next: Option<(i64, ArticleId)>,
+    next: Option<Cursor>,
+    layout: Vec<Slot>,
     search: Option<String>,
     prompt: Option<Prompt>,
     focus: Option<ViewId>,
@@ -163,14 +172,20 @@ impl InoInkHome {
         let footer_rect = rect![rect.min.x, rect.max.y - small_height + big_thickness, rect.max.x, rect.max.y];
         children.push(Box::new(Footer { id: ID_FEEDER.next(), rect: footer_rect, children: Vec::new() }));
 
-        let mut home = InoInkHome { id, rect, children, items: Vec::new(), cursors: vec![None], page: 0, next: None, search: None, prompt: None, focus: None, rows, selection: None, pending_row: None };
+        let mut home = InoInkHome { id, rect, children, items: Vec::new(), cursors: vec![None], page: 0, next: None, layout: Vec::new(), search: None, prompt: None, focus: None, rows, selection: None, pending_row: None };
         home.load_page(hub, rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
 
-    fn query(&self, context: &Context, after: Option<(i64, ArticleId)>, limit: usize) -> ArticleQuery {
-        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: context.inoink.unread_only, search: self.search.clone(), limit, after }
+    fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
+        let v = context.inoink.view_options();
+        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: context.inoink.unread_only, search: self.search.clone(), limit, after, group: v.group, sort: v.sort }
+    }
+
+    /// The group and sort actually applied to the current list.
+    fn effective_options(context: &Context) -> ViewOptions {
+        context.inoink.view_options().effective(context.inoink.unread_only, &context.inoink.collection)
     }
 
     /// Reloads the current page from the local database. Never touches the network.
@@ -188,6 +203,33 @@ impl InoInkHome {
             self.cursors.truncate(self.page + 1);
             return self.load_page(hub, rq, context);
         }
+        // Plan the page: headers cost one unit, articles two; a page has two units per row.
+        let opts = Self::effective_options(context);
+        let units = 2 * self.rows - if context.inoink.last_undo.is_some() { 2 } else { 0 };
+        let mut layout = Vec::new();
+        let mut used = 0;
+        let mut placed = 0;
+        let mut last_header: Option<String> = None;
+        for (i, item) in items.iter().enumerate() {
+            let h = opts.group.header(item);
+            let needs_header = h.is_some() && h != last_header;
+            let cost = 2 + needs_header as usize;
+            if used + cost > units && placed > 0 {
+                break;
+            }
+            if needs_header {
+                layout.push(Slot::Header(h.clone().unwrap_or_default()));
+            }
+            layout.push(Slot::Item(i));
+            last_header = h;
+            used += cost;
+            placed += 1;
+        }
+        let truncated = placed < items.len();
+        let mut items = items;
+        items.truncate(placed);
+        let next = if truncated { items.last().map(Cursor::from) } else { next };
+        self.layout = layout;
         self.items = items;
         self.next = next;
         self.rebuild_list(rq, context);
@@ -231,34 +273,49 @@ impl InoInkHome {
         let list = self.children[LIST].downcast_mut::<List>().unwrap();
         list.children.clear();
         let rect = list.rect;
-        let heights = divide(rect.height() as i32, rows as i32);
+        let total_units = 2 * rows as i32;
+        let unit_h = divide(rect.height() as i32, total_units);
+        let span = |from: i32, n: i32| -> i32 { unit_h[from as usize..(from + n) as usize].iter().sum() };
         let mut y = rect.min.y;
         let _ = big_height;
-        let mut undo_offset = 0;
+        let mut unit = 0i32;
         if let Some((_, title)) = context.inoink.last_undo.as_ref() {
-            // The undo bar sits on the first row until superseded.
-            let h = heights[0];
+            // The undo bar takes the first row until superseded.
+            let h = span(0, 2);
             let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
             let label = format!("Done: {}", title.chars().take(40).collect::<String>());
             let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
             list.children.push(Box::new(lbl));
             list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
             list.children.push(Box::new(Filler::new(rect![rect.min.x, r.max.y, rect.max.x, r.max.y + thickness], SEPARATOR_NORMAL)));
-            y += heights[0];
-            undo_offset = 1;
+            y += h;
+            unit = 2;
         }
-        for (i, item) in items.iter().enumerate() {
-            let slot = i + undo_offset;
-            if slot >= rows {
+        for slot in &self.layout {
+            let n = match slot {
+                Slot::Header(_) => 1,
+                Slot::Item(_) => 2,
+            };
+            if unit + n > total_units {
                 break;
             }
-            let y_min = y + if slot > 0 { big_thickness } else { 0 };
-            let y_max = y + heights[slot] - if slot < rows - 1 { small_thickness } else { 0 };
-            list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], item.clone(), i)));
-            if slot < rows - 1 {
-                list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
+            let h = span(unit, n);
+            let y_min = y + if y > rect.min.y { big_thickness } else { 0 };
+            let last = unit + n >= total_units;
+            let y_max = y + h - if last { 0 } else { small_thickness };
+            match slot {
+                Slot::Header(text) => {
+                    list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { small_thickness }], text.clone())));
+                }
+                Slot::Item(i) => {
+                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i)));
+                    if !last {
+                        list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
+                    }
+                }
             }
-            y += heights[slot];
+            y += h;
+            unit += n;
         }
         if items.is_empty() {
             let cy = rect.min.y + rect.height() as i32 / 3;
@@ -291,13 +348,18 @@ impl InoInkHome {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
         let inner = rect.width() as i32 - 2 * side;
-        let filter_w = inner / 5;
+        let filter_w = inner / 6;
+        let view_w = inner / 4;
         let page_w = inner / 6;
-        let status_w = inner - filter_w - page_w;
+        let status_w = inner - filter_w - view_w - page_w;
+        let sort_text = format!("{} \u{25be}", Self::effective_options(context).sort.short());
         let x0 = rect.min.x + side;
         footer.children.push(Box::new(Label::new(rect![x0, rect.min.y, x0 + filter_w, rect.max.y], filter.to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UnreadOnly(filter != "Unread")))))));
-        footer.children.push(Box::new(Label::new(rect![x0 + filter_w, rect.min.y, x0 + filter_w + status_w, rect.max.y], status, Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))))));
-        footer.children.push(Box::new(Label::new(rect![x0 + filter_w + status_w, rect.min.y, rect.max.x - side, rect.max.y], format!("Page {page}"), Align::Center)));
+        let view_rect = rect![x0 + filter_w, rect.min.y, x0 + filter_w + view_w, rect.max.y];
+        footer.children.push(Box::new(Label::new(view_rect, sort_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
+        let sx = x0 + filter_w + view_w;
+        footer.children.push(Box::new(Label::new(rect![sx, rect.min.y, sx + status_w, rect.max.y], status, Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))))));
+        footer.children.push(Box::new(Label::new(rect![sx + status_w, rect.min.y, rect.max.x - side, rect.max.y], format!("Page {page}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
         if next {
             footer.children.push(Box::new(Icon::new("arrow-right", next_rect, Event::Page(CycleDir::Next))));
@@ -310,12 +372,12 @@ impl InoInkHome {
     fn go(&mut self, dir: CycleDir, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         match dir {
             CycleDir::Next => {
-                if let Some(c) = self.next {
+                if let Some(c) = self.next.clone() {
                     self.page += 1;
                     self.cursors.truncate(self.page);
                     self.cursors.push(Some(c));
                     self.load_page(hub, rq, context);
-                } else if matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages) && context.inoink.handle.is_some() && self.search.is_none() {
+                } else if matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages) && context.inoink.handle.is_some() && self.search.is_none() && Self::effective_options(context) == ViewOptions::default() {
                     // End of what is stored: browse further back through history online.
                     context.inoink.submit(inoink::runtime::Command::Browse { collection: context.inoink.collection.clone(), continuation: context.inoink.store().and_then(|s| s.get_meta(&browse_key(&context.inoink.collection)).ok().flatten()) });
                     let n = Notification::new("Loading older articles".to_string(), hub, rq, context);
@@ -360,7 +422,7 @@ impl InoInkHome {
     }
 
     fn close_menus(&mut self, rq: &mut RenderQueue) {
-        for id in [ViewId::TitleMenu, ViewId::MainMenu, ViewId::BookMenu, ViewId::ManageMenu] {
+        for id in [ViewId::TitleMenu, ViewId::MainMenu, ViewId::BookMenu, ViewId::ManageMenu, ViewId::SortMenu] {
             if let Some(i) = locate_by_id(self, id) {
                 rq.add(RenderData::expose(*self.child(i).rect(), UpdateMode::Gui));
                 self.children.remove(i);
@@ -450,6 +512,18 @@ impl InoInkHome {
                 } else {
                     context.inoink.set_view(c, *v);
                 }
+                self.reset(hub, rq, context);
+            }
+            InoInkEntry::ViewGroup(g) => {
+                let mut v = context.inoink.view_options();
+                v.group = *g;
+                context.inoink.set_view_options(v);
+                self.reset(hub, rq, context);
+            }
+            InoInkEntry::ViewSort(so) => {
+                let mut v = context.inoink.view_options();
+                v.sort = *so;
+                context.inoink.set_view_options(v);
                 self.reset(hub, rq, context);
             }
             InoInkEntry::SyncNow => {
@@ -584,6 +658,25 @@ impl View for InoInkHome {
                 self.toggle_menu(ViewId::TitleMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
+            Event::ToggleNear(ViewId::SortMenu, rect) => {
+                let stored = context.inoink.view_options();
+                let mut entries = vec![EntryKind::Message("Group by".to_string(), None)];
+                for g in ArticleGroup::ALL {
+                    entries.push(EntryKind::RadioButton(g.label().to_string(), EntryId::InoInk(InoInkEntry::ViewGroup(g)), g == stored.group));
+                }
+                entries.push(EntryKind::Separator);
+                entries.push(EntryKind::Message("Sort by".to_string(), None));
+                for so in ArticleSort::ALL {
+                    if so == ArticleSort::Source && stored.group == ArticleGroup::Source {
+                        continue;
+                    }
+                    entries.push(EntryKind::RadioButton(so.label().to_string(), EntryId::InoInk(InoInkEntry::ViewSort(so)), so == stored.sort));
+                }
+                // The menu opens upward from the footer and lists its entries bottom to top.
+                entries.reverse();
+                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                true
+            }
             Event::ToggleNear(ViewId::MainMenu, rect) => {
                 let mut extra = vec![
                     EntryKind::Message(context.inoink.status_text(), None),
@@ -624,7 +717,7 @@ impl View for InoInkHome {
                 self.select(&entry, hub, rq, context);
                 true
             }
-            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog)) => {
+            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::SortMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog)) => {
                 remove_child(self, id, rq);
                 true
             }

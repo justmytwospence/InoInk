@@ -26,6 +26,8 @@ pub enum ArticleAction {
 pub enum InoInkEntry {
     Collection(Collection),
     UnreadOnly(bool),
+    ViewGroup(ArticleGroup),
+    ViewSort(ArticleSort),
     SyncNow,
     Article(ArticleAction),
     UndoDone,

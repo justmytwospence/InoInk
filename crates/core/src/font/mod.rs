@@ -69,6 +69,12 @@ pub const LIST_META: Style = Style {
     size: 448,
 };
 
+pub const LIST_GROUP: Style = Style {
+    family: Family::SansSerif,
+    variant: Variant::BOLD,
+    size: 448,
+};
+
 lazy_static! {
     pub static ref LIST_TITLE: Style = Style { family: Family::SansSerif, variant: Variant::BOLD, size: MD_TITLE.size };
     pub static ref LIST_TITLE_READ: Style = Style { family: Family::SansSerif, variant: Variant::REGULAR, size: MD_TITLE.size };
