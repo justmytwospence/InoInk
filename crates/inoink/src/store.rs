@@ -1402,6 +1402,67 @@ impl Store {
     }
 }
 
+/// Why an article is a download candidate, in priority order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CandidateKind {
+    Starred,
+    Pinned,
+    RecentUnread,
+}
+
+impl Store {
+    /// Articles worth caching that are not cached yet: starred, pinned-folder, then unread
+    /// newer than `unread_cutoff_usec`. Newest first within each kind.
+    pub fn download_candidates(&self, unread_cutoff_usec: i64, limit: usize) -> Result<Vec<(ArticleId, CandidateKind)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, \
+             CASE WHEN COALESCE((SELECT desired FROM intents WHERE account=a.account AND article=a.id AND key='starred'),\
+                                 (SELECT present FROM remote_state WHERE account=a.account AND article=a.id AND key='starred'),0)=1 THEN 0 \
+                  WHEN a.pinned=1 THEN 1 ELSE 2 END AS kind \
+             FROM articles a WHERE a.account=?1 AND a.download_state='not_downloaded' AND (kind<2 OR \
+               (COALESCE((SELECT desired FROM intents WHERE account=a.account AND article=a.id AND key='read'),\
+                         (SELECT present FROM remote_state WHERE account=a.account AND article=a.id AND key='read'),0)=0 \
+                AND a.timestamp_usec>=?2)) \
+             ORDER BY kind, a.timestamp_usec DESC, a.id DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![self.account, unread_cutoff_usec, limit as i64], |r| {
+            let kind = match r.get::<_, i64>(1)? {
+                0 => CandidateKind::Starred,
+                1 => CandidateKind::Pinned,
+                _ => CandidateKind::RecentUnread,
+            };
+            Ok((ArticleId::from_db(r.get(0)?), kind))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Marks articles of feeds in the given folders as pinned (and unpins all others).
+    pub fn sync_pins(&mut self, folders: &[String]) -> Result<()> {
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        tx.execute("UPDATE articles SET pinned=0 WHERE account=?1 AND pinned=1", params![account])?;
+        for f in folders {
+            tx.execute(
+                "UPDATE articles SET pinned=1 WHERE account=?1 AND origin_stream IN \
+                 (SELECT feed FROM subscription_folders WHERE account=?1 AND folder=?2)",
+                params![account, f],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn downloaded_articles(&self) -> Result<Vec<ArticleId>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM articles WHERE account=?1 AND download_state<>'not_downloaded' ORDER BY id")?;
+        let rows = stmt.query_map(params![self.account], |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(ArticleId::from_db(r?));
+        }
+        Ok(out)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct CacheEntry {
     pub article: ArticleId,

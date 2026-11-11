@@ -1006,6 +1006,7 @@ version = "0.1.0"
 dependencies = [
  "html5ever",
  "image",
+ "libc",
  "markup5ever_rcdom",
  "percent-encoding",
  "rusqlite",
