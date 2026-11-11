@@ -52,7 +52,7 @@ mv "$BASE/active-release.new" "$BASE/active-release"
 sync
 
 # Drop releases older than the previous one.
-KEEP="$VERSION $(tr -d '\r\n ' < "$BASE/previous-release" 2>/dev/null || true)"
+KEEP="$VERSION $(cat "$BASE/previous-release" 2>/dev/null | tr -d '\r\n ' || true)"
 for d in "$BASE"/releases/*; do
 	n=$(basename "$d")
 	case " $KEEP " in *" $n "*) ;; *) rm -rf "$d" ;; esac
