@@ -127,16 +127,10 @@ impl Quota {
 
     /// Updates from response headers (names compared case-insensitively by the caller).
     pub fn observe(&mut self, headers: &[(String, String)], now: i64) {
-        let get = |name: &str| {
-            headers
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                .and_then(|(_, v)| v.trim().parse::<u32>().ok())
-        };
-        for (z, lim, use_) in [
-            (Zone::One, "x-reader-zone1-limit", "x-reader-zone1-usage"),
-            (Zone::Two, "x-reader-zone2-limit", "x-reader-zone2-usage"),
-        ] {
+        let get = |name: &str| headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).and_then(|(_, v)| v.trim().parse::<u32>().ok());
+        for (z, lim, use_) in
+            [(Zone::One, "x-reader-zone1-limit", "x-reader-zone1-usage"), (Zone::Two, "x-reader-zone2-limit", "x-reader-zone2-usage")]
+        {
             let (l, u) = (get(lim), get(use_));
             if l.is_some() || u.is_some() {
                 let s = self.zone_mut(z);

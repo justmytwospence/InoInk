@@ -53,13 +53,26 @@ struct MockFetcher {
 
 impl MockFetcher {
     fn new() -> MockFetcher {
-        MockFetcher { routes: Mutex::new(HashMap::new()), calls: Mutex::new(vec![]), active: AtomicUsize::new(0), peak: AtomicUsize::new(0), delay: Duration::ZERO, handler: Mutex::new(None) }
+        MockFetcher {
+            routes: Mutex::new(HashMap::new()),
+            calls: Mutex::new(vec![]),
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+            handler: Mutex::new(None),
+        }
     }
     fn ok(&self, url: &str, body: Vec<u8>) {
-        self.routes.lock().unwrap().insert(url.into(), Ok(Fetched { status: 200, content_type: Some("image/png".into()), location: None, body }));
+        self.routes
+            .lock()
+            .unwrap()
+            .insert(url.into(), Ok(Fetched { status: 200, content_type: Some("image/png".into()), location: None, body }));
     }
     fn redirect(&self, url: &str, to: &str) {
-        self.routes.lock().unwrap().insert(url.into(), Ok(Fetched { status: 302, content_type: None, location: Some(to.into()), body: vec![] }));
+        self.routes
+            .lock()
+            .unwrap()
+            .insert(url.into(), Ok(Fetched { status: 302, content_type: None, location: Some(to.into()), body: vec![] }));
     }
     fn calls(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
@@ -196,7 +209,29 @@ fn sanitizer_removes_active_content_and_unsafe_urls() {
       <p>&lt;b&gt;not a tag&lt;/b&gt; &amp; text</p>"##;
     let p = prepare_article(html, Some(BASE), &ArticleMeta { title: "<T> & \"q\"".into(), ..Default::default() }, &AssetMap::new());
     let h = &p.html;
-    for bad in ["<script", "alert(1)", "<style", "<iframe", "<form", "<input", "<button", "<object", "<embed", "<svg", "onclick", "onerror", " onmouseover", "\"onmouseover", "style=", "javascript:", "data:text", "file:", "ftp:", "evil.example", "t.example/pixel"] {
+    for bad in [
+        "<script",
+        "alert(1)",
+        "<style",
+        "<iframe",
+        "<form",
+        "<input",
+        "<button",
+        "<object",
+        "<embed",
+        "<svg",
+        "onclick",
+        "onerror",
+        " onmouseover",
+        "\"onmouseover",
+        "style=",
+        "javascript:",
+        "data:text",
+        "file:",
+        "ftp:",
+        "evil.example",
+        "t.example/pixel",
+    ] {
         assert!(!h.contains(bad), "{bad} survived in {h}");
     }
     assert!(h.contains("id=\"keep-me\"") && h.contains("href=\"#keep-me\""));
@@ -211,7 +246,16 @@ fn sanitizer_removes_active_content_and_unsafe_urls() {
 #[test]
 fn malformed_and_hostile_markup_still_yields_well_formed_output() {
     let nested = "<div>".repeat(5000) + "deep" + &"</div>".repeat(5000);
-    for html in ["<p>unclosed <b>bold <i>both", "</div></p><td>stray cells</td>", "<table><tr><td>a<td>b<tr><td>c</table>", "<br><br/><hr>", "&nbsp;&#x41;&bogus; \u{0}\u{1}", "<a href='x'>", nested.as_str(), ""] {
+    for html in [
+        "<p>unclosed <b>bold <i>both",
+        "</div></p><td>stray cells</td>",
+        "<table><tr><td>a<td>b<tr><td>c</table>",
+        "<br><br/><hr>",
+        "&nbsp;&#x41;&bogus; \u{0}\u{1}",
+        "<a href='x'>",
+        nested.as_str(),
+        "",
+    ] {
         let p = prepare_article(html, Some(BASE), &ArticleMeta::default(), &AssetMap::new());
         assert_well_formed(&p.html);
     }
@@ -231,7 +275,12 @@ fn tables_and_code_blocks_keep_structure() {
 #[test]
 fn caches_text_first_then_images_and_reaches_complete() {
     let (_d, mut store, cache) = setup();
-    store.upsert_article(&rec(1, 100, r#"<p>Hello cafe</p><img src="/a.png" alt="A"><img src="b.gif" alt="B"><img src="/c.webp" alt="C">"#), 0).unwrap();
+    store
+        .upsert_article(
+            &rec(1, 100, r#"<p>Hello cafe</p><img src="/a.png" alt="A"><img src="b.gif" alt="B"><img src="/c.webp" alt="C">"#),
+            0,
+        )
+        .unwrap();
     let f = MockFetcher::new();
     f.ok("https://blog.example/a.png", png(40, 20, [255, 0, 0]));
     f.ok("https://blog.example/posts/1/b.gif", gif(8, 8));
@@ -309,7 +358,20 @@ fn unsupported_formats_decode_bombs_and_bad_mime_become_failed_placeholders() {
 
 #[test]
 fn private_addresses_and_redirects_to_them_are_never_fetched() {
-    for u in ["http://127.0.0.1/a.png", "http://localhost/a.png", "http://[::1]/a.png", "http://169.254.169.254/latest", "http://10.0.0.5/x", "http://192.168.1.1/x", "http://2130706433/x", "http://[::ffff:127.0.0.1]/x", "http://printer.local/x", "http://intranet/x", "file:///etc/passwd", "ftp://example.org/x"] {
+    for u in [
+        "http://127.0.0.1/a.png",
+        "http://localhost/a.png",
+        "http://[::1]/a.png",
+        "http://169.254.169.254/latest",
+        "http://10.0.0.5/x",
+        "http://192.168.1.1/x",
+        "http://2130706433/x",
+        "http://[::ffff:127.0.0.1]/x",
+        "http://printer.local/x",
+        "http://intranet/x",
+        "file:///etc/passwd",
+        "ftp://example.org/x",
+    ] {
         assert!(is_blocked_url(&Url::parse(u).unwrap()), "{u}");
     }
     for u in ["https://example.org/a.png", "http://8.8.8.8/x", "https://cdn.example.co.uk/x"] {
@@ -381,7 +443,7 @@ fn downloads_are_concurrency_bounded_and_cancellable() {
     let state = cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
     assert_eq!(state, DownloadState::Complete);
     let peak = f.peak.load(Ordering::SeqCst);
-    assert!(peak >= 1 && peak <= 2, "peak concurrency {peak}");
+    assert!((1..=2).contains(&peak), "peak concurrency {peak}");
 
     // Cancellation before downloads: text is published, images stay pending, nothing is lost.
     store.upsert_article(&rec(2, 2, &imgs), 0).unwrap();
@@ -484,7 +546,8 @@ fn every_written_path_stays_inside_the_cache_root() {
     let html = r#"<img src="../../../../etc/passwd" alt="x"><img src="https://blog.example/%2e%2e/%2e%2e/evil.png"><img src="https://blog.example/a/../../b.png">"#;
     store.upsert_article(&rec(1, 1, html), 0).unwrap();
     let f = MockFetcher::new();
-    *f.handler.lock().unwrap() = Some(Box::new(|_| Ok(Fetched { status: 200, content_type: None, location: None, body: png(2, 2, [1, 1, 1]) })));
+    *f.handler.lock().unwrap() =
+        Some(Box::new(|_| Ok(Fetched { status: 200, content_type: None, location: None, body: png(2, 2, [1, 1, 1]) })));
     cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
     let root = cache.root().canonicalize().unwrap();
     let mut n = 0;
@@ -533,7 +596,11 @@ fn storage_pressure_budget_protection_and_pause() {
         assert!(store.download_state(ArticleId(n)).unwrap().readable_offline(), "#{n} protected");
     }
     for n in [4, 5] {
-        assert_eq!(store.download_state(ArticleId(n)).unwrap(), DownloadState::NotDownloaded, "evicted content is never presented as offline-ready");
+        assert_eq!(
+            store.download_state(ArticleId(n)).unwrap(),
+            DownloadState::NotDownloaded,
+            "evicted content is never presented as offline-ready"
+        );
         assert!(!cache.article_dir(ArticleId(n)).exists());
         assert!(store.has_article(ArticleId(n)).unwrap(), "metadata is kept");
     }
@@ -559,7 +626,15 @@ fn download_plan_prioritizes_starred_pinned_then_recent_unread() {
     store.apply_intent(ArticleId(2), &Membership::Starred, true).unwrap();
     store.apply_intent(ArticleId(4), &Membership::Read, true).unwrap();
     store
-        .replace_subscriptions(&[Subscription { id: "feed/https://pinned.example/rss".into(), title: "P".into(), url: String::new(), html_url: String::new(), sort_id: String::new(), first_item_usec: 0, folders: vec!["Keep".into()] }])
+        .replace_subscriptions(&[Subscription {
+            id: "feed/https://pinned.example/rss".into(),
+            title: "P".into(),
+            url: String::new(),
+            html_url: String::new(),
+            sort_id: String::new(),
+            first_item_usec: 0,
+            folders: vec!["Keep".into()],
+        }])
         .unwrap();
     let cache = Cache::new(&_d.path().join("c"), "acct", CacheConfig { pinned_folders: vec!["Keep".into()], ..Default::default() });
     let plan = cache.plan_downloads(&mut store, now).unwrap();
@@ -623,14 +698,28 @@ fn original_page_extraction_succeeds_only_when_it_adds_text() {
         other => panic!("{other:?}"),
     }
     // Feed content was already as long: not an improvement.
-    assert!(matches!(extract_original(&page(&article_page, "text/html"), "https://blog.example/p", 100_000, &lim, &cancel).unwrap(), Extraction::Failed(_)));
+    assert!(matches!(
+        extract_original(&page(&article_page, "text/html"), "https://blog.example/p", 100_000, &lim, &cancel).unwrap(),
+        Extraction::Failed(_)
+    ));
     // A login wall has too little text.
     let wall = "<html><body><div><p>Please sign in to continue reading this article. Subscribers only.</p></div></body></html>";
-    assert!(matches!(extract_original(&page(wall, "text/html"), "https://blog.example/p", 10, &lim, &cancel).unwrap(), Extraction::Failed(m) if m.contains("login") || m.contains("more text")));
+    assert!(
+        matches!(extract_original(&page(wall, "text/html"), "https://blog.example/p", 10, &lim, &cancel).unwrap(), Extraction::Failed(m) if m.contains("login") || m.contains("more text"))
+    );
     // Non-https, non-HTML and unfetchable targets fail without side effects.
-    assert!(matches!(extract_original(&page(&article_page, "text/html"), "http://blog.example/p", 10, &lim, &cancel).unwrap(), Extraction::Failed(_)));
-    assert!(matches!(extract_original(&page(&article_page, "application/pdf"), "https://blog.example/p", 10, &lim, &cancel).unwrap(), Extraction::Failed(_)));
-    assert!(matches!(extract_original(&page(&article_page, "text/html"), "https://127.0.0.1/p", 10, &lim, &cancel).unwrap(), Extraction::Failed(_)));
+    assert!(matches!(
+        extract_original(&page(&article_page, "text/html"), "http://blog.example/p", 10, &lim, &cancel).unwrap(),
+        Extraction::Failed(_)
+    ));
+    assert!(matches!(
+        extract_original(&page(&article_page, "application/pdf"), "https://blog.example/p", 10, &lim, &cancel).unwrap(),
+        Extraction::Failed(_)
+    ));
+    assert!(matches!(
+        extract_original(&page(&article_page, "text/html"), "https://127.0.0.1/p", 10, &lim, &cancel).unwrap(),
+        Extraction::Failed(_)
+    ));
 }
 
 #[test]
@@ -640,7 +729,16 @@ fn extracted_content_is_a_new_version_and_the_feed_source_is_preserved() {
     let f = MockFetcher::new();
     cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
     let v1 = store.latest_version(ArticleId(1)).unwrap().unwrap();
-    cache.publish_extracted(&mut store, ArticleId(1), "<p>the whole long original page text</p>", "https://blog.example/posts/1/").unwrap();
+    cache
+        .publish_extracted(
+            &mut store,
+            &f,
+            ArticleId(1),
+            "<p>the whole long original page text</p>",
+            "https://blog.example/posts/1/",
+            &ctl(),
+        )
+        .unwrap();
     let v2 = store.latest_version(ArticleId(1)).unwrap().unwrap();
     assert!(v2.version > v1.version);
     assert!(v2.raw_hash.starts_with("extract:"));

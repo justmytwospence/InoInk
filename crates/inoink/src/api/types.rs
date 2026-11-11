@@ -95,13 +95,7 @@ pub fn parse_unread_counts(v: &Value) -> Result<UnreadCounts> {
     let list = v["unreadcounts"].as_array().ok_or_else(|| Error::Data("unread counts missing".into()))?;
     let counts = list
         .iter()
-        .filter_map(|c| {
-            Some((
-                normalize_user(c["id"].as_str()?),
-                num_i64(&c["count"]),
-                num_i64(&c["newestItemTimestampUsec"]),
-            ))
-        })
+        .filter_map(|c| Some((normalize_user(c["id"].as_str()?), num_i64(&c["count"]), num_i64(&c["newestItemTimestampUsec"]))))
         .collect();
     let max = if v["max"].is_null() { None } else { Some(num_i64(&v["max"])) };
     Ok(UnreadCounts { counts, max })
@@ -115,15 +109,9 @@ pub struct StreamPage {
 
 pub fn parse_item(item: &Value) -> Result<ArticleRecord> {
     let id = ArticleId::parse(item["id"].as_str().ok_or_else(|| Error::Data("item has no id".into()))?)?;
-    let categories: Vec<String> = item["categories"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    let url = item["canonical"][0]["href"]
-        .as_str()
-        .or_else(|| item["alternate"][0]["href"].as_str())
-        .unwrap_or("")
-        .to_string();
+    let categories: Vec<String> =
+        item["categories"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect()).unwrap_or_default();
+    let url = item["canonical"][0]["href"].as_str().or_else(|| item["alternate"][0]["href"].as_str()).unwrap_or("").to_string();
     let usec = match &item["timestampUsec"] {
         Value::Null => num_i64(&item["crawlTimeMsec"]) * 1000,
         v => num_i64(v),
@@ -177,7 +165,7 @@ pub fn parse_id_page(v: &Value) -> Result<IdPage> {
             timestamp_usec: num_i64(&r["timestampUsec"]),
             direct_stream_ids: r["directStreamIds"]
                 .as_array()
-                .map(|a| a.iter().filter_map(|s| s.as_str().map(|s| normalize_user(s))).collect())
+                .map(|a| a.iter().filter_map(|s| s.as_str().map(normalize_user)).collect())
                 .unwrap_or_default(),
         });
     }
@@ -224,10 +212,7 @@ pub fn parse_quickadd(v: &Value) -> Result<QuickAdd> {
     if let Some(e) = v["error"].as_str() {
         return Err(Error::InvalidRequest(e.to_string()));
     }
-    Ok(QuickAdd {
-        num_results: num_i64(&v["numResults"]),
-        stream_id: v["streamId"].as_str().map(|s| s.to_string()),
-    })
+    Ok(QuickAdd { num_results: num_i64(&v["numResults"]), stream_id: v["streamId"].as_str().map(|s| s.to_string()) })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

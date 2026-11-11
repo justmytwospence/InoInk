@@ -229,7 +229,15 @@ impl Cache {
         Ok(())
     }
 
-    fn publish(&self, store: &mut Store, id: ArticleId, prepared: &crate::content::PreparedArticle, raw_hash: &str, title: &str, state: DownloadState) -> Result<Option<i64>> {
+    fn publish(
+        &self,
+        store: &mut Store,
+        id: ArticleId,
+        prepared: &crate::content::PreparedArticle,
+        raw_hash: &str,
+        title: &str,
+        state: DownloadState,
+    ) -> Result<Option<i64>> {
         let hash = sha256_hex(prepared.html.as_bytes());
         if let Some(latest) = store.latest_version(id)? {
             if latest.hash == hash && self.version_path(id, latest.version).is_file() {
@@ -250,39 +258,73 @@ impl Cache {
     pub fn cache_article(&self, store: &mut Store, fetcher: &dyn Fetcher, id: ArticleId, ctl: &Control) -> Result<DownloadState> {
         self.check_space(ctl)?;
         let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
-        let meta = ArticleMeta { title: rec.title.clone(), source: rec.origin_title.clone(), author: rec.author.clone(), date: format_date(rec.published), url: rec.canonical_url.clone() };
-        let base = if rec.canonical_url.is_empty() { None } else { Some(rec.canonical_url.as_str()) };
+        let base = if rec.canonical_url.is_empty() { None } else { Some(rec.canonical_url.clone()) };
         let raw_hash = sha256_hex(rec.summary_html.as_bytes());
+        self.process(store, fetcher, id, &rec, &rec.summary_html, base.as_deref(), &raw_hash, ctl)
+    }
 
+    /// Prepares `html` for `rec`, publishes it, downloads missing images and republishes.
+    #[allow(clippy::too_many_arguments)]
+    fn process(
+        &self,
+        store: &mut Store,
+        fetcher: &dyn Fetcher,
+        id: ArticleId,
+        rec: &crate::store::ArticleRecord,
+        html: &str,
+        base: Option<&str>,
+        raw_hash: &str,
+        ctl: &Control,
+    ) -> Result<DownloadState> {
+        let meta = ArticleMeta {
+            title: rec.title.clone(),
+            source: rec.origin_title.clone(),
+            author: rec.author.clone(),
+            date: format_date(rec.published),
+            url: rec.canonical_url.clone(),
+        };
         let mut map = self.asset_map(store, id)?;
-        let prepared = prepare_article(&rec.summary_html, base, &meta, &map);
+        let prepared = prepare_article(html, base, &meta, &map);
         for a in &prepared.assets {
             if !map.contains_key(&a.name) {
                 store.set_asset(id, &a.name, &a.url, "pending", 0)?;
                 map.insert(a.name.clone(), AssetState::Pending);
             }
         }
-        let all_done = |m: &AssetMap, p: &crate::content::PreparedArticle| p.assets.iter().all(|a| matches!(m.get(&a.name), Some(AssetState::Done(_))));
+        let all_done = |m: &AssetMap, p: &crate::content::PreparedArticle| {
+            p.assets.iter().all(|a| matches!(m.get(&a.name), Some(AssetState::Done(_))))
+        };
         let first_state = if all_done(&map, &prepared) { DownloadState::Complete } else { DownloadState::TextReady };
-        self.publish(store, id, &prepared, &raw_hash, &rec.title, first_state)?;
+        self.publish(store, id, &prepared, raw_hash, &rec.title, first_state)?;
 
-        let jobs: Vec<(String, String)> = prepared.assets.iter().filter(|a| matches!(map.get(&a.name), Some(AssetState::Pending))).map(|a| (a.name.clone(), a.url.clone())).collect();
+        let jobs: Vec<(String, String)> = prepared
+            .assets
+            .iter()
+            .filter(|a| matches!(map.get(&a.name), Some(AssetState::Pending)))
+            .map(|a| (a.name.clone(), a.url.clone()))
+            .collect();
         if jobs.is_empty() {
             return self.final_state(store, id, &prepared, &map);
         }
         let changed = self.download_assets(store, fetcher, id, jobs, ctl)?;
         if changed {
             let map = self.asset_map(store, id)?;
-            let prepared = prepare_article(&rec.summary_html, base, &meta, &map);
+            let prepared = prepare_article(html, base, &meta, &map);
             let state = self.final_state(store, id, &prepared, &map)?;
-            self.publish(store, id, &prepared, &raw_hash, &rec.title, state)?;
+            self.publish(store, id, &prepared, raw_hash, &rec.title, state)?;
             self.collect_garbage(store, id)?;
             return Ok(state);
         }
         self.final_state(store, id, &prepared, &map)
     }
 
-    fn final_state(&self, store: &mut Store, id: ArticleId, prepared: &crate::content::PreparedArticle, map: &AssetMap) -> Result<DownloadState> {
+    fn final_state(
+        &self,
+        store: &mut Store,
+        id: ArticleId,
+        prepared: &crate::content::PreparedArticle,
+        map: &AssetMap,
+    ) -> Result<DownloadState> {
         let mut pending = false;
         let mut failed = false;
         for a in &prepared.assets {
@@ -304,7 +346,14 @@ impl Cache {
     }
 
     /// Downloads images with bounded concurrency. Returns whether any asset changed state.
-    fn download_assets(&self, store: &mut Store, fetcher: &dyn Fetcher, id: ArticleId, jobs: Vec<(String, String)>, ctl: &Control) -> Result<bool> {
+    fn download_assets(
+        &self,
+        store: &mut Store,
+        fetcher: &dyn Fetcher,
+        id: ArticleId,
+        jobs: Vec<(String, String)>,
+        ctl: &Control,
+    ) -> Result<bool> {
         let queue = Mutex::new(VecDeque::from(jobs));
         let (tx, rx) = mpsc::channel::<(String, String, std::result::Result<(String, u64), DownloadError>)>();
         let assets_dir = self.article_dir(id).join("assets");
@@ -386,22 +435,21 @@ impl Cache {
         Ok(())
     }
 
-    /// Publishes extracted original-page HTML as a new version (the API source is untouched).
-    pub fn publish_extracted(&self, store: &mut Store, id: ArticleId, html: &str, page_url: &str) -> Result<DownloadState> {
+    /// Publishes extracted original-page HTML as a new version (the API source is untouched),
+    /// downloading its images like any other article.
+    pub fn publish_extracted(
+        &self,
+        store: &mut Store,
+        fetcher: &dyn Fetcher,
+        id: ArticleId,
+        html: &str,
+        page_url: &str,
+        ctl: &Control,
+    ) -> Result<DownloadState> {
+        self.check_space(ctl)?;
         let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
-        let meta = ArticleMeta { title: rec.title.clone(), source: rec.origin_title.clone(), author: rec.author.clone(), date: format_date(rec.published), url: rec.canonical_url.clone() };
-        let mut map = self.asset_map(store, id)?;
-        let prepared = prepare_article(html, Some(page_url), &meta, &map);
-        for a in &prepared.assets {
-            if !map.contains_key(&a.name) {
-                store.set_asset(id, &a.name, &a.url, "pending", 0)?;
-                map.insert(a.name.clone(), AssetState::Pending);
-            }
-        }
         let raw_hash = format!("extract:{}", sha256_hex(html.as_bytes()));
-        let state = if prepared.assets.iter().all(|a| matches!(map.get(&a.name), Some(AssetState::Done(_)))) { DownloadState::Complete } else { DownloadState::TextReady };
-        self.publish(store, id, &prepared, &raw_hash, &rec.title, state)?;
-        Ok(state)
+        self.process(store, fetcher, id, &rec, html, Some(page_url), &raw_hash, ctl)
     }
 
     // ---- policy ---------------------------------------------------------------------------
@@ -413,7 +461,11 @@ impl Cache {
             return Ok(DownloadPlan { ids: vec![], paused: Some(PauseReason::StorageLimit) });
         }
         let cutoff = (now - self.cfg.recent_unread_days * 86400) * 1_000_000;
-        let ids = store.download_candidates(cutoff, self.cfg.max_candidates_per_cycle)?.into_iter().map(|(id, _): (ArticleId, CandidateKind)| id).collect();
+        let ids = store
+            .download_candidates(cutoff, self.cfg.max_candidates_per_cycle)?
+            .into_iter()
+            .map(|(id, _): (ArticleId, CandidateKind)| id)
+            .collect();
         Ok(DownloadPlan { ids, paused: None })
     }
 

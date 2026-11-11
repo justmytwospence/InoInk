@@ -24,7 +24,14 @@ pub struct ImageLimits {
 
 impl Default for ImageLimits {
     fn default() -> Self {
-        ImageLimits { max_bytes: 16 * 1024 * 1024, max_pixels: 32_000_000, max_width: 1800, max_height: 2400, max_redirects: 5, attempts: 3 }
+        ImageLimits {
+            max_bytes: 16 * 1024 * 1024,
+            max_pixels: 32_000_000,
+            max_width: 1800,
+            max_height: 2400,
+            max_redirects: 5,
+            attempts: 3,
+        }
     }
 }
 
@@ -57,7 +64,11 @@ pub fn is_private_ip(ip: &IpAddr) -> bool {
             if let Some(m) = v.to_ipv4_mapped() {
                 return is_private_ip(&IpAddr::V4(m));
             }
-            v.is_loopback() || v.is_unspecified() || v.is_multicast() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80
+            v.is_loopback()
+                || v.is_unspecified()
+                || v.is_multicast()
+                || (v.segments()[0] & 0xfe00) == 0xfc00
+                || (v.segments()[0] & 0xffc0) == 0xfe80
         }
     }
 }
@@ -171,7 +182,13 @@ pub enum DownloadError {
 }
 
 /// Downloads and normalizes one image with bounded retries.
-pub fn download_image(f: &dyn Fetcher, url: &Url, limits: &ImageLimits, cancel: &AtomicBool, sleep: &dyn Fn(Duration)) -> std::result::Result<Normalized, DownloadError> {
+pub fn download_image(
+    f: &dyn Fetcher,
+    url: &Url,
+    limits: &ImageLimits,
+    cancel: &AtomicBool,
+    sleep: &dyn Fn(Duration),
+) -> std::result::Result<Normalized, DownloadError> {
     let mut last = String::from("failed");
     for attempt in 0..limits.attempts.max(1) {
         if cancel.load(Ordering::Relaxed) {
@@ -208,7 +225,12 @@ struct GuardedResolver {
 }
 
 impl ureq::unversioned::resolver::Resolver for GuardedResolver {
-    fn resolve(&self, uri: &ureq::http::Uri, config: &ureq::config::Config, timeout: ureq::unversioned::transport::NextTimeout) -> std::result::Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> std::result::Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
         let all = self.inner.resolve(uri, config, timeout)?;
         let mut out = self.empty();
         for a in all.iter() {
@@ -253,7 +275,12 @@ impl Fetcher for UreqFetcher {
         let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(String::from);
         let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(String::from);
         let body = if (200..300).contains(&status) {
-            let b = resp.body_mut().with_config().limit(max_bytes as u64 + 1).read_to_vec().map_err(|_| Error::Retryable("read failed".into()))?;
+            let b = resp
+                .body_mut()
+                .with_config()
+                .limit(max_bytes as u64 + 1)
+                .read_to_vec()
+                .map_err(|_| Error::Retryable("read failed".into()))?;
             if b.len() > max_bytes {
                 return Err(Error::Unsupported("download is too large".into()));
             }
@@ -264,4 +291,3 @@ impl Fetcher for UreqFetcher {
         Ok(Fetched { status, content_type, location, body })
     }
 }
-

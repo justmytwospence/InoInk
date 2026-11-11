@@ -107,14 +107,23 @@ pub fn extract_main(html: &str) -> Option<String> {
 
 #[derive(Debug, PartialEq)]
 pub enum Extraction {
-    Extracted { html: String, chars: usize },
+    Extracted {
+        html: String,
+        chars: usize,
+    },
     /// Nothing better than the feed content was found.
     Failed(String),
 }
 
 /// Fetches `page_url` (https only) and extracts its main content. `feed_chars` is the length of
 /// the text (in characters) already available from the API; extraction must beat it.
-pub fn extract_original(f: &dyn Fetcher, page_url: &str, feed_chars: usize, limits: &ImageLimits, cancel: &AtomicBool) -> Result<Extraction> {
+pub fn extract_original(
+    f: &dyn Fetcher,
+    page_url: &str,
+    feed_chars: usize,
+    limits: &ImageLimits,
+    cancel: &AtomicBool,
+) -> Result<Extraction> {
     let url = Url::parse(page_url).map_err(|_| Error::InvalidRequest("bad article URL".into()))?;
     if url.scheme() != "https" {
         return Ok(Extraction::Failed("the original page is not served over https".into()));

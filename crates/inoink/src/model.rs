@@ -19,22 +19,15 @@ pub struct ArticleId(pub u64);
 
 impl ArticleId {
     pub fn from_short(s: &str) -> Result<ArticleId> {
-        s.trim()
-            .parse::<i64>()
-            .map(|n| ArticleId(n as u64))
-            .map_err(|_| Error::Data(format!("bad short article id {s:?}")))
+        s.trim().parse::<i64>().map(|n| ArticleId(n as u64)).map_err(|_| Error::Data(format!("bad short article id {s:?}")))
     }
 
     pub fn from_long(s: &str) -> Result<ArticleId> {
-        let hex = s
-            .strip_prefix(LONG_ID_PREFIX)
-            .ok_or_else(|| Error::Data(format!("bad long article id {s:?}")))?;
+        let hex = s.strip_prefix(LONG_ID_PREFIX).ok_or_else(|| Error::Data(format!("bad long article id {s:?}")))?;
         if hex.len() != 16 {
             return Err(Error::Data(format!("bad long article id {s:?}")));
         }
-        u64::from_str_radix(hex, 16)
-            .map(ArticleId)
-            .map_err(|_| Error::Data(format!("bad long article id {s:?}")))
+        u64::from_str_radix(hex, 16).map(ArticleId).map_err(|_| Error::Data(format!("bad long article id {s:?}")))
     }
 
     /// Accepts either wire form.

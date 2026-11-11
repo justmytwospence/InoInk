@@ -38,7 +38,15 @@ fn contents_request_encodes_stream_as_one_path_component() {
         .client
         .contents(
             &StreamId::new("user/1005921515/label/Tech/Caf\u{e9} & more"),
-            &ContentsParams { count: 500, exclude_read: true, continuation: Some("tok/+=".into()), annotations: true, summaries: true, manual_tags_only: true, ..Default::default() },
+            &ContentsParams {
+                count: 500,
+                exclude_read: true,
+                continuation: Some("tok/+=".into()),
+                annotations: true,
+                summaries: true,
+                manual_tags_only: true,
+                ..Default::default()
+            },
         )
         .unwrap();
     assert_eq!(page.continuation.as_deref(), Some("abc"));
@@ -120,9 +128,7 @@ fn item_ids_request_and_response() {
 fn edit_tag_form_repeats_i_uses_short_ids_and_checks_ok() {
     let h = harness();
     h.mock.push_ok();
-    h.client
-        .edit_tag(&[ArticleId(12345678), ArticleId(u64::MAX)], Some(&Membership::Read), Some(&Membership::Starred))
-        .unwrap();
+    h.client.edit_tag(&[ArticleId(12345678), ArticleId(u64::MAX)], Some(&Membership::Read), Some(&Membership::Starred)).unwrap();
     let req = h.mock.last();
     assert_eq!(req.method, Method::Post);
     assert!(req.url.ends_with("/edit-tag"));
@@ -182,7 +188,13 @@ fn subscription_endpoints() {
 
     h.mock.push_ok();
     h.client
-        .edit_subscription(&SubscriptionEdit { action: SubAction::Unsubscribe, stream: StreamId::feed("http://a/rss"), title: None, add_folder: None, remove_folder: None })
+        .edit_subscription(&SubscriptionEdit {
+            action: SubAction::Unsubscribe,
+            stream: StreamId::feed("http://a/rss"),
+            title: None,
+            add_folder: None,
+            remove_folder: None,
+        })
         .unwrap();
     assert_eq!(form_get(&h.mock.last(), "ac"), vec!["unsubscribe"]);
     assert!(form_get(&h.mock.last(), "t").is_empty());
@@ -291,11 +303,30 @@ fn active_search_create_and_delete() {
 
     // Validation failure arrives as HTTP 202 with a description.
     h.mock.push(Ok(resp(202, &json!({"accountLimit": 30, "userOutput": "You reached your limit"}).to_string())));
-    match h.client.create_active_search(&ActiveSearchSpec { term: "x".into(), filter_type: FilterType::Public, filter_id: None, article_ids: vec![], search_filters: None, search_match: None, search_feed_popularity: Some("popular_sites".into()) }) {
+    match h.client.create_active_search(&ActiveSearchSpec {
+        term: "x".into(),
+        filter_type: FilterType::Public,
+        filter_id: None,
+        article_ids: vec![],
+        search_filters: None,
+        search_match: None,
+        search_feed_popularity: Some("popular_sites".into()),
+    }) {
         Err(Error::InvalidRequest(m)) => assert!(m.contains("limit")),
         other => panic!("{other:?}"),
     }
-    assert!(h.client.create_active_search(&ActiveSearchSpec { term: "x".into(), filter_type: FilterType::Folder, filter_id: None, article_ids: vec![], search_filters: None, search_match: None, search_feed_popularity: None }).is_err());
+    assert!(h
+        .client
+        .create_active_search(&ActiveSearchSpec {
+            term: "x".into(),
+            filter_type: FilterType::Folder,
+            filter_id: None,
+            article_ids: vec![],
+            search_filters: None,
+            search_match: None,
+            search_feed_popularity: None
+        })
+        .is_err());
 
     // Delete is the documented GET.
     h.mock.push(Ok(resp(200, "ok")));

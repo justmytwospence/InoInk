@@ -11,10 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const MIGRATIONS: &[&str] = &[
-    include_str!("../migrations/0001.sql"),
-    include_str!("../migrations/0002.sql"),
-];
+const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001.sql"), include_str!("../migrations/0002.sql")];
 
 /// Highest schema version this build understands.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -139,11 +136,9 @@ fn next_generation(tx: &Transaction) -> Result<i64> {
 fn effective_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Membership) -> Result<bool> {
     let key = m.key();
     let v: Option<i64> = tx
-        .query_row(
-            "SELECT desired FROM intents WHERE account=?1 AND article=?2 AND key=?3",
-            params![account, article.to_db(), key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT desired FROM intents WHERE account=?1 AND article=?2 AND key=?3", params![account, article.to_db(), key], |r| {
+            r.get(0)
+        })
         .optional()?;
     if let Some(v) = v {
         return Ok(v != 0);
@@ -162,28 +157,19 @@ fn set_intent_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Member
     let key = m.key();
     let a = article.to_db();
     let known: Option<i64> = tx
-        .query_row(
-            "SELECT present FROM remote_state WHERE account=?1 AND article=?2 AND key=?3",
-            params![account, a, key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT present FROM remote_state WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key], |r| r.get(0))
         .optional()?;
     let existing: Option<Option<i64>> = tx
-        .query_row(
-            "SELECT sent_generation FROM intents WHERE account=?1 AND article=?2 AND key=?3",
-            params![account, a, key],
-            |r| r.get::<_, Option<i64>>(0),
-        )
+        .query_row("SELECT sent_generation FROM intents WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key], |r| {
+            r.get::<_, Option<i64>>(0)
+        })
         .optional()?;
     let generation = next_generation(tx)?;
     let in_flight = matches!(existing, Some(Some(_)));
     let matches_remote = known.map(|k| (k != 0) == desired).unwrap_or(false);
     if matches_remote && !in_flight {
         // Collapses an unsent change back to the known server state: nothing to send.
-        tx.execute(
-            "DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3",
-            params![account, a, key],
-        )?;
+        tx.execute("DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key])?;
         return Ok(CommitReceipt { generation, pending: false });
     }
     tx.execute(
@@ -198,11 +184,7 @@ fn set_intent_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Member
 fn observe_tx(tx: &Transaction, account: &str, article: ArticleId, key: &str, present: bool, start_seq: i64) -> Result<bool> {
     let a = article.to_db();
     let existing: Option<i64> = tx
-        .query_row(
-            "SELECT seq FROM remote_state WHERE account=?1 AND article=?2 AND key=?3",
-            params![account, a, key],
-            |r| r.get(0),
-        )
+        .query_row("SELECT seq FROM remote_state WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key], |r| r.get(0))
         .optional()?;
     if let Some(seq) = existing {
         if seq > start_seq {
@@ -273,9 +255,7 @@ impl Store {
     pub fn migrate(&mut self) -> Result<()> {
         let current = self.schema_version()?;
         if current > SCHEMA_VERSION {
-            return Err(Error::Storage(format!(
-                "database schema {current} is newer than supported {SCHEMA_VERSION}"
-            )));
+            return Err(Error::Storage(format!("database schema {current} is newer than supported {SCHEMA_VERSION}")));
         }
         if current == SCHEMA_VERSION {
             return Ok(());
@@ -319,20 +299,15 @@ impl Store {
 
     pub fn set_meta(&mut self, key: &str, value: &str) -> Result<()> {
         let k = format!("{}:{key}", self.account);
-        self.conn.execute(
-            "INSERT INTO meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            params![k, value],
-        )?;
+        self.conn
+            .execute("INSERT INTO meta(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![k, value])?;
         Ok(())
     }
 
     /// Current global sequence number. Take it *before* issuing a request whose result will be
     /// passed to [`Store::upsert_article`] or the reconcile functions.
     pub fn seq(&self) -> Result<i64> {
-        let v: Option<i64> = self
-            .conn
-            .query_row("SELECT CAST(value AS INTEGER) FROM meta WHERE key='seq'", [], |r| r.get(0))
-            .optional()?;
+        let v: Option<i64> = self.conn.query_row("SELECT CAST(value AS INTEGER) FROM meta WHERE key='seq'", [], |r| r.get(0)).optional()?;
         Ok(v.unwrap_or(0))
     }
 
@@ -346,11 +321,7 @@ impl Store {
         let tx = self.conn.transaction()?;
         let id = ArticleId(rec.id);
         let existed: bool = tx
-            .query_row(
-                "SELECT 1 FROM articles WHERE account=?1 AND id=?2",
-                params![account, id.to_db()],
-                |_| Ok(true),
-            )
+            .query_row("SELECT 1 FROM articles WHERE account=?1 AND id=?2", params![account, id.to_db()], |_| Ok(true))
             .optional()?
             .unwrap_or(false);
         let content_hash = sha256_hex(rec.summary_html.as_bytes());
@@ -385,10 +356,7 @@ impl Store {
             params![account, id.to_db(), rec.raw_json],
         )?;
 
-        tx.execute(
-            "DELETE FROM article_streams WHERE account=?1 AND article=?2",
-            params![account, id.to_db()],
-        )?;
+        tx.execute("DELETE FROM article_streams WHERE account=?1 AND article=?2", params![account, id.to_db()])?;
         let mut labels = BTreeSet::new();
         let mut flags: BTreeMap<String, bool> = FLAG_KEYS.iter().map(|k| (k.to_string(), false)).collect();
         for cat in &rec.categories {
@@ -413,9 +381,7 @@ impl Store {
         }
         // Labels no longer listed are cleared; listed ones are set.
         let known: Vec<String> = {
-            let mut stmt = tx.prepare(
-                "SELECT key FROM remote_state WHERE account=?1 AND article=?2 AND key LIKE 'label:%'",
-            )?;
+            let mut stmt = tx.prepare("SELECT key FROM remote_state WHERE account=?1 AND article=?2 AND key LIKE 'label:%'")?;
             let rows = stmt.query_map(params![account, id.to_db()], |r| r.get::<_, String>(0))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
@@ -434,11 +400,7 @@ impl Store {
     pub fn has_article(&self, id: ArticleId) -> Result<bool> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT 1 FROM articles WHERE account=?1 AND id=?2",
-                params![self.account, id.to_db()],
-                |_| Ok(true),
-            )
+            .query_row("SELECT 1 FROM articles WHERE account=?1 AND id=?2", params![self.account, id.to_db()], |_| Ok(true))
             .optional()?
             .unwrap_or(false))
     }
@@ -447,11 +409,7 @@ impl Store {
     pub fn raw_json(&self, id: ArticleId) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT raw_json FROM articles WHERE account=?1 AND id=?2",
-                params![self.account, id.to_db()],
-                |r| r.get(0),
-            )
+            .query_row("SELECT raw_json FROM articles WHERE account=?1 AND id=?2", params![self.account, id.to_db()], |r| r.get(0))
             .optional()?)
     }
 
@@ -512,9 +470,7 @@ impl Store {
 
     pub fn query_articles(&self, q: &ArticleQuery) -> Result<ArticlePage> {
         let limit = if q.limit == 0 { 50 } else { q.limit };
-        let mut sql = String::from(
-            "SELECT a.id, a.title, a.origin_title, a.published, a.timestamp_usec, a.download_state, ",
-        );
+        let mut sql = String::from("SELECT a.id, a.title, a.origin_title, a.published, a.timestamp_usec, a.download_state, ");
         sql.push_str(&flag_expr("read"));
         sql.push_str(" AS is_read, ");
         sql.push_str(&flag_expr("starred"));
@@ -610,10 +566,7 @@ impl Store {
 /// Turns user text into a safe FTS5 MATCH expression: every whitespace-separated token becomes
 /// a quoted phrase, so FTS operators and syntax in the input are inert.
 pub fn fts_query(text: &str) -> Option<String> {
-    let tokens: Vec<String> = text
-        .split_whitespace()
-        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
-        .collect();
+    let tokens: Vec<String> = text.split_whitespace().map(|t| format!("\"{}\"", t.replace('"', "\"\""))).collect();
     if tokens.is_empty() {
         None
     } else {
@@ -655,14 +608,11 @@ impl Store {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
         let row: Option<(i64, i64, i64, i64)> = tx
-            .query_row(
-                "SELECT article,prev_read,prev_starred,used FROM undos WHERE id=?1 AND account=?2",
-                params![id.0, account],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
+            .query_row("SELECT article,prev_read,prev_starred,used FROM undos WHERE id=?1 AND account=?2", params![id.0, account], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
             .optional()?;
-        let (article, prev_read, prev_starred, used) =
-            row.ok_or_else(|| Error::InvalidRequest("unknown undo".into()))?;
+        let (article, prev_read, prev_starred, used) = row.ok_or_else(|| Error::InvalidRequest("unknown undo".into()))?;
         if used != 0 {
             return Err(Error::InvalidRequest("already undone".into()));
         }
@@ -804,12 +754,11 @@ impl Store {
                 "SELECT article,key,desired,generation FROM intents \
                  WHERE account=?1 AND sent_generation IS NULL ORDER BY updated, article, key",
             )?;
-            let rows = stmt.query_map(params![account], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0, r.get(3)?))
-            })?;
+            let rows = stmt.query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0, r.get(3)?)))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        let mut per_article: BTreeMap<i64, (Vec<(Membership, i64)>, Vec<(Membership, i64)>)> = BTreeMap::new();
+        type Changes = Vec<(Membership, i64)>;
+        let mut per_article: BTreeMap<i64, (Changes, Changes)> = BTreeMap::new();
         for (a, key, desired, gen) in &rows {
             let m = Membership::from_key(key)?;
             let e = per_article.entry(*a).or_default();
@@ -887,10 +836,7 @@ impl Store {
                 .optional()?;
             if let Some((cur_gen, cur_desired)) = cur {
                 if cur_gen == *gen || (cur_desired != 0) == *desired {
-                    tx.execute(
-                        "DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3",
-                        params![account, a.to_db(), key],
-                    )?;
+                    tx.execute("DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3", params![account, a.to_db(), key])?;
                 } else {
                     tx.execute(
                         "UPDATE intents SET sent_generation=NULL, sent_desired=NULL WHERE account=?1 AND article=?2 AND key=?3",
@@ -901,6 +847,16 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// The server cannot apply this change (for example marking an article older than the feed's
+    /// first item unread). Drops the intent, reverting the effective state to the server's.
+    pub fn reject_intent(&mut self, article: ArticleId, m: &Membership, generation: i64) -> Result<bool> {
+        let n = self.conn.execute(
+            "DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3 AND generation=?4",
+            params![self.account, article.to_db(), m.key(), generation],
+        )?;
+        Ok(n > 0)
     }
 
     /// The batch failed (or its outcome is unknown); state setters are safe to send again.
@@ -966,11 +922,13 @@ impl Store {
     pub fn reconcile_page(&mut self, run: i64, ids: &[ArticleId], continuation: Option<&str>) -> Result<Vec<ArticleId>> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
-        let (key, listed, start_seq): (String, i64, i64) = tx.query_row(
-            "SELECT key,listed_value,start_seq FROM sync_runs WHERE id=?1 AND account=?2 AND complete=0 AND abandoned=0",
-            params![run, account],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ).map_err(|_| Error::InvalidRequest("unknown or finished run".into()))?;
+        let (key, listed, start_seq): (String, i64, i64) = tx
+            .query_row(
+                "SELECT key,listed_value,start_seq FROM sync_runs WHERE id=?1 AND account=?2 AND complete=0 AND abandoned=0",
+                params![run, account],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(|_| Error::InvalidRequest("unknown or finished run".into()))?;
         if let Some(tok) = continuation {
             let n = tx.execute("INSERT OR IGNORE INTO sync_tokens(run,token) VALUES(?1,?2)", params![run, tok])?;
             if n == 0 {
@@ -1029,11 +987,13 @@ impl Store {
     pub fn resolve_candidates(&mut self, run: i64, confirmed: &[ArticleId]) -> Result<usize> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
-        let (key, listed, start_seq): (String, i64, i64) = tx.query_row(
-            "SELECT key,listed_value,start_seq FROM sync_runs WHERE id=?1 AND account=?2 AND complete=1",
-            params![run, account],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ).map_err(|_| Error::InvalidRequest("run is not complete".into()))?;
+        let (key, listed, start_seq): (String, i64, i64) = tx
+            .query_row(
+                "SELECT key,listed_value,start_seq FROM sync_runs WHERE id=?1 AND account=?2 AND complete=1",
+                params![run, account],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(|_| Error::InvalidRequest("run is not complete".into()))?;
         let mut n = 0;
         for id in confirmed {
             if observe_tx(&tx, &account, *id, &key, listed == 0, start_seq)? {
@@ -1080,10 +1040,7 @@ impl Store {
                 params![account, s.id, s.title, s.url, s.html_url, s.sort_id, s.first_item_usec],
             )?;
             for f in &s.folders {
-                tx.execute(
-                    "INSERT OR IGNORE INTO subscription_folders(account,feed,folder) VALUES(?1,?2,?3)",
-                    params![account, s.id, f],
-                )?;
+                tx.execute("INSERT OR IGNORE INTO subscription_folders(account,feed,folder) VALUES(?1,?2,?3)", params![account, s.id, f])?;
             }
         }
         tx.commit()?;
@@ -1174,12 +1131,85 @@ impl Store {
             .optional()?)
     }
 
+    /// Queues an organization operation and applies its effect to the local copy in the same
+    /// transaction, so the UI reflects it immediately. Kinds and JSON payloads:
+    /// `subscription_edit` {action: edit|subscribe|unsubscribe, stream, title?, add_folder?, remove_folder?},
+    /// `quickadd` {feed}, `rename_tag` {source, dest}, `disable_tag` {stream},
+    /// `stream_order` {stream, ordering}, `active_search_create` {...spec}, `active_search_delete` {id}.
     pub fn enqueue_org(&mut self, kind: &str, payload: &str) -> Result<i64> {
-        self.conn.execute(
-            "INSERT INTO org_ops(account,kind,payload,created) VALUES(?1,?2,?3,?4)",
-            params![self.account, kind, payload, now_secs()],
-        )?;
-        Ok(self.conn.last_insert_rowid())
+        let account = self.account.clone();
+        let v: serde_json::Value = serde_json::from_str(payload).map_err(|_| Error::InvalidRequest("bad payload".into()))?;
+        let tx = self.conn.transaction()?;
+        match kind {
+            "subscription_edit" => {
+                let stream = v["stream"].as_str().unwrap_or_default();
+                match v["action"].as_str().unwrap_or("edit") {
+                    "unsubscribe" => {
+                        tx.execute("DELETE FROM subscriptions WHERE account=?1 AND id=?2", params![account, stream])?;
+                        tx.execute("DELETE FROM subscription_folders WHERE account=?1 AND feed=?2", params![account, stream])?;
+                    }
+                    _ => {
+                        if let Some(t) = v["title"].as_str() {
+                            tx.execute("UPDATE subscriptions SET title=?3 WHERE account=?1 AND id=?2", params![account, stream, t])?;
+                        }
+                        if let Some(f) = v["add_folder"].as_str() {
+                            tx.execute(
+                                "INSERT OR IGNORE INTO subscription_folders(account,feed,folder) VALUES(?1,?2,?3)",
+                                params![account, stream, f],
+                            )?;
+                        }
+                        if let Some(f) = v["remove_folder"].as_str() {
+                            tx.execute(
+                                "DELETE FROM subscription_folders WHERE account=?1 AND feed=?2 AND folder=?3",
+                                params![account, stream, f],
+                            )?;
+                        }
+                    }
+                }
+            }
+            "rename_tag" => {
+                let src = v["source"].as_str().unwrap_or_default();
+                let dest = v["dest"].as_str().unwrap_or_default();
+                if let (Some(s), true) = (src.strip_prefix("user/-/label/"), !dest.is_empty()) {
+                    tx.execute("UPDATE subscription_folders SET folder=?3 WHERE account=?1 AND folder=?2", params![account, s, dest])?;
+                    tx.execute("UPDATE tags SET id=?3 WHERE account=?1 AND id=?2", params![account, src, format!("user/-/label/{dest}")])?;
+                    tx.execute(
+                        "UPDATE remote_state SET key=?3 WHERE account=?1 AND key=?2",
+                        params![account, format!("label:{s}"), format!("label:{dest}")],
+                    )?;
+                }
+            }
+            "disable_tag" => {
+                let stream = v["stream"].as_str().unwrap_or_default();
+                if let Some(s) = stream.strip_prefix("user/-/label/") {
+                    tx.execute("DELETE FROM subscription_folders WHERE account=?1 AND folder=?2", params![account, s])?;
+                    tx.execute("DELETE FROM remote_state WHERE account=?1 AND key=?2", params![account, format!("label:{s}")])?;
+                }
+                tx.execute("DELETE FROM tags WHERE account=?1 AND id=?2", params![account, stream])?;
+            }
+            "stream_order" => {
+                tx.execute(
+                    "INSERT OR REPLACE INTO stream_order(account,stream,ordering) VALUES(?1,?2,?3)",
+                    params![account, v["stream"].as_str().unwrap_or_default(), v["ordering"].as_str().unwrap_or_default()],
+                )?;
+            }
+            "quickadd" | "active_search_create" => {}
+            "active_search_delete" => {
+                tx.execute("DELETE FROM tags WHERE account=?1 AND id=?2", params![account, v["id"].as_str().unwrap_or_default()])?;
+            }
+            other => return Err(Error::InvalidRequest(format!("unknown operation {other}"))),
+        }
+        tx.execute("INSERT INTO org_ops(account,kind,payload,created) VALUES(?1,?2,?3,?4)", params![account, kind, payload, now_secs()])?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// True while any organization operation has not been acknowledged.
+    pub fn org_pending(&self) -> Result<bool> {
+        Ok(self.conn.query_row("SELECT COUNT(*) FROM org_ops WHERE account=?1 AND state<>'failed'", params![self.account], |r| {
+            r.get::<_, i64>(0)
+        })? > 0)
     }
 
     /// Operations still to be sent, oldest first, marking them in flight.
@@ -1188,7 +1218,8 @@ impl Store {
         let tx = self.conn.transaction()?;
         let ops: Vec<OrgOp> = {
             let mut stmt = tx.prepare("SELECT id,kind,payload,state FROM org_ops WHERE account=?1 AND state='pending' ORDER BY id")?;
-            let rows = stmt.query_map(params![account], |r| Ok(OrgOp { id: r.get(0)?, kind: r.get(1)?, payload: r.get(2)?, state: r.get(3)? }))?;
+            let rows =
+                stmt.query_map(params![account], |r| Ok(OrgOp { id: r.get(0)?, kind: r.get(1)?, payload: r.get(2)?, state: r.get(3)? }))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
         for op in &ops {
@@ -1198,31 +1229,33 @@ impl Store {
         Ok(ops)
     }
 
+    /// Drops a failed (or unwanted) operation; the next refresh restores the server's view.
+    pub fn discard_org(&mut self, id: i64) -> Result<()> {
+        self.finish_org(id)
+    }
+
     pub fn finish_org(&mut self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM org_ops WHERE id=?1 AND account=?2", params![id, self.account])?;
         Ok(())
     }
 
     pub fn set_org_state(&mut self, id: i64, state: &str, error: &str) -> Result<()> {
-        self.conn.execute(
-            "UPDATE org_ops SET state=?3, error=?4 WHERE id=?1 AND account=?2",
-            params![id, self.account, state, error],
-        )?;
+        self.conn.execute("UPDATE org_ops SET state=?3, error=?4 WHERE id=?1 AND account=?2", params![id, self.account, state, error])?;
         Ok(())
     }
 
     /// Startup recovery: operations in flight at a crash have an unknown outcome and must be
     /// reconciled against server listings before any retry of a non-idempotent kind.
     pub fn recover_org(&mut self) -> Result<usize> {
-        Ok(self.conn.execute(
-            "UPDATE org_ops SET state='needs_reconciliation' WHERE account=?1 AND state='in_flight'",
-            params![self.account],
-        )?)
+        Ok(self
+            .conn
+            .execute("UPDATE org_ops SET state='needs_reconciliation' WHERE account=?1 AND state='in_flight'", params![self.account])?)
     }
 
     pub fn org_ops(&self) -> Result<Vec<OrgOp>> {
         let mut stmt = self.conn.prepare("SELECT id,kind,payload,state FROM org_ops WHERE account=?1 ORDER BY id")?;
-        let rows = stmt.query_map(params![self.account], |r| Ok(OrgOp { id: r.get(0)?, kind: r.get(1)?, payload: r.get(2)?, state: r.get(3)? }))?;
+        let rows =
+            stmt.query_map(params![self.account], |r| Ok(OrgOp { id: r.get(0)?, kind: r.get(1)?, payload: r.get(2)?, state: r.get(3)? }))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }
@@ -1241,21 +1274,32 @@ impl Store {
     pub fn download_state(&self, article: ArticleId) -> Result<DownloadState> {
         let s: Option<String> = self
             .conn
-            .query_row("SELECT download_state FROM articles WHERE account=?1 AND id=?2", params![self.account, article.to_db()], |r| r.get(0))
+            .query_row("SELECT download_state FROM articles WHERE account=?1 AND id=?2", params![self.account, article.to_db()], |r| {
+                r.get(0)
+            })
             .optional()?;
         Ok(s.map(|s| DownloadState::parse(&s)).unwrap_or(DownloadState::NotDownloaded))
     }
 
     pub fn set_pinned(&mut self, article: ArticleId, pinned: bool) -> Result<()> {
-        self.conn.execute(
-            "UPDATE articles SET pinned=?3 WHERE account=?1 AND id=?2",
-            params![self.account, article.to_db(), pinned as i64],
-        )?;
+        self.conn
+            .execute("UPDATE articles SET pinned=?3 WHERE account=?1 AND id=?2", params![self.account, article.to_db(), pinned as i64])?;
         Ok(())
     }
 
     /// Publishes a new content version and indexes its text, in one transaction.
-    pub fn publish_version(&mut self, article: ArticleId, raw_hash: &str, hash: &str, dir: &str, bytes: i64, title: &str, body_text: &str, state: DownloadState) -> Result<ContentVersion> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn publish_version(
+        &mut self,
+        article: ArticleId,
+        raw_hash: &str,
+        hash: &str,
+        dir: &str,
+        bytes: i64,
+        title: &str,
+        body_text: &str,
+        state: DownloadState,
+    ) -> Result<ContentVersion> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
         let version: i64 = tx.query_row(
@@ -1272,10 +1316,7 @@ impl Store {
             "INSERT INTO article_fts(account,article,title,body) VALUES(?1,?2,?3,?4)",
             params![account, article.to_db(), title, body_text],
         )?;
-        tx.execute(
-            "UPDATE articles SET download_state=?3 WHERE account=?1 AND id=?2",
-            params![account, article.to_db(), state.as_str()],
-        )?;
+        tx.execute("UPDATE articles SET download_state=?3 WHERE account=?1 AND id=?2", params![account, article.to_db(), state.as_str()])?;
         tx.commit()?;
         Ok(ContentVersion { version, hash: hash.into(), raw_hash: raw_hash.into(), dir: dir.into(), bytes })
     }
@@ -1292,9 +1333,9 @@ impl Store {
     }
 
     pub fn versions(&self, article: ArticleId) -> Result<Vec<ContentVersion>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT version,hash,raw_hash,dir,bytes FROM content_versions WHERE account=?1 AND article=?2 ORDER BY version",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT version,hash,raw_hash,dir,bytes FROM content_versions WHERE account=?1 AND article=?2 ORDER BY version")?;
         let rows = stmt.query_map(params![self.account, article.to_db()], |r| {
             Ok(ContentVersion { version: r.get(0)?, hash: r.get(1)?, raw_hash: r.get(2)?, dir: r.get(3)?, bytes: r.get(4)? })
         })?;
@@ -1317,10 +1358,7 @@ impl Store {
         tx.execute("DELETE FROM content_versions WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM assets WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM article_fts WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
-        tx.execute(
-            "UPDATE articles SET download_state='not_downloaded' WHERE account=?1 AND id=?2",
-            params![account, article.to_db()],
-        )?;
+        tx.execute("UPDATE articles SET download_state='not_downloaded' WHERE account=?1 AND id=?2", params![account, article.to_db()])?;
         tx.commit()?;
         Ok(())
     }

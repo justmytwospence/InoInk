@@ -124,10 +124,15 @@ fn parse_tokens(status: u16, body: &[u8], now: i64, previous_refresh: Option<&st
         return Err(Error::NeedsAuthorization);
     }
     if !(200..300).contains(&status) {
-        return Err(if status >= 500 { Error::Retryable(format!("token endpoint {status}")) } else { Error::InvalidRequest(format!("token endpoint {status}")) });
+        return Err(if status >= 500 {
+            Error::Retryable(format!("token endpoint {status}"))
+        } else {
+            Error::InvalidRequest(format!("token endpoint {status}"))
+        });
     }
     let access = v["access_token"].as_str().ok_or_else(|| Error::Data("token response has no access_token".into()))?;
-    let refresh = v["refresh_token"].as_str().or(previous_refresh).ok_or_else(|| Error::Data("token response has no refresh_token".into()))?;
+    let refresh =
+        v["refresh_token"].as_str().or(previous_refresh).ok_or_else(|| Error::Data("token response has no refresh_token".into()))?;
     let expires_in = v["expires_in"].as_i64().unwrap_or(3600);
     Ok(Tokens {
         access_token: access.into(),
@@ -138,7 +143,8 @@ fn parse_tokens(status: u16, body: &[u8], now: i64, previous_refresh: Option<&st
 }
 
 pub fn exchange_code(cfg: &AppConfig, transport: &dyn Transport, clock: &dyn Clock, code: &str) -> Result<Tokens> {
-    let req = token_request(cfg, &[("code", code), ("redirect_uri", &cfg.redirect_uri), ("scope", ""), ("grant_type", "authorization_code")]);
+    let req =
+        token_request(cfg, &[("code", code), ("redirect_uri", &cfg.redirect_uri), ("scope", ""), ("grant_type", "authorization_code")]);
     let resp = transport.send(&req)?;
     parse_tokens(resp.status, &resp.body, clock.now(), None)
 }

@@ -112,7 +112,7 @@ fn change_during_flight_is_not_lost_by_acknowledgement() {
     assert!(!s.effective(id(1), &Membership::Starred).unwrap());
     let again = s.begin_send(100).unwrap();
     assert_eq!(again.len(), 1);
-    assert_eq!(again[0].entries[0].2, false);
+    assert!(!again[0].entries[0].2);
 }
 
 #[test]
@@ -376,9 +376,18 @@ fn migration_backs_up_and_rejects_newer_schema() {
     // Pretend the database is from an older build (version 1 had no 0002 tables).
     {
         let c = rusqlite::Connection::open(&path).unwrap();
-        for t in ["DROP TABLE article_fts", "DROP TABLE leases", "DROP TABLE assets", "DROP TABLE content_versions",
-                  "DROP TABLE org_ops", "DROP TABLE stream_order", "DROP TABLE unread_counts", "DROP TABLE tags",
-                  "DROP TABLE subscription_folders", "DROP TABLE subscriptions"] {
+        for t in [
+            "DROP TABLE article_fts",
+            "DROP TABLE leases",
+            "DROP TABLE assets",
+            "DROP TABLE content_versions",
+            "DROP TABLE org_ops",
+            "DROP TABLE stream_order",
+            "DROP TABLE unread_counts",
+            "DROP TABLE tags",
+            "DROP TABLE subscription_folders",
+            "DROP TABLE subscriptions",
+        ] {
             c.execute_batch(t).unwrap();
         }
         c.pragma_update(None, "user_version", 1).unwrap();

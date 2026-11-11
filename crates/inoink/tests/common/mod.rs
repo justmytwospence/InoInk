@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+#![allow(dead_code, clippy::type_complexity)]
+pub mod fake;
 use inoink::api::*;
 use inoink::error::{Error, Result};
 use std::collections::VecDeque;
@@ -57,11 +58,7 @@ pub fn resp(status: u16, body: &str) -> HttpResponse {
 }
 
 pub fn resp_h(status: u16, body: &str, headers: &[(&str, &str)]) -> HttpResponse {
-    HttpResponse {
-        status,
-        headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-        body: body.as_bytes().to_vec(),
-    }
+    HttpResponse { status, headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), body: body.as_bytes().to_vec() }
 }
 
 pub struct FixedClock(pub Mutex<i64>);

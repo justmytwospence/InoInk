@@ -15,18 +15,74 @@ const MAX_DEPTH: usize = 48;
 const PREFERRED_WIDTH: u32 = 1600;
 
 const DROP_WITH_CONTENT: &[&str] = &[
-    "script", "style", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "select",
-    "textarea", "noscript", "template", "link", "meta", "base", "head", "title", "svg", "math", "video", "audio",
-    "canvas", "applet", "map", "dialog", "option", "optgroup", "datalist", "source", "track", "param",
+    "script", "style", "iframe", "frame", "frameset", "object", "embed", "form", "input", "button", "select", "textarea", "noscript",
+    "template", "link", "meta", "base", "head", "title", "svg", "math", "video", "audio", "canvas", "applet", "map", "dialog", "option",
+    "optgroup", "datalist", "source", "track", "param",
 ];
 
-const BLOCK_TO_DIV: &[&str] = &["div", "section", "article", "header", "footer", "main", "aside", "nav", "details", "summary", "address", "center", "hgroup", "fieldset", "figure", "picture", "legend"];
-const PASS_THROUGH: &[&str] = &[
-    "p", "blockquote", "pre", "ul", "ol", "li", "dl", "dt", "dd", "h1", "h2", "h3", "h4", "h5", "h6", "table",
-    "thead", "tbody", "tfoot", "tr", "caption", "em", "strong", "b", "i", "u", "s", "del", "ins", "sub", "sup",
-    "small", "mark", "cite", "abbr", "q", "kbd", "samp", "var", "code", "time", "tt", "big",
+const BLOCK_TO_DIV: &[&str] = &[
+    "div", "section", "article", "header", "footer", "main", "aside", "nav", "details", "summary", "address", "center", "hgroup",
+    "fieldset", "figure", "picture", "legend",
 ];
-const INLINE_RENAME: &[(&str, &str)] = &[("strike", "s"), ("dfn", "em"), ("font", "span"), ("label", "span"), ("bdi", "span"), ("bdo", "span"), ("data", "span"), ("wbr", "span"), ("ruby", "span"), ("rt", "span"), ("rp", "span"), ("output", "span")];
+const PASS_THROUGH: &[&str] = &[
+    "p",
+    "blockquote",
+    "pre",
+    "ul",
+    "ol",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "caption",
+    "em",
+    "strong",
+    "b",
+    "i",
+    "u",
+    "s",
+    "del",
+    "ins",
+    "sub",
+    "sup",
+    "small",
+    "mark",
+    "cite",
+    "abbr",
+    "q",
+    "kbd",
+    "samp",
+    "var",
+    "code",
+    "time",
+    "tt",
+    "big",
+];
+const INLINE_RENAME: &[(&str, &str)] = &[
+    ("strike", "s"),
+    ("dfn", "em"),
+    ("font", "span"),
+    ("label", "span"),
+    ("bdi", "span"),
+    ("bdo", "span"),
+    ("data", "span"),
+    ("wbr", "span"),
+    ("ruby", "span"),
+    ("rt", "span"),
+    ("rp", "span"),
+    ("output", "span"),
+];
 
 fn esc(s: &str, out: &mut String) {
     for c in s.chars() {
@@ -105,7 +161,11 @@ pub fn pick_srcset(srcset: &str) -> Option<String> {
         let Some(url) = it.next() else { continue };
         let width = it
             .next()
-            .and_then(|d| d.strip_suffix('w').and_then(|n| n.parse::<u32>().ok()).or_else(|| d.strip_suffix('x').and_then(|n| n.parse::<f32>().ok()).map(|x| (x * 800.0) as u32)))
+            .and_then(|d| {
+                d.strip_suffix('w')
+                    .and_then(|n| n.parse::<u32>().ok())
+                    .or_else(|| d.strip_suffix('x').and_then(|n| n.parse::<f32>().ok()).map(|x| (x * 800.0) as u32))
+            })
             .unwrap_or(0);
         cands.push((width, url.to_string()));
     }
@@ -327,7 +387,28 @@ impl Ctx<'_> {
     fn simple(&mut self, node: &Handle, name: &str, depth: usize) {
         let block = !matches!(
             name,
-            "em" | "strong" | "b" | "i" | "u" | "s" | "del" | "ins" | "sub" | "sup" | "small" | "mark" | "cite" | "abbr" | "q" | "kbd" | "samp" | "var" | "code" | "time" | "tt" | "big" | "span"
+            "em" | "strong"
+                | "b"
+                | "i"
+                | "u"
+                | "s"
+                | "del"
+                | "ins"
+                | "sub"
+                | "sup"
+                | "small"
+                | "mark"
+                | "cite"
+                | "abbr"
+                | "q"
+                | "kbd"
+                | "samp"
+                | "var"
+                | "code"
+                | "time"
+                | "tt"
+                | "big"
+                | "span"
         );
         if block {
             self.text_break();

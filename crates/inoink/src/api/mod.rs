@@ -135,10 +135,8 @@ impl ApiClient {
     }
 
     fn base_headers(&self, access: &str) -> Vec<(String, String)> {
-        let mut h = vec![
-            ("Authorization".to_string(), format!("Bearer {access}")),
-            ("User-Agent".to_string(), self.inner.cfg.user_agent.clone()),
-        ];
+        let mut h =
+            vec![("Authorization".to_string(), format!("Bearer {access}")), ("User-Agent".to_string(), self.inner.cfg.user_agent.clone())];
         if let (Some(id), Some(key)) = (&self.inner.cfg.app_id, &self.inner.cfg.app_key) {
             h.push(("AppId".into(), id.clone()));
             h.push(("AppKey".into(), key.clone()));
@@ -355,7 +353,11 @@ impl ApiClient {
     }
 
     pub fn rename_tag(&self, source: &StreamId, new_name: &str) -> Result<()> {
-        expect_ok(&self.post_form(Zone::Two, "/rename-tag", vec![("s".into(), source.0.clone()), ("dest".into(), StreamId::label(new_name).0)])?)
+        expect_ok(&self.post_form(
+            Zone::Two,
+            "/rename-tag",
+            vec![("s".into(), source.0.clone()), ("dest".into(), StreamId::label(new_name).0)],
+        )?)
     }
 
     pub fn disable_tag(&self, stream: &StreamId) -> Result<()> {
@@ -375,7 +377,11 @@ impl ApiClient {
     /// Marks a whole stream read up to `displayed_ts` (unix seconds or microseconds).
     /// Not used for UI bulk actions: a time cutoff cannot guarantee scope.
     pub fn mark_all_read(&self, stream: &StreamId, displayed_ts: i64) -> Result<()> {
-        expect_ok(&self.post_form(Zone::Two, "/mark-all-as-read", vec![("s".into(), stream.0.clone()), ("ts".into(), displayed_ts.to_string())])?)
+        expect_ok(&self.post_form(
+            Zone::Two,
+            "/mark-all-as-read",
+            vec![("s".into(), stream.0.clone()), ("ts".into(), displayed_ts.to_string())],
+        )?)
     }
 
     pub fn create_active_search(&self, spec: &ActiveSearchSpec) -> Result<ActiveSearchCreated> {
@@ -415,7 +421,12 @@ impl ApiClient {
         let resp = self.call(Zone::Two, Method::Post, "/active_search/create", Some(Body::Json(Value::Object(o).to_string())))?;
         let v: Value = serde_json::from_slice(&resp.body).map_err(|_| Error::Data("active search response is not JSON".into()))?;
         // Validation failures can arrive as HTTP 202 with an error description.
-        if resp.status == 202 || v.get("accountLimit").is_some() || v.get("needUpgrade").is_some() || v.get("userOutput").is_some() || v.get("error").is_some() {
+        if resp.status == 202
+            || v.get("accountLimit").is_some()
+            || v.get("needUpgrade").is_some()
+            || v.get("userOutput").is_some()
+            || v.get("error").is_some()
+        {
             let why = v["userOutput"].as_str().or(v["error"].as_str()).unwrap_or("the search was not created");
             return Err(Error::InvalidRequest(why.to_string()));
         }
@@ -492,12 +503,7 @@ impl Transport for UreqTransport {
         };
         let status = resp.status().as_u16();
         let headers = resp.headers().iter().map(|(k, v)| (k.as_str().to_ascii_lowercase(), v.to_str().unwrap_or("").to_string())).collect();
-        let body = resp
-            .body_mut()
-            .with_config()
-            .limit(MAX_BODY as u64 + 1)
-            .read_to_vec()
-            .map_err(|e| map_ureq(e, true))?;
+        let body = resp.body_mut().with_config().limit(MAX_BODY as u64 + 1).read_to_vec().map_err(|e| map_ureq(e, true))?;
         Ok(HttpResponse { status, headers, body })
     }
 }
