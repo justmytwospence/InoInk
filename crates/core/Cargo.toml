@@ -40,6 +40,7 @@ rand_core = "0.9.3"
 rand_xoshiro = "0.7.0"
 percent-encoding = "2.3.2"
 chrono = { version = "0.4.42", features = ["serde", "clock"], default-features = false }
+qrcode = { version = "0.14", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.27.0"

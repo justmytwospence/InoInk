@@ -813,6 +813,59 @@ pub fn run() -> Result<(), Error> {
                     },
                 }
             },
+            Event::OpenNext(id) => {
+                view.children_mut().retain(|child| !child.is::<Menu>());
+                if view.is::<Reader>() {
+                    match open_article(&mut context, id) {
+                        OpenResult::Ready(article) => {
+                            // The current article saves its position and releases its lease.
+                            handle_event(view.as_mut(), &Event::Back, &tx, &mut bus, &mut rq, &mut context);
+                            if let Some(r) = Reader::new_article(context.fb.rect(), &article, &tx, &mut context) {
+                                let mut next_view = Box::new(r) as Box<dyn View>;
+                                transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                                view = next_view;
+                                rq.add(RenderData::new(view.id(), context.fb.rect(), UpdateMode::Full));
+                            } else {
+                                plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
+                                let notif = Notification::new("This article could not be opened".to_string(), &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                tx.send(Event::Back).ok();
+                            }
+                        },
+                        OpenResult::Fetching => {
+                            context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
+                            let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        },
+                        OpenResult::Unavailable(why) => {
+                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        },
+                    }
+                }
+            },
+            Event::OpenWebPage(ref url) => {
+                view.children_mut().retain(|child| !child.is::<Menu>());
+                let why = if context.inoink.handle.is_none() {
+                    Some("Sign in to open links".to_string())
+                } else if !context.online {
+                    Some("Connect to Wi-Fi to open links".to_string())
+                } else {
+                    None
+                };
+                match why {
+                    Some(m) => {
+                        let notif = Notification::new(m, &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    },
+                    None => {
+                        context.inoink.opening_page = Some(url.clone());
+                        context.inoink.submit(plato_core::inoink::runtime::Command::FetchPage(url.clone()));
+                        let notif = Notification::new("Loading the page".to_string(), &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    },
+                }
+            },
             Event::ShowDocument(id, kind) => {
                 view.children_mut().retain(|child| !child.is::<Menu>());
                 if view.is::<Reader>() {
@@ -876,10 +929,37 @@ pub fn run() -> Result<(), Error> {
             Event::Sync(ref u) => {
                 context.inoink.apply(u);
                 if let plato_core::inoink::runtime::Update::Cached(id, _) = u {
-                    if let Some((open, plato_core::view::inoink::state::OpenMode::Push)) = context.inoink.opening {
+                    if let Some((open, mode)) = context.inoink.opening {
                         if open == *id {
                             context.inoink.opening = None;
-                            tx.send(Event::OpenArticle(*id)).ok();
+                            tx.send(match mode {
+                                plato_core::view::inoink::state::OpenMode::Push => Event::OpenArticle(*id),
+                                plato_core::view::inoink::state::OpenMode::Replace => Event::OpenNext(*id),
+                            }).ok();
+                        }
+                    }
+                }
+                if let plato_core::inoink::runtime::Update::PageReady(url, r) = u {
+                    if context.inoink.opening_page.as_deref() == Some(url.as_str()) {
+                        context.inoink.opening_page = None;
+                        match r {
+                            Ok(path) => {
+                                if let Some(r) = Reader::new_web(context.fb.rect(), path, url, &tx, &mut context) {
+                                    let mut next_view = Box::new(r) as Box<dyn View>;
+                                    transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                                    history.push(HistoryItem {
+                                        view,
+                                        rotation: context.display.rotation,
+                                        monochrome: context.fb.monochrome(),
+                                        dithered: context.fb.dithered(),
+                                    });
+                                    view = next_view;
+                                }
+                            },
+                            Err(why) => {
+                                let notif = Notification::new(format!("Could not open the page: {why}"), &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            },
                         }
                     }
                 }

@@ -54,12 +54,28 @@ impl ArticleBar {
         ArticleBar { id, rect, children, article }
     }
 
+    /// The bar of a linked page: Back, its address and the link menu.
+    pub fn for_web(rect: Rectangle, title: String) -> ArticleBar {
+        let side = rect.height() as i32;
+        let more_rect = rect![rect.max.x - side, rect.min.y, rect.max.x, rect.max.y];
+        let title_rect = rect![rect.min.x + side, rect.min.y, more_rect.min.x, rect.max.y];
+        let children: Vec<Box<dyn View>> = vec![
+            Box::new(Icon::new("back", rect![rect.min, rect.min + side], Event::Back)),
+            Box::new(Label::new(title_rect, title, Align::Center)),
+            Box::new(Icon::new("menu", more_rect, Event::ToggleNear(ViewId::LinkMenu, more_rect))),
+        ];
+        ArticleBar { id: ID_FEEDER.next(), rect, children, article: ArticleId(0) }
+    }
+
     pub fn article(&self) -> ArticleId {
         self.article
     }
 
     /// Updates the star icon after a change.
     pub fn set_starred(&mut self, starred: bool, rq: &mut RenderQueue) {
+        if self.children.len() < 5 {
+            return;
+        }
         if let Some(icon) = self.children[2].downcast_mut::<Icon>() {
             let name = if starred { "star-filled" } else { "star" };
             if icon.name != name {
@@ -179,5 +195,65 @@ impl View for DocSwitch {
 
     fn id(&self) -> Id {
         self.id
+    }
+}
+
+/// One line under the article while the bar is showing: progress, time left, place in the list.
+pub struct ArticleFooter {
+    id: Id,
+    rect: Rectangle,
+    children: Vec<Box<dyn View>>,
+    text: String,
+}
+
+impl ArticleFooter {
+    pub fn new(rect: Rectangle, text: String) -> ArticleFooter {
+        ArticleFooter { id: ID_FEEDER.next(), rect, children: Vec::new(), text }
+    }
+}
+
+impl View for ArticleFooter {
+    fn handle_event(&mut self, evt: &Event, _hub: &Hub, _bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
+        match *evt {
+            Event::Gesture(GestureEvent::Tap(c)) | Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
+            Event::Device(DeviceEvent::Finger { position, .. }) if self.rect.includes(position) => true,
+            _ => false,
+        }
+    }
+
+    fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
+        let dpi = CURRENT_DEVICE.dpi;
+        fb.draw_rectangle(&self.rect, WHITE);
+        let thickness = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
+        fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + thickness], BLACK);
+        let font = font_from_style(fonts, &crate::font::LIST_META, dpi);
+        let plan = font.plan(&self.text, Some(self.rect.width() as i32 * 95 / 100), None);
+        let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
+        let y = self.rect.min.y + (self.rect.height() as i32 + font.x_heights.0 as i32) / 2;
+        font.render(fb, BLACK, &plan, Point::new(x, y));
+    }
+
+    fn rect(&self) -> &Rectangle {
+        &self.rect
+    }
+
+    fn rect_mut(&mut self) -> &mut Rectangle {
+        &mut self.rect
+    }
+
+    fn children(&self) -> &Vec<Box<dyn View>> {
+        &self.children
+    }
+
+    fn children_mut(&mut self) -> &mut Vec<Box<dyn View>> {
+        &mut self.children
+    }
+
+    fn id(&self) -> Id {
+        self.id
+    }
+
+    fn view_id(&self) -> Option<ViewId> {
+        Some(ViewId::ArticleFooter)
     }
 }

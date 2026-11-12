@@ -96,6 +96,8 @@ pub struct Reader {
     finished: bool,
     /// Set when this reader shows an InoInk article (positions go to the database).
     article: Option<ArticleBinding>,
+    /// Set when this reader shows a linked page (its address); nothing about it is saved.
+    web: Option<String>,
     last_checkpoint: std::time::Instant,
     last_saved_page: usize,
 }
@@ -277,6 +279,21 @@ impl Reader {
         Some(reader)
     }
 
+    /// Opens the reading view of a linked page. Nothing about it is saved.
+    pub fn new_web(rect: Rectangle, path: &std::path::Path, url: &str, hub: &Hub, context: &mut Context) -> Option<Reader> {
+        let mut doc = HtmlDocument::new(path).map_err(|e| eprintln!("{}: {:#}.", path.display(), e)).ok()?;
+        doc.set_viewer_stylesheet("css/inoink.css");
+        let mut info = Info {
+            file: FileInfo { path: path.to_path_buf(), kind: "html".to_string(), size: 0 },
+            .. Default::default()
+        };
+        info.reader = Some(ReaderInfo { current_page: 0, .. Default::default() });
+        let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
+        reader.web = Some(url.to_string());
+        reader.ephemeral = true;
+        Some(reader)
+    }
+
     fn with_document(rect: Rectangle, mut info: Info, doc: Box<dyn Document>, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let id = ID_FEEDER.next();
         let settings = &context.settings;
@@ -428,6 +445,7 @@ impl Reader {
                 reflowable,
                 finished: false,
                 article: None,
+                web: None,
                 last_checkpoint: std::time::Instant::now(),
                 last_saved_page: 0,
             })
@@ -496,6 +514,7 @@ impl Reader {
             reflowable: true,
             finished: false,
             article: None,
+            web: None,
             last_checkpoint: std::time::Instant::now(),
             last_saved_page: 0,
         }
@@ -906,6 +925,10 @@ impl Reader {
             },
             _ => {
                 match dir {
+                    CycleDir::Next if self.article.is_some() => {
+                        self.finished = true;
+                        self.show_end_card(false, hub, rq, context);
+                    },
                     CycleDir::Next => {
                         self.finished = true;
                         let action = if self.ephemeral {
@@ -1521,7 +1544,7 @@ impl Reader {
     }
 
     fn toggle_bars(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if self.article.is_some() {
+        if self.article.is_some() || self.web.is_some() {
             self.toggle_article_bar(enable, rq, context);
             return;
         }
@@ -2769,7 +2792,7 @@ impl Reader {
     }
 
     fn toggle_article_bar(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::article_bar::ArticleBar;
+        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter};
         if let Some(index) = locate::<ArticleBar>(self) {
             if let Some(true) = enable {
                 return;
@@ -2778,29 +2801,64 @@ impl Reader {
             rect.absorb(self.child(index + 1).rect());
             self.children.drain(index..=index + 1);
             rq.add(RenderData::expose(rect, UpdateMode::Gui));
+            if let Some(fi) = locate_by_id(self, ViewId::ArticleFooter) {
+                let r = *self.child(fi).rect();
+                self.children.remove(fi);
+                rq.add(RenderData::expose(r, UpdateMode::Gui));
+            }
         } else {
             if let Some(false) = enable {
                 return;
             }
-            let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
             let dpi = CURRENT_DEVICE.dpi;
             let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
             let (small_thickness, big_thickness) = halves(thickness);
             let small_height = scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32;
-            let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
-            let title = self.article_title(context);
-            let switch = self.article.as_ref().and_then(|a| {
-                let row = context.inoink.store().and_then(|s| s.discussion(id).ok().flatten())?;
-                let label = if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) };
-                Some((a.kind, label))
-            });
-            let bar = ArticleBar::new(rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + small_height - small_thickness], id, title, starred, switch, context);
+            let bar_rect = rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + small_height - small_thickness];
+            let bar = if let Some(url) = self.web.clone() {
+                let host = url.split('/').nth(2).unwrap_or(&url).to_string();
+                ArticleBar::for_web(bar_rect, host)
+            } else {
+                let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+                let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+                let title = self.article_title(context);
+                let switch = self.article.as_ref().and_then(|a| {
+                    let row = context.inoink.store().and_then(|s| s.discussion(id).ok().flatten())?;
+                    let label = if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) };
+                    Some((a.kind, label))
+                });
+                ArticleBar::new(bar_rect, id, title, starred, switch, context)
+            };
             let separator = Filler::new(rect![self.rect.min.x, self.rect.min.y + small_height - small_thickness, self.rect.max.x, self.rect.min.y + small_height + big_thickness], BLACK);
             rq.add(RenderData::new(bar.id(), *bar.rect(), UpdateMode::Gui));
             rq.add(RenderData::new(separator.id(), *separator.rect(), UpdateMode::Gui));
             self.children.insert(0, Box::new(bar) as Box<dyn View>);
             self.children.insert(1, Box::new(separator) as Box<dyn View>);
+            if self.article.is_some() {
+                let footer = ArticleFooter::new(rect![self.rect.min.x, self.rect.max.y - small_height, self.rect.max.x, self.rect.max.y], self.footer_text(context));
+                rq.add(RenderData::new(footer.id(), *footer.rect(), UpdateMode::Gui));
+                self.children.push(Box::new(footer) as Box<dyn View>);
+            }
         }
+    }
+
+    /// "42% \u{b7} 4 min left \u{b7} Read later 3 of 12".
+    fn footer_text(&self, context: &Context) -> String {
+        let Some(binding) = self.article.as_ref() else { return String::new() };
+        let pct = (self.current_page * 100 / self.pages_count.max(1)).min(100);
+        let mut parts = vec![format!("{pct}%")];
+        if binding.kind == crate::view::inoink::actions::DocKind::Article {
+            let words = context.inoink.store().and_then(|s| s.words(binding.id).ok()).unwrap_or(0);
+            if words > 0 {
+                parts.push(inoink::content::format_time_left((words as f32 * (1.0 - pct as f32 / 100.0)) as u32));
+            }
+        }
+        if let Some(q) = context.inoink.queue.as_ref() {
+            if let Some((i, n)) = q.position(binding.id) {
+                parts.push(format!("{} {} of {}", q.label, i, n));
+            }
+        }
+        parts.join(" \u{b7} ")
     }
 
     fn toggle_article_menu(&mut self, rect: Rectangle, rq: &mut RenderQueue, context: &mut Context) {
@@ -2834,6 +2892,7 @@ impl Reader {
             EntryKind::CheckBox("Like".to_string(), act(ArticleAction::ToggleLike), like),
             EntryKind::CheckBox("Broadcast".to_string(), act(ArticleAction::ToggleBroadcast), broadcast),
             EntryKind::Separator,
+            EntryKind::Command("Show QR code".to_string(), EntryId::InoInk(InoInkEntry::QrArticle)),
             EntryKind::Separator,
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
             EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
@@ -2963,6 +3022,282 @@ impl Reader {
         }
     }
 
+    // ---- InoInk article input: tap zones, links, the end card ------------------------------
+
+    /// The link nearest to `pt`, if one is close enough.
+    fn link_at(&self, pt: Point) -> Option<BoundedText> {
+        let mut nearest = None;
+        let mut dmin = u32::MAX;
+        let dmax = (scale_by_dpi(RECT_DIST_JITTER, CURRENT_DEVICE.dpi) as i32).pow(2) as u32;
+        for chunk in &self.chunks {
+            let (links, _) = self.doc.lock().ok().and_then(|mut doc| doc.links(Location::Exact(chunk.location))).unwrap_or((Vec::new(), 0));
+            for link in links {
+                let rect = (link.rect * chunk.scale).to_rect() - chunk.frame.min + chunk.position;
+                let d = pt.rdist2(&rect);
+                if d < dmax && d < dmin {
+                    dmin = d;
+                    nearest = Some(link.clone());
+                }
+            }
+        }
+        nearest
+    }
+
+    fn follow_link(&mut self, link: &BoundedText, hub: &Hub) {
+        let loc = {
+            let mut doc = self.doc.lock().unwrap();
+            doc.resolve_location(Location::LocalUri(self.current_page, link.text.clone()))
+        };
+        if let Some(location) = loc {
+            hub.send(Event::GoTo(location)).ok();
+        } else if link.text == inoink::content::discussion::COMMENTS_SCHEME || link.text == inoink::content::discussion::ARTICLE_SCHEME {
+            if let Some(id) = self.article.as_ref().map(|a| a.id) {
+                let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
+                hub.send(Event::ShowDocument(id, kind)).ok();
+            }
+        } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
+            hub.send(Event::RetryImage(name.to_string())).ok();
+        } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
+            hub.send(Event::OpenWebPage(link.text.clone())).ok();
+        } else {
+            eprintln!("Can't resolve URI: {}.", link.text);
+        }
+    }
+
+    fn toggle_link_menu(&mut self, url: String, rect: Rectangle, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::actions::InoInkEntry;
+        if let Some(index) = locate_by_id(self, ViewId::LinkMenu) {
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+            return;
+        }
+        let host = url.split('/').nth(2).unwrap_or(&url).to_string();
+        let e = |i: InoInkEntry| EntryId::InoInk(i);
+        let entries = vec![
+            EntryKind::Message(host, None),
+            EntryKind::Command("Open in reading view".to_string(), e(InoInkEntry::OpenLink(url.clone()))),
+            EntryKind::Command("Show QR code".to_string(), e(InoInkEntry::ShowQr(url.clone()))),
+            EntryKind::Command("Follow in Inoreader".to_string(), e(InoInkEntry::SubscribeUrl(url))),
+        ];
+        let menu = Menu::new(rect, ViewId::LinkMenu, MenuKind::Contextual, entries, context);
+        rq.add(RenderData::new(menu.id(), *menu.rect(), UpdateMode::Gui));
+        self.children.push(Box::new(menu) as Box<dyn View>);
+    }
+
+    fn show_qr(&mut self, url: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        match crate::view::inoink::qr_view::QrView::new(self.rect, url) {
+            Some(qr) => {
+                rq.add(RenderData::new(qr.id(), *qr.rect(), UpdateMode::Full));
+                self.children.push(Box::new(qr) as Box<dyn View>);
+            }
+            None => self.notify("This address is too long for a QR code", hub, rq, context),
+        }
+    }
+
+    /// The address of the open article.
+    fn article_url(&self, context: &Context) -> Option<String> {
+        let id = self.article.as_ref()?.id;
+        context.inoink.store()?.article_record(id).ok().flatten().map(|r| r.canonical_url).filter(|u| !u.is_empty())
+    }
+
+    /// Shows the end-of-article card (hiding the bars).
+    fn show_end_card(&mut self, from_hold: bool, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::end_card::{EndCard, EndCardInfo};
+        if locate_by_id(self, ViewId::EndCard).is_some() {
+            return;
+        }
+        let Some(binding) = self.article.clone() else { return };
+        self.toggle_bars(Some(false), hub, rq, context);
+        let id = binding.id;
+        let queue = context.inoink.queue.clone();
+        let (starred, next_title, comments) = {
+            let store = context.inoink.store();
+            let starred = store.and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+            let next_title = queue.as_ref().and_then(|q| q.next_after(id)).and_then(|n| store.and_then(|s| s.article_record(n).ok().flatten()).map(|r| r.title));
+            let comments = if binding.kind == crate::view::inoink::actions::DocKind::Article {
+                store.and_then(|s| s.discussion(id).ok().flatten()).map(|row| if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) })
+            } else {
+                None
+            };
+            (starred, next_title, comments)
+        };
+        let read_later = queue.as_ref().map(|q| q.read_later).unwrap_or(starred);
+        let has_next = next_title.is_some();
+        let verb = if read_later { "Done" } else { "Mark read" };
+        let primary = format!("{verb} \u{b7} {}", if has_next { "next article" } else { "back to list" });
+        let info = EndCardInfo {
+            title: self.article_title(context),
+            primary,
+            keep: has_next.then(|| "Keep \u{b7} next article".to_string()),
+            comments,
+            next_title,
+            auto: context.settings.inoink.continue_on_swipe,
+            ignore_release: from_hold.then_some(ButtonCode::Forward),
+        };
+        let card = EndCard::new(self.rect, info);
+        rq.add(RenderData::new(card.id(), *card.rect(), UpdateMode::Full));
+        self.children.push(Box::new(card) as Box<dyn View>);
+    }
+
+    /// An action of the end card.
+    fn finish(&mut self, action: crate::view::inoink::actions::FinishAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::actions::{apply_article_action, ArticleAction, DocKind, FinishAction};
+        let Some(binding) = self.article.clone() else { return };
+        let id = binding.id;
+        let queue = context.inoink.queue.clone();
+        let close = |me: &mut Reader, context: &mut Context| {
+            me.quit(context);
+            crate::view::inoink::actions::release_article(context, id, binding.version);
+            hub.send(Event::Back).ok();
+        };
+        match action {
+            FinishAction::Primary => {
+                let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+                let read_later = queue.as_ref().map(|q| q.read_later).unwrap_or(starred);
+                let a = if read_later { ArticleAction::Done } else { ArticleAction::MarkRead };
+                if let Err(m) = apply_article_action(context, id, &a) {
+                    self.notify(&m, hub, rq, context);
+                    return;
+                }
+            }
+            FinishAction::Keep => {}
+            FinishAction::BackToList => {
+                close(self, context);
+                return;
+            }
+            FinishAction::Comments => {
+                if let Some(index) = locate_by_id(self, ViewId::EndCard) {
+                    self.children.remove(index);
+                }
+                hub.send(Event::ShowDocument(id, DocKind::Comments)).ok();
+                return;
+            }
+        }
+        match queue.and_then(|q| q.next_after(id)) {
+            Some(next) => {
+                hub.send(Event::OpenNext(next)).ok();
+            }
+            None => close(self, context),
+        }
+    }
+
+    /// Input for InoInk articles and linked pages. `Some` when it was handled here.
+    fn inoink_input(&mut self, evt: &Event, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> Option<bool> {
+        use crate::view::inoink::actions::InoInkEntry;
+        let article = self.article.is_some();
+        match *evt {
+            Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
+                if self.focus.is_some() {
+                    return Some(true);
+                }
+                if let Some(link) = self.link_at(c) {
+                    self.follow_link(&link, hub);
+                    return Some(true);
+                }
+                if article {
+                    if let Some(path) = self.image_at(c) {
+                        hub.send(Event::OpenImage(path)).ok();
+                        return Some(true);
+                    }
+                }
+                let x = c.x - self.rect.min.x;
+                let w = self.rect.width() as i32;
+                if x < w / 3 {
+                    self.go_to_neighbor(CycleDir::Previous, hub, rq, context);
+                } else if x >= 2 * w / 3 {
+                    self.go_to_neighbor(CycleDir::Next, hub, rq, context);
+                } else {
+                    self.toggle_bars(None, hub, rq, context);
+                }
+                Some(true)
+            }
+            Event::Gesture(GestureEvent::HoldFingerShort(c, _)) if self.rect.includes(c) => {
+                if let Some(link) = self.link_at(c).filter(|l| l.text.starts_with("http:") || l.text.starts_with("https:")) {
+                    let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
+                    self.toggle_link_menu(link.text, Rectangle::from_disk(c, radius), rq, context);
+                } else if article {
+                    if let Some(path) = self.image_at(c) {
+                        hub.send(Event::OpenImage(path)).ok();
+                    }
+                }
+                Some(true)
+            }
+            Event::Gesture(GestureEvent::HoldFingerLong(..))
+            | Event::Gesture(GestureEvent::Arrow { .. })
+            | Event::Gesture(GestureEvent::MultiArrow { .. })
+            | Event::Gesture(GestureEvent::Corner { .. })
+            | Event::Gesture(GestureEvent::MultiCorner { .. })
+            | Event::Gesture(GestureEvent::Cross(_))
+            | Event::Gesture(GestureEvent::Diamond(_))
+            | Event::Gesture(GestureEvent::Pinch { .. })
+            | Event::Gesture(GestureEvent::Spread { .. })
+            | Event::Gesture(GestureEvent::SlantedSwipe { .. })
+            | Event::Gesture(GestureEvent::MultiTap(_)) => Some(true),
+            Event::Gesture(GestureEvent::HoldButtonShort(code, ..)) => {
+                if code == ButtonCode::Forward && article {
+                    // The release that ends this hold is ignored by the card itself.
+                    self.show_end_card(true, hub, rq, context);
+                } else {
+                    self.held_buttons.insert(code);
+                }
+                Some(true)
+            }
+            Event::ToggleNear(ViewId::LinkMenu, rect) => {
+                if let Some(url) = self.web.clone() {
+                    self.toggle_link_menu(url, rect, rq, context);
+                }
+                Some(true)
+            }
+            Event::Close(ViewId::LinkMenu) => {
+                if let Some(index) = locate_by_id(self, ViewId::LinkMenu) {
+                    rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+                    self.children.remove(index);
+                }
+                Some(true)
+            }
+            Event::Close(ViewId::QrView) | Event::Close(ViewId::EndCard) => {
+                let id = if matches!(*evt, Event::Close(ViewId::QrView)) { ViewId::QrView } else { ViewId::EndCard };
+                if let Some(index) = locate_by_id(self, id) {
+                    self.children.remove(index);
+                }
+                rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
+                Some(true)
+            }
+            Event::Select(EntryId::InoInk(ref e)) => match e {
+                InoInkEntry::Finish(a) if article => {
+                    self.finish(*a, hub, rq, context);
+                    Some(true)
+                }
+                InoInkEntry::OpenLink(u) => {
+                    hub.send(Event::OpenWebPage(u.clone())).ok();
+                    Some(true)
+                }
+                InoInkEntry::ShowQr(u) => {
+                    let u = u.clone();
+                    self.show_qr(&u, hub, rq, context);
+                    Some(true)
+                }
+                InoInkEntry::QrArticle => {
+                    match self.article_url(context) {
+                        Some(u) => self.show_qr(&u, hub, rq, context),
+                        None => self.notify("This article has no web address", hub, rq, context),
+                    }
+                    Some(true)
+                }
+                InoInkEntry::SubscribeUrl(u) => {
+                    let msg = match crate::view::inoink::manage::apply(context, &InoInkEntry::Subscribe, Some(u)) {
+                        Ok(m) => m.unwrap_or_else(|| "Following".to_string()),
+                        Err(m) => m,
+                    };
+                    self.notify(&msg, hub, rq, context);
+                    Some(true)
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The image under `pt`, if any: its path inside the document root.
     fn image_at(&self, pt: Point) -> Option<PathBuf> {
         for chunk in &self.chunks {
@@ -3007,6 +3342,11 @@ impl Reader {
 impl View for Reader {
     fn handle_event(&mut self, evt: &Event, hub: &Hub, _bus: &mut Bus, rq: &mut RenderQueue, context: &mut Context) -> bool {
         self.checkpoint_position(context);
+        if self.article.is_some() || self.web.is_some() {
+            if let Some(handled) = self.inoink_input(evt, hub, rq, context) {
+                return handled;
+            }
+        }
         match *evt {
             Event::ArticleAction(id, ref action) if self.article.as_ref().map(|a| a.id) == Some(id) => {
                 self.run_article_action(action, hub, rq, context);

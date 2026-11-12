@@ -302,6 +302,10 @@ pub enum Event {
     /// Switch the open article to its other document (article or comments).
     ShowDocument(ArticleId, crate::view::inoink::actions::DocKind),
     OpenDetails(ArticleId),
+    /// Replace the open article with the next one of the list.
+    OpenNext(ArticleId),
+    /// Open a linked page in a reading view.
+    OpenWebPage(String),
     ArticleAction(ArticleId, ArticleAction),
     ArticleChanged(ArticleId),
     OpenImage(PathBuf),
@@ -456,6 +460,10 @@ pub enum ViewId {
     PromptInput,
     ConfirmDialog,
     ImageViewer,
+    EndCard,
+    LinkMenu,
+    QrView,
+    ArticleFooter,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

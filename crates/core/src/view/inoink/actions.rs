@@ -71,6 +71,25 @@ pub enum InoInkEntry {
     OpenDetails(ArticleId),
     SetHeadlineTap(HeadlineTap),
     SetContinueOnSwipe(bool),
+    /// An action of the end-of-article card.
+    Finish(FinishAction),
+    /// Open a linked page in a reading view.
+    OpenLink(String),
+    ShowQr(String),
+    /// Follow a site or feed address in Inoreader.
+    SubscribeUrl(String),
+    /// Show the open article's address as a QR code.
+    QrArticle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinishAction {
+    /// Done (Read later) or Mark read, then the next article.
+    Primary,
+    /// Leave it as it is and go on.
+    Keep,
+    BackToList,
+    Comments,
 }
 
 #[derive(Debug, Default)]

@@ -14,7 +14,12 @@ use plato_core::settings::Settings;
 use plato_core::view::inoink::actions::*;
 use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::row::ArticleRow;
-use plato_core::view::inoink::state::{InoInk, Tab};
+use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
+use plato_core::gesture::GestureEvent;
+use plato_core::view::common::locate_by_id;
+use plato_core::view::reader::Reader;
+use plato_core::view::inoink::state::{InoInk, ReadingQueue, Tab};
+use plato_core::view::ViewId;
 use plato_core::view::{EntryId, Event, RenderQueue, View};
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
@@ -51,7 +56,7 @@ struct Env {
     _dir: tempfile::TempDir,
     context: Context,
     tx: mpsc::Sender<Event>,
-    _rx: mpsc::Receiver<Event>,
+    rx: mpsc::Receiver<Event>,
 }
 
 fn env() -> Env {
@@ -73,7 +78,7 @@ fn env() -> Env {
     let inoink = InoInk::open(&settings.inoink, tx.clone(), false).unwrap();
     let fb = Box::new(Pixmap::new(1264, 1680, 3));
     let context = Context::new(fb, None, inoink, settings, Fonts::load().unwrap(), Box::new(FakeBattery::new()), Box::new(LightLevels::default()), Box::new(0u16));
-    Env { _dir: dir, context, tx, _rx: rx }
+    Env { _dir: dir, context, tx, rx }
 }
 
 fn rows(home: &InoInkHome) -> Vec<u64> {
@@ -254,4 +259,40 @@ fn tags_are_added_and_removed_individually() {
     apply_article_action(&mut e.context, ArticleId(3), &ArticleAction::RemoveTag("later".into())).unwrap();
     assert_eq!(e.context.inoink.store().unwrap().effective_labels(ArticleId(3)).unwrap(), vec!["work".to_string()]);
     assert!(apply_article_action(&mut e.context, ArticleId(3), &ArticleAction::AddTag("  ".into())).is_err());
+}
+
+#[test]
+fn end_card_finishes_and_requests_the_next_article() {
+    let mut e = env();
+    e.context.inoink.queue = Some(ReadingQueue { ids: vec![ArticleId(2), ArticleId(1)], read_later: true, label: "Read later".into() });
+    let OpenResult::Ready(article) = open_article(&mut e.context, ArticleId(2)) else { panic!("cached article should open") };
+    let mut reader = Reader::new_article(e.context.fb.rect(), &article, &e.tx, &mut e.context).expect("reader");
+    let mut go = |reader: &mut Reader, e: &mut Env, evt: Event| {
+        let mut bus = VecDeque::new();
+        let mut rq = RenderQueue::new();
+        plato_core::view::handle_event(reader, &evt, &e.tx, &mut bus, &mut rq, &mut e.context);
+        while let Some(b) = bus.pop_front() {
+            plato_core::view::handle_event(reader, &b, &e.tx, &mut VecDeque::new(), &mut rq, &mut e.context);
+        }
+    };
+    go(&mut reader, &mut e, Event::Gesture(GestureEvent::HoldButtonShort(ButtonCode::Forward)));
+    assert!(locate_by_id(&reader, ViewId::EndCard).is_some(), "holding forward shows the end card");
+
+    // The release that ends the hold must not finish the article.
+    go(&mut reader, &mut e, Event::Device(DeviceEvent::Button { time: 0.0, code: ButtonCode::Forward, status: ButtonStatus::Released }));
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(2), &Membership::Read).unwrap(), "the first release is ignored");
+    assert!(locate_by_id(&reader, ViewId::EndCard).is_some());
+
+    // The next press and release does (continue-on-swipe is on by default).
+    go(&mut reader, &mut e, Event::Device(DeviceEvent::Button { time: 1.0, code: ButtonCode::Forward, status: ButtonStatus::Released }));
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(2), &Membership::Read).unwrap(), "Done marks it read");
+    assert!(!st.effective(ArticleId(2), &Membership::Starred).unwrap(), "and removes the star");
+    let mut next = None;
+    while let Ok(evt) = e.rx.try_recv() {
+        if let Event::OpenNext(id) = evt {
+            next = Some(id);
+        }
+    }
+    assert_eq!(next, Some(ArticleId(1)), "the next article of the list is requested");
 }
