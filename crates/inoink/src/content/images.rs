@@ -129,8 +129,11 @@ pub struct Normalized {
 }
 
 /// Validates by magic bytes and size limits, then keeps PNG/JPEG as they are (unless too large)
-/// and converts GIF/WebP to PNG (first frame). Everything else is rejected.
+/// and converts GIF/WebP to PNG (first frame). SVG is rasterized to PNG. Everything else is rejected.
 pub fn normalize_image(bytes: &[u8], limits: &ImageLimits) -> Result<Normalized> {
+    if super::svg::is_svg(bytes) {
+        return super::svg::rasterize(bytes, limits);
+    }
     let format = image::guess_format(bytes).map_err(|_| Error::Unsupported("unrecognized image format".into()))?;
     if !matches!(format, ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif | ImageFormat::WebP) {
         return Err(Error::Unsupported("unsupported image format".into()));

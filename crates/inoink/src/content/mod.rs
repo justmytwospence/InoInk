@@ -4,7 +4,9 @@
 pub mod discussion;
 pub mod extract;
 pub mod images;
+pub mod math;
 pub mod sanitize;
+pub mod svg;
 
 use std::collections::HashMap;
 
@@ -88,6 +90,12 @@ pub const RETRY_SCHEME: &str = "inoink-retry:";
 pub enum AssetState {
     /// Downloaded; the value is the final file name inside `assets/` (with extension).
     Done(String),
+    /// A typeset formula; its size in em and how far it reaches below the text baseline.
+    Formula {
+        file: String,
+        width_em: f32,
+        depth_em: f32,
+    },
     Pending,
     Failed,
 }

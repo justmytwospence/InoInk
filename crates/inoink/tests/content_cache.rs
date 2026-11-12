@@ -879,3 +879,77 @@ fn eviction_counts_and_clears_comments() {
     let row = store.discussion(ArticleId(1)).unwrap().unwrap();
     assert_eq!((row.fetched, row.comments_bytes), (0, 0));
 }
+
+#[test]
+fn math_is_typeset_on_device_and_falls_back_to_tex() {
+    let (_d, mut store, cache) = setup();
+    let html = r#"<p>Euler: \(e^{i\pi}+1=0\)</p><p>$$\int_0^1 x\,dx$$</p><p>Bad: \(\mymacro{x}\)</p>
+<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>a</mi></mrow><annotation encoding="application/x-tex">a^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">GARBLED</span></span>
+<p>Prices: $5 and $10</p>"#;
+    store.upsert_article(&rec(1, 100, html), 0).unwrap();
+    let f = MockFetcher::new();
+    let state = cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert_eq!(state, DownloadState::Complete);
+    assert!(f.calls().is_empty());
+    let html = latest_html(&cache, &store, 1);
+    assert_eq!(html.matches("class=\"inoink-math\"").count(), 2);
+    assert_eq!(html.matches("class=\"inoink-math-display\"").count(), 1);
+    assert!(html.contains("<code class=\"inoink-tex\">\\mymacro{x}</code>"));
+    assert!(html.contains("Prices: $5 and $10"));
+    assert!(!html.contains("GARBLED"));
+    assert_well_formed(&html);
+    let maths = std::fs::read_dir(cache.article_dir(ArticleId(1)).join("assets"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".math"))
+        .count();
+    assert_eq!(maths, 3);
+}
+
+#[test]
+fn mathjax_wikipedia_and_mathml_sources_are_recovered() {
+    let prep = |html: &str, assets: &AssetMap| prepare_article(html, Some(BASE), &ArticleMeta::default(), assets);
+    let empty = AssetMap::new();
+
+    let p = prep(
+        r#"<span class="MathJax_Preview">P</span><span class="MathJax">JUNK</span><script type="math/tex; mode=display">x^2</script>"#,
+        &empty,
+    );
+    assert_eq!(p.assets.len(), 1);
+    assert_eq!(p.assets[0].url, "inoink-math:d:x^2");
+    assert!(!p.text.contains("JUNK") && !p.text.contains('P'));
+
+    let p = prep(
+        r#"<mjx-container class="MathJax" jax="CHTML" display="true"><mjx-math>JUNK</mjx-math><mjx-assistive-mml><math display="block"><msup><mi>x</mi><mn>2</mn></msup></math></mjx-assistive-mml></mjx-container>"#,
+        &empty,
+    );
+    assert_eq!(p.assets.len(), 1);
+    assert_eq!(p.assets[0].url, "inoink-math:d:{x}^{2}");
+
+    let wiki = r#"<span class="mwe-math-element"><span class="mwe-math-mathml-inline"><math alttext="{\displaystyle y}"><mi>y</mi></math></span><img class="mwe-math-fallback-image-inline" src="https://wikimedia.example/y.svg" alt="y"/></span>"#;
+    let p = prep(wiki, &empty);
+    assert_eq!(p.assets.len(), 1);
+    assert_eq!(p.assets[0].url, "inoink-math:i:{\\displaystyle y}");
+
+    let mut map = AssetMap::new();
+    map.insert(p.assets[0].name.clone(), AssetState::Formula { file: "n.png".into(), width_em: 1.5, depth_em: 0.2 });
+    let p = prep(wiki, &map);
+    assert!(p.html.contains("style=\"display:inline;width:1.500em;vertical-align:-0.200em\""), "{}", p.html);
+
+    let (frag, _) = inoink::content::sanitize::sanitize_fragment(r"see \(x^2\)", None);
+    assert!(frag.contains("<code class=\"inoink-tex\">x^2</code>"), "{frag}");
+}
+
+#[test]
+fn svg_images_are_rasterized() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&rec(1, 100, r#"<p>t</p><img src="/d.svg" alt="d">"#), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok(
+        "https://blog.example/d.svg",
+        br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect width="100" height="50" fill="black"/></svg>"#.to_vec(),
+    );
+    let state = cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert_eq!(state, DownloadState::Complete);
+    assert_eq!(latest_html(&cache, &store, 1).matches("<img src=\"assets/").count(), 1);
+}

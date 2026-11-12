@@ -89,3 +89,46 @@ fn text_offsets_resolve_after_font_size_and_rotation_changes() {
         assert!(!words.is_empty(), "the page has text");
     }
 }
+
+#[test]
+fn inline_formula_images_scale_with_the_font_and_stay_inline() {
+    repo_root();
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+    let mut png = Vec::new();
+    {
+        use image::{ImageFormat, Rgb, RgbImage};
+        RgbImage::from_pixel(160, 40, Rgb([255, 255, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+    }
+    std::fs::write(dir.path().join("assets/m.png"), &png).unwrap();
+    let html = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>T</title></head><body>\
+        <p>Before <img class=\"inoink-math\" src=\"assets/m.png\" alt=\"x\" style=\"display:inline;width:2em;vertical-align:-0.2em\"/> after.</p></body></html>";
+    let path = dir.path().join("v1.html");
+    std::fs::write(&path, html).unwrap();
+    let mut doc = HtmlDocument::new(&path).unwrap();
+    doc.set_viewer_stylesheet("css/inoink.css");
+
+    let width_at = |doc: &mut HtmlDocument, pt: f32| {
+        doc.layout(1264, 1680, pt, 300);
+        let (images, _) = doc.image_sources(Location::Exact(0)).expect("images");
+        let img = images.first().expect("the formula image").clone();
+        let (words, _) = doc.words(Location::Exact(0)).expect("words");
+        let before = words
+            .iter()
+            .find(|w| w.text.starts_with("Before"))
+            .expect("word Before");
+        assert!(
+            img.rect.min.x >= before.rect.max.x,
+            "inline: {:?} vs {:?}",
+            img.rect,
+            before.rect
+        );
+        (img.rect.max.x - img.rect.min.x) as f32
+    };
+    let w11 = width_at(&mut doc, 11.0);
+    assert!((w11 - 2.0 * 11.0 * 300.0 / 72.0).abs() <= 3.0, "{w11}");
+    let w22 = width_at(&mut doc, 22.0);
+    assert!((w22 - 2.0 * w11).abs() <= 4.0, "{w22} vs {w11}");
+}

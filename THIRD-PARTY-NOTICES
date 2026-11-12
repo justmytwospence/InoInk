@@ -20,6 +20,9 @@ Components distributed with the Kobo package:
   OpenJPEG 2.5.4        BSD-2-Clause
   zlib 1.3.1            zlib License
   bzip2 1.0.8           bzip2 license
+  New Computer Modern Math  GUST Font License   Antonis Tsolomitis (formula font)
+  MiTeX 0.2.7 definitions   Apache-2.0          MiTeX authors (LaTeX to Typst)
+  Typst 0.15.1              Apache-2.0          Typst authors (formula typesetting)
   Fonts                 SIL Open Font License 1.1 (see doc/LICENSES.md for each font)
   Rust crates           see doc/LICENSES.md
 
