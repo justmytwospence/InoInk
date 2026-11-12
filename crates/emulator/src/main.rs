@@ -19,7 +19,7 @@ use plato_core::document::sys_info_as_html;
 use plato_core::view::{View, Event, ViewId, EntryId, AppCmd, EntryKind, SliderId};
 use plato_core::view::{process_render_queue, wait_for_all, handle_event, RenderQueue, RenderData};
 use plato_core::view::inoink::home::InoInkHome;
-use plato_core::view::inoink::actions::{open_article, InoInkEntry, OpenResult};
+use plato_core::view::inoink::actions::{open_article, open_document, InoInkEntry, OpenResult};
 use plato_core::inoink::model::ArticleSort;
 use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
@@ -447,6 +447,34 @@ fn main() -> Result<(), Error> {
                             view.children_mut().push(Box::new(notif) as Box<dyn View>);
                             handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
                         },
+                    }
+                },
+                Event::ShowDocument(id, kind) => {
+                    view.children_mut().retain(|child| !child.is::<Menu>());
+                    if view.is::<Reader>() {
+                        match open_document(&mut context, id, kind) {
+                            OpenResult::Ready(article) => {
+                                // The current document saves its position and releases its lease.
+                                handle_event(view.as_mut(), &Event::Back, &tx, &mut bus, &mut rq, &mut context);
+                                if let Some(r) = Reader::new_article(context.fb.rect(), &article, &tx, &mut context) {
+                                    let mut next_view = Box::new(r) as Box<dyn View>;
+                                    transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                                    view = next_view;
+                                    rq.add(RenderData::new(view.id(), context.fb.rect(), UpdateMode::Full));
+                                } else {
+                                    let notif = Notification::new("This document could not be opened".to_string(), &tx, &mut rq, &mut context);
+                                    view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                }
+                            },
+                            OpenResult::Fetching => {
+                                let notif = Notification::new("Downloading the comments".to_string(), &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            },
+                            OpenResult::Unavailable(why) => {
+                                let notif = Notification::new(why, &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            },
+                        }
                     }
                 },
                 Event::OpenDetails(id) => {

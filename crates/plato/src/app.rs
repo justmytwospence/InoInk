@@ -31,7 +31,7 @@ use plato_core::lightsensor::{LightSensor, KoboLightSensor};
 use plato_core::battery::{Battery, KoboBattery};
 use plato_core::geom::{Rectangle, DiagDir, Region};
 use plato_core::view::inoink::home::InoInkHome;
-use plato_core::view::inoink::actions::{open_article, OpenResult};
+use plato_core::view::inoink::actions::{open_article, open_document, OpenResult};
 use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
 use plato_core::inoink::runtime::Lifecycle;
@@ -811,6 +811,34 @@ pub fn run() -> Result<(), Error> {
                     },
                 }
             },
+            Event::ShowDocument(id, kind) => {
+                view.children_mut().retain(|child| !child.is::<Menu>());
+                if view.is::<Reader>() {
+                    match open_document(&mut context, id, kind) {
+                        OpenResult::Ready(article) => {
+                            // The current document saves its position and releases its lease.
+                            handle_event(view.as_mut(), &Event::Back, &tx, &mut bus, &mut rq, &mut context);
+                            if let Some(r) = Reader::new_article(context.fb.rect(), &article, &tx, &mut context) {
+                                let mut next_view = Box::new(r) as Box<dyn View>;
+                                transfer_notifications(view.as_mut(), next_view.as_mut(), &mut rq, &mut context);
+                                view = next_view;
+                                rq.add(RenderData::new(view.id(), *view.rect(), UpdateMode::Full));
+                            } else {
+                                let notif = Notification::new("This document could not be opened".to_string(), &tx, &mut rq, &mut context);
+                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            }
+                        },
+                        OpenResult::Fetching => {
+                            let notif = Notification::new("Downloading the comments".to_string(), &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        },
+                        OpenResult::Unavailable(why) => {
+                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
+                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        },
+                    }
+                }
+            },
             Event::OpenDetails(id) => {
                 view.children_mut().retain(|child| !child.is::<Menu>());
                 let html = context.inoink.store().and_then(|s| s.article_record(id).ok().flatten().map(|r| plato_core::view::inoink::details::details_html(s, id, &r)));
@@ -845,6 +873,14 @@ pub fn run() -> Result<(), Error> {
             },
             Event::Sync(ref u) => {
                 context.inoink.apply(u);
+                if let plato_core::inoink::runtime::Update::CommentsRefreshed(id, r) = u {
+                    if context.inoink.opening_comments == Some(*id) {
+                        context.inoink.opening_comments = None;
+                        if r.is_ok() {
+                            tx.send(Event::ShowDocument(*id, plato_core::view::inoink::actions::DocKind::Comments)).ok();
+                        }
+                    }
+                }
                 handle_event(view.as_mut(), &evt, &tx, &mut bus, &mut rq, &mut context);
             },
             Event::Open(info) => {

@@ -7,8 +7,14 @@ use crate::geom::Rectangle;
 use crate::gesture::GestureEvent;
 use crate::input::DeviceEvent;
 use crate::view::icon::Icon;
-use crate::view::inoink::actions::ArticleAction;
+use crate::view::inoink::actions::{ArticleAction, DocKind};
 use crate::view::label::Label;
+use crate::color::{BLACK, WHITE};
+use crate::device::CURRENT_DEVICE;
+use crate::font::{font_from_style, NORMAL_STYLE};
+use crate::geom::{BorderSpec, Point};
+use crate::unit::scale_by_dpi;
+use crate::view::THICKNESS_SMALL;
 use crate::view::{Align, Bus, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::framebuffer::UpdateMode;
 use inoink::model::ArticleId;
@@ -21,7 +27,7 @@ pub struct ArticleBar {
 }
 
 impl ArticleBar {
-    pub fn new(rect: Rectangle, article: ArticleId, title: String, starred: bool, _context: &mut Context) -> ArticleBar {
+    pub fn new(rect: Rectangle, article: ArticleId, title: String, starred: bool, switch: Option<(DocKind, String)>, _context: &mut Context) -> ArticleBar {
         let id = ID_FEEDER.next();
         let side = rect.height() as i32;
         let mut children: Vec<Box<dyn View>> = Vec::new();
@@ -31,7 +37,16 @@ impl ArticleBar {
         let star_rect = rect![rect.max.x - 3 * side, rect.min.y, rect.max.x - 2 * side, rect.max.y];
         let aa_rect = rect![rect.max.x - 4 * side, rect.min.y, rect.max.x - 3 * side, rect.max.y];
         let title_rect = rect![rect.min.x + side, rect.min.y, aa_rect.min.x, rect.max.y];
-        children.push(Box::new(Label::new(title_rect, title, Align::Center)));
+        match switch {
+            Some((current, comments)) => {
+                // A link post: an Article | comments switch replaces the title.
+                let w = (title_rect.width() as i32).min(side * 6);
+                let cx = (title_rect.min.x + title_rect.max.x) / 2;
+                let r = rect![cx - w / 2, title_rect.min.y, cx + w / 2, title_rect.max.y];
+                children.push(Box::new(DocSwitch::new(r, article, current, comments)));
+            }
+            None => children.push(Box::new(Label::new(title_rect, title, Align::Center))),
+        }
         children.push(Box::new(Icon::new(if starred { "star-filled" } else { "star" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
         children.push(Box::new(Icon::new("check_mark", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
         children.push(Box::new(Icon::new("menu", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
@@ -66,6 +81,85 @@ impl View for ArticleBar {
     }
 
     fn render(&self, _fb: &mut dyn Framebuffer, _rect: Rectangle, _fonts: &mut Fonts) {}
+
+    fn rect(&self) -> &Rectangle {
+        &self.rect
+    }
+
+    fn rect_mut(&mut self) -> &mut Rectangle {
+        &mut self.rect
+    }
+
+    fn children(&self) -> &Vec<Box<dyn View>> {
+        &self.children
+    }
+
+    fn children_mut(&mut self) -> &mut Vec<Box<dyn View>> {
+        &mut self.children
+    }
+
+    fn id(&self) -> Id {
+        self.id
+    }
+}
+
+/// "Article | 12 comments": the half that is not showing switches documents when tapped.
+pub struct DocSwitch {
+    id: Id,
+    rect: Rectangle,
+    children: Vec<Box<dyn View>>,
+    article: ArticleId,
+    current: DocKind,
+    comments: String,
+}
+
+impl DocSwitch {
+    pub fn new(rect: Rectangle, article: ArticleId, current: DocKind, comments: String) -> DocSwitch {
+        DocSwitch { id: ID_FEEDER.next(), rect, children: Vec::new(), article, current, comments }
+    }
+
+    fn halves(&self) -> (Rectangle, Rectangle) {
+        let inset = self.rect.height() as i32 / 6;
+        let mid = (self.rect.min.x + self.rect.max.x) / 2;
+        (
+            rect![self.rect.min.x, self.rect.min.y + inset, mid, self.rect.max.y - inset],
+            rect![mid, self.rect.min.y + inset, self.rect.max.x, self.rect.max.y - inset],
+        )
+    }
+}
+
+impl View for DocSwitch {
+    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
+        match *evt {
+            Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
+                let (left, right) = self.halves();
+                if self.current == DocKind::Comments && left.includes(c) {
+                    bus.push_back(Event::ShowDocument(self.article, DocKind::Article));
+                } else if self.current == DocKind::Article && right.includes(c) {
+                    bus.push_back(Event::ShowDocument(self.article, DocKind::Comments));
+                }
+                true
+            }
+            Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
+            _ => false,
+        }
+    }
+
+    fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
+        let dpi = CURRENT_DEVICE.dpi;
+        let (left, right) = self.halves();
+        fb.draw_rectangle(&self.rect, WHITE);
+        let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+        for (half, text, active) in [(left, "Article", self.current == DocKind::Article), (right, self.comments.as_str(), self.current == DocKind::Comments)] {
+            fb.draw_rectangle(&half, if active { BLACK } else { WHITE });
+            let plan = font.plan(text, Some(half.width() as i32), None);
+            let x = half.min.x + (half.width() as i32 - plan.width) / 2;
+            let y = half.min.y + (half.height() as i32 + font.x_heights.0 as i32) / 2;
+            font.render(fb, if active { WHITE } else { BLACK }, &plan, Point::new(x, y));
+        }
+        let both = rect![left.min.x, left.min.y, right.max.x, right.max.y];
+        fb.draw_rectangle_outline(&both, &BorderSpec { thickness: scale_by_dpi(THICKNESS_SMALL, dpi) as u16, color: BLACK });
+    }
 
     fn rect(&self) -> &Rectangle {
         &self.rect

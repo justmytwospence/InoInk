@@ -299,6 +299,8 @@ pub enum Event {
     Key(KeyKind),
     Open(Box<Info>),
     OpenArticle(ArticleId),
+    /// Switch the open article to its other document (article or comments).
+    ShowDocument(ArticleId, crate::view::inoink::actions::DocKind),
     OpenDetails(ArticleId),
     ArticleAction(ArticleId, ArticleAction),
     ArticleChanged(ArticleId),

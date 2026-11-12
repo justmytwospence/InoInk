@@ -19,6 +19,14 @@ pub enum ArticleAction {
     AddTag(String),
     RemoveTag(String),
     LoadOriginal,
+    RefreshComments,
+}
+
+/// Which cached document of an item is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocKind {
+    Article,
+    Comments,
 }
 
 /// Menu choices of the list and management screens.
@@ -108,6 +116,14 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             context.inoink.submit(Command::ExtractOriginal(id));
             Ok(ActionOutcome { message: Some("Loading the original page".into()), close: false })
         }
+        ArticleAction::RefreshComments => {
+            if context.inoink.handle.is_none() {
+                return Err("Sign in to refresh the comments".into());
+            }
+            context.inoink.opening_comments = Some(id);
+            context.inoink.submit(Command::RefreshComments(id));
+            Ok(ActionOutcome { message: Some("Refreshing the comments".into()), close: false })
+        }
     }
 }
 
@@ -133,6 +149,7 @@ pub struct OpenArticle {
     pub content_hash: String,
     /// Text offset to resume at (relocated when the content version changed).
     pub offset: Option<usize>,
+    pub kind: DocKind,
 }
 
 pub enum OpenResult {
@@ -167,7 +184,38 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
             };
         }
     }
-    OpenResult::Ready(Box::new(OpenArticle { id, path, version: v.version, content_hash: v.hash, offset }))
+    OpenResult::Ready(Box::new(OpenArticle { id, path, version: v.version, content_hash: v.hash, offset, kind: DocKind::Article }))
+}
+
+/// Opens the cached comments page of a link post (fetching it when it is missing).
+pub fn open_comments(context: &mut Context, id: ArticleId) -> OpenResult {
+    let path = context.inoink.cache.comments_path(id);
+    if !path.is_file() {
+        if context.inoink.handle.is_none() {
+            return OpenResult::Unavailable("The comments are not available offline".into());
+        }
+        context.inoink.opening_comments = Some(id);
+        context.inoink.submit(Command::RefreshComments(id));
+        return OpenResult::Fetching;
+    }
+    let row = context.inoink.store().and_then(|s| s.discussion(id).ok().flatten()).unwrap_or_default();
+    let hash = format!("comments:{}", row.fetched);
+    let offset = if row.pos_hash == hash {
+        Some(row.pos_offset as usize)
+    } else if row.pos_anchor.is_empty() {
+        None
+    } else {
+        let html = std::fs::read_to_string(&path).unwrap_or_default();
+        relocate(&html, &row.pos_anchor, row.pos_offset as usize)
+    };
+    OpenResult::Ready(Box::new(OpenArticle { id, path, version: 0, content_hash: hash, offset, kind: DocKind::Comments }))
+}
+
+pub fn open_document(context: &mut Context, id: ArticleId, kind: DocKind) -> OpenResult {
+    match kind {
+        DocKind::Article => open_article(context, id),
+        DocKind::Comments => open_comments(context, id),
+    }
 }
 
 fn fetch_for_open(context: &mut Context, id: ArticleId) -> OpenResult {
@@ -180,6 +228,9 @@ fn fetch_for_open(context: &mut Context, id: ArticleId) -> OpenResult {
 }
 
 pub fn release_article(context: &mut Context, id: ArticleId, version: i64) {
+    if version == 0 {
+        return;
+    }
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.release_lease(id, version);
     }

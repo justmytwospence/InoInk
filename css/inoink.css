@@ -135,3 +135,25 @@ th, td {
 table {
 	text-align: left;
 }
+
+p.inoink-switch {
+	margin: 1.4em 0;
+	text-align: center;
+	font-weight: bold;
+}
+
+div.inoink-comment {
+	margin: 0.9em 0 0 0;
+}
+
+div.inoink-d1 { margin-left: 1em; }
+div.inoink-d2 { margin-left: 2em; }
+div.inoink-d3 { margin-left: 3em; }
+div.inoink-d4 { margin-left: 4em; }
+div.inoink-d5 { margin-left: 5em; }
+
+p.inoink-cmeta {
+	font-size: 0.8em;
+	color: #444;
+	margin: 0 0 0.2em 0;
+}

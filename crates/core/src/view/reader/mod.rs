@@ -106,6 +106,7 @@ pub struct ArticleBinding {
     pub id: ArticleId,
     pub version: i64,
     pub content_hash: String,
+    pub kind: crate::view::inoink::actions::DocKind,
 }
 
 #[derive(Debug)]
@@ -270,7 +271,7 @@ impl Reader {
             current_page: article.offset.unwrap_or(0),
             .. Default::default()
         });
-        let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone() };
+        let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone(), kind: article.kind };
         let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
         reader.article = Some(binding);
         Some(reader)
@@ -2736,6 +2737,14 @@ impl Reader {
                .unwrap_or_default()
         };
         let font_size = self.info.reader.as_ref().and_then(|r| r.font_size);
+        if binding.kind == crate::view::inoink::actions::DocKind::Comments {
+            if let Some(store) = context.inoink.store_mut() {
+                let _ = store.save_comments_position(binding.id, &binding.content_hash, self.current_page as u64, &anchor);
+            }
+            self.last_checkpoint = std::time::Instant::now();
+            self.last_saved_page = self.current_page;
+            return;
+        }
         let pos = ReadingPosition { content_hash: binding.content_hash, offset: self.current_page as u64, anchor, font_size };
         if let Some(store) = context.inoink.store_mut() {
             let _ = store.save_position(binding.id, &pos);
@@ -2780,7 +2789,12 @@ impl Reader {
             let small_height = scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32;
             let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
             let title = self.article_title(context);
-            let bar = ArticleBar::new(rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + small_height - small_thickness], id, title, starred, context);
+            let switch = self.article.as_ref().and_then(|a| {
+                let row = context.inoink.store().and_then(|s| s.discussion(id).ok().flatten())?;
+                let label = if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) };
+                Some((a.kind, label))
+            });
+            let bar = ArticleBar::new(rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + small_height - small_thickness], id, title, starred, switch, context);
             let separator = Filler::new(rect![self.rect.min.x, self.rect.min.y + small_height - small_thickness, self.rect.max.x, self.rect.min.y + small_height + big_thickness], BLACK);
             rq.add(RenderData::new(bar.id(), *bar.rect(), UpdateMode::Gui));
             rq.add(RenderData::new(separator.id(), *separator.rect(), UpdateMode::Gui));
@@ -2824,6 +2838,10 @@ impl Reader {
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
             EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
         ];
+        let mut entries = entries;
+        if context.inoink.store().and_then(|s| s.discussion(id).ok().flatten()).is_some() {
+            entries.push(EntryKind::Command("Refresh comments".to_string(), act(ArticleAction::RefreshComments)));
+        }
         let menu = Menu::new(rect, ViewId::ArticleMenu, MenuKind::DropDown, entries, context);
         rq.add(RenderData::new(menu.id(), *menu.rect(), UpdateMode::Gui));
         self.children.push(Box::new(menu) as Box<dyn View>);
@@ -3043,6 +3061,9 @@ impl View for Reader {
                             Err(why) => format!("Could not load the original page: {why}"),
                         };
                         self.notify(&m, hub, rq, context);
+                    },
+                    inoink::runtime::Update::CommentsRefreshed(id, Err(why)) if Some(*id) == mine => {
+                        self.notify(&format!("Could not load the comments: {why}"), hub, rq, context);
                     },
                     inoink::runtime::Update::Cached(id, _) if Some(*id) == mine => {
                         self.notify("Image updated. Reopen the article to see it.", hub, rq, context);
@@ -3500,7 +3521,12 @@ impl View for Reader {
                         if let Some(location) = doc.resolve_location(loc) {
                             hub.send(Event::GoTo(location)).ok();
                         } else {
-                            if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
+                            if link.text == inoink::content::discussion::COMMENTS_SCHEME || link.text == inoink::content::discussion::ARTICLE_SCHEME {
+                                if let Some(id) = self.article.as_ref().map(|a| a.id) {
+                                    let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
+                                    hub.send(Event::ShowDocument(id, kind)).ok();
+                                }
+                            } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
                                 hub.send(Event::RetryImage(name.to_string())).ok();
                             } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
                                 let notif = Notification::new(link.text.clone(), hub, rq, context);

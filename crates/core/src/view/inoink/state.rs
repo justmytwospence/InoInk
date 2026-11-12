@@ -36,6 +36,8 @@ pub struct InoInk {
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.
     pub opening: Option<ArticleId>,
+    /// A link post whose comments are being fetched; they open when they arrive.
+    pub opening_comments: Option<ArticleId>,
     pub settings: InoInkSettings,
     pub provision_error: Option<String>,
 }
@@ -76,6 +78,7 @@ impl InoInk {
             last_undo: None,
             notice: None,
             opening: None,
+            opening_comments: None,
             settings: settings.clone(),
             provision_error,
         };
