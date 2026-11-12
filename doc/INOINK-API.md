@@ -17,7 +17,7 @@ Module paths are in `crates/inoink/src`.
 | Folder/tag list | `GET /tag/list` types, counts, team_assets | drawer: Folders, Tags, Monitoring | `ApiClient::tags` | `api_contract` | not run | No documented way to create an empty folder/tag |
 | Rename tag | `POST /rename-tag` s, dest | Manage > Folders | `ApiClient::rename_tag` | `api_contract` | not run | Not idempotent |
 | Delete tag | `POST /disable-tag` s | Manage > Folders | `ApiClient::disable_tag` | `api_contract` | not run | |
-| Stream contents | `GET /stream/contents/{stream}` n<=100, r, ot, xt, it, c, annotations, summaries, includeAllDirectStreamIds | list, history paging, Load more at the end of a list | `ApiClient::contents` | `api_contract` | not run | Content may be an excerpt; no completeness flag; `ot` with r=o clamps to one month |
+| Stream contents | `GET /stream/contents/{stream}` n<=100, r, ot, xt, it, c, annotations, summaries, includeAllDirectStreamIds | list, history paging, Load more at the end of a list | `ApiClient::contents` | `api_contract` | not run | Content may be an excerpt; no completeness flag; `ot` with r=o clamps to one month; also read from the Annotated stream to refresh annotations |
 | Item IDs | `GET /stream/items/ids` n<=1000, r, ot, xt, it, c, s, output=json, includeAllDirectStreamIds | internal reconciliation | `ApiClient::item_ids` | `api_contract`, `sync_faults` | not run | No consistent snapshot token |
 | Atom stream | `GET /reader/atom` | none | not implemented | - | n/a | Documented compatibility alternative to the JSON contents endpoint; InoInk uses JSON only, as the docs advise |
 | Edit tag | `POST /edit-tag` a, r, repeated i (read, starred, broadcast, like, user label) | Star, Done, Mark read, Like, Broadcast, Tags | `ApiClient::edit_tag` | `api_contract`, `store_intent`, `sync_faults` | not run | Marking older than `firstitemmsec` unread is silently ignored |
@@ -39,8 +39,10 @@ Module paths are in `crates/inoink/src`.
 - Interactive account-wide search: search is local, over downloaded articles. Active Search
   creates persistent monitoring feeds and is not a transient query.
 - Creating/removing a saved web page from an arbitrary URL.
-- Annotation editing: existing annotations and summaries are displayed read-only; offset
-  conventions are not specified.
+- Annotation editing: no documented endpoint. The website uses private xajax calls
+  (`new_annotation`, `edit_annotation`, `delete_annotation`) with session cookies; InoInk does not
+  call them. Offsets are UTF-16 code units of the rendered article text (`Range.toString()`),
+  verified in the website's `annotations.js`; InoInk anchors by quote instead.
 - Full-content extraction: optional unauthenticated original-page extraction is an InoInk
   local feature, not an Inoreader API. Discussion threads for Hacker News (hn.algolia.com) and
   Lobsters (public JSON) are fetched the same way, without credentials.

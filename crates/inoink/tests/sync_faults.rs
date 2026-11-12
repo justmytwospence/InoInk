@@ -111,7 +111,7 @@ fn first_sync_fetches_unread_and_downloads_old_starred_articles() {
     seed(&r);
     let rep = r.full();
     assert_eq!(rep.error, None);
-    assert_eq!(rep.reconciled, vec!["starred", "unread"]);
+    assert_eq!(rep.reconciled, vec!["starred", "unread", "annotated"]);
     for id in [1, 2, 3, 10] {
         assert!(r.engine.store.has_article(ArticleId(id)).unwrap(), "{id}");
         assert!(r.engine.store.download_state(ArticleId(id)).unwrap().readable_offline(), "{id} cached");
@@ -675,4 +675,71 @@ fn browsing_history_pages_with_continuation() {
     }
     assert_eq!(pages, 3);
     assert_eq!(r.engine.store.query_articles(&ArticleQuery { limit: 100, ..Default::default() }).unwrap().items.len(), 5);
+}
+
+fn annotated_requests(r: &Rig) -> usize {
+    r.fake.log().iter().filter(|l| l.contains("annotated")).count()
+}
+
+fn add_annotation(r: &Rig, id: u64, ann_id: i64) {
+    r.fake.with(|s| {
+        s.arts
+            .get_mut(&id)
+            .unwrap()
+            .annotations
+            .push(serde_json::json!({"id": ann_id, "start": 3, "end": 9, "text": "Body", "note": "n", "added_on": 1_700_000_000}))
+    });
+}
+
+#[test]
+fn annotations_refresh_on_explicit_and_interval() {
+    let mut r = rig();
+    r.fake.art(1, usec(1), FEED);
+    add_annotation(&r, 1, 5);
+    assert_eq!(r.full().error, None);
+    assert_eq!(annotated_requests(&r), 1);
+    assert_eq!(r.engine.store.remote_annotations(ArticleId(1)).unwrap().len(), 1);
+
+    // A background cycle soon after reads nothing from the Annotated stream.
+    r.fake.clear_log();
+    r.clock.advance(1000);
+    assert_eq!(r.engine.run_cycle(Reason::Wake).error, None);
+    assert_eq!(annotated_requests(&r), 0);
+
+    // Past six hours it does.
+    r.clock.advance(21_601);
+    *r.tokens.tokens.lock().unwrap() = Some(tokens_at(NOW + 1000 + 21_601 + 3600));
+    assert_eq!(r.engine.run_cycle(Reason::Wake).error, None);
+    assert_eq!(annotated_requests(&r), 1);
+
+    // An annotation added later on another device arrives on the next explicit sync.
+    add_annotation(&r, 1, 6);
+    assert_eq!(r.full().error, None);
+    assert_eq!(r.engine.store.remote_annotations(ArticleId(1)).unwrap().len(), 2);
+}
+
+#[test]
+fn annotations_cleared_only_after_complete_listing() {
+    let mut r = rig();
+    r.fake.art(1, usec(1), FEED);
+    add_annotation(&r, 1, 5);
+    r.full();
+    r.fake.with(|s| s.arts.get_mut(&1).unwrap().annotations.clear());
+    let rep = r.full();
+    assert!(rep.reconciled.contains(&"annotated") && !rep.incomplete.contains(&"annotated"));
+    assert!(r.engine.store.remote_annotations(ArticleId(1)).unwrap().is_empty(), "removed elsewhere, listing complete");
+
+    // Four annotated articles, one per page, two pages read: the listing is incomplete.
+    let mut r = rig_with(SyncConfig { annotated_pages: 2, unread_fetch_pages: 4, ..Default::default() });
+    for i in 1..=4u64 {
+        r.fake.art(i, usec(i as i64), FEED);
+        add_annotation(&r, i, i as i64);
+    }
+    r.fake.with(|s| s.page_cap = 1);
+    let rep = r.full();
+    assert!(rep.incomplete.contains(&"annotated"), "{rep:?}");
+    // Article 4 is the oldest: beyond the two pages read, so its removal cannot be confirmed.
+    r.fake.with(|s| s.arts.get_mut(&4).unwrap().annotations.clear());
+    r.full();
+    assert_eq!(r.engine.store.remote_annotations(ArticleId(4)).unwrap().len(), 1, "not cleared on an incomplete listing");
 }

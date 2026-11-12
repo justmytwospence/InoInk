@@ -27,6 +27,13 @@ second complete listing agrees**. A failed, partial, looping or page-capped list
 anything. Leaving Starred does not delete the article or remove it from All articles or a folder.
 A snapshot that began before one of your acknowledged writes cannot overwrite it.
 
+## Annotations
+
+The Annotated stream (up to 200 articles) is read on every sync you start, and at most every 6
+hours otherwise. An article's annotations are replaced whenever Inoreader returns them, so edits
+made elsewhere arrive. Annotations removed elsewhere disappear only after a complete listing; if
+the listing was cut short they stay until a later complete one. They are read-only here.
+
 ## Conflicts
 
 Pending local intent wins until acknowledged; after that, anything the server later reports wins.
