@@ -117,6 +117,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   A sync with nothing new costs one Inoreader request. Settings > Inoreader API budget shows
   today's reads and writes against the limits Inoreader reports, when they reset and how many
   requests the last sync used.
+- Math and diagrams: formulas from KaTeX, MathJax, MathML and plain LaTeX are typeset on the Kobo (sized with the text, offline once downloaded), and SVG images are shown. A formula that cannot be typeset appears as its LaTeX source. Formulas appear in articles downloaded after updating; Load original page re-downloads one. Tapping a formula enlarges it.
 - Swiping back on the first page of an article opens the previous article of the list at its
   beginning.
 - A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the

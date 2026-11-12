@@ -7,6 +7,7 @@
 use crate::content::discussion::{self, Discussion, Site, Thread};
 use crate::content::extract::{extract_main, extract_original, page_title, Extraction, MIN_TEXT_CHARS};
 use crate::content::images::{download_image, fetch_following, DownloadError, Fetcher, ImageLimits};
+use crate::content::math;
 use crate::content::sanitize::{document, sanitize_fragment};
 use crate::content::{asset_name, prepare_article, ArticleMeta, AssetMap, AssetState};
 use crate::error::{Error, Result};
@@ -17,9 +18,9 @@ use std::collections::{HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
@@ -203,19 +204,27 @@ impl Cache {
         let mut map = AssetMap::new();
         for a in store.assets(id)? {
             let st = match a.state.as_str() {
-                "done" => {
-                    let file = self.find_asset_file(id, &a.name);
-                    match file {
-                        Some(f) => AssetState::Done(f),
+                "done" => match self.find_asset_file(id, &a.name) {
+                    Some(file) if math::is_math_url(&a.url) => match self.read_math_metrics(id, &a.name) {
+                        Some((width_em, depth_em)) => AssetState::Formula { file, width_em, depth_em },
                         None => AssetState::Pending,
-                    }
-                }
+                    },
+                    Some(f) => AssetState::Done(f),
+                    None => AssetState::Pending,
+                },
                 "failed" => AssetState::Failed,
                 _ => AssetState::Pending,
             };
             map.insert(a.name, st);
         }
         Ok(map)
+    }
+
+    /// Size and baseline depth (in em) of a typeset formula, from its `.math` sidecar.
+    fn read_math_metrics(&self, id: ArticleId, name: &str) -> Option<(f32, f32)> {
+        let text = fs::read_to_string(self.article_dir(id).join("assets").join(format!("{name}.math"))).ok()?;
+        let mut it = text.split_whitespace().map(|v| v.parse::<f32>().ok().filter(|f| f.is_finite() && *f >= 0.0));
+        Some((it.next()??, it.next()??))
     }
 
     fn find_asset_file(&self, id: ArticleId, name: &str) -> Option<String> {
@@ -420,9 +429,7 @@ impl Cache {
                 map.insert(a.name.clone(), AssetState::Pending);
             }
         }
-        let all_done = |m: &AssetMap, p: &crate::content::PreparedArticle| {
-            p.assets.iter().all(|a| matches!(m.get(&a.name), Some(AssetState::Done(_))))
-        };
+        let all_done = |m: &AssetMap, p: &crate::content::PreparedArticle| p.assets.iter().all(|a| is_done(m.get(&a.name)));
         let first_state = if all_done(&map, &prepared) { DownloadState::Complete } else { DownloadState::TextReady };
         self.publish(store, id, &prepared, raw_hash, &rec.title, first_state)?;
 
@@ -458,8 +465,8 @@ impl Cache {
         let mut failed = false;
         for a in &prepared.assets {
             match map.get(&a.name) {
-                Some(AssetState::Done(_)) => {}
-                Some(AssetState::Failed) => failed = true,
+                s if is_done(s) => {}
+                Some(AssetState::Failed) => failed |= !math::is_math_url(&a.url),
                 _ => pending = true,
             }
         }
@@ -489,27 +496,56 @@ impl Cache {
         let limits = self.cfg.limits.clone();
         let mut changed = false;
         let mut hard_error: Option<Error> = None;
+        let formulas = AtomicUsize::new(0);
+        let formulas_failed = AtomicUsize::new(0);
+        let formula_ms = AtomicU64::new(0);
         std::thread::scope(|scope| {
             for _ in 0..self.cfg.concurrency.clamp(1, 4) {
                 let tx = tx.clone();
                 let queue = &queue;
                 let assets_dir = &assets_dir;
                 let limits = &limits;
+                let (formulas, formulas_failed, formula_ms) = (&formulas, &formulas_failed, &formula_ms);
                 scope.spawn(move || loop {
                     if ctl.cancel.load(Ordering::Relaxed) {
                         break;
                     }
                     let job = queue.lock().unwrap().pop_front();
                     let Some((name, url)) = job else { break };
-                    let result = match url::Url::parse(&url) {
-                        Err(_) => Err(DownloadError::Permanent("bad URL".into())),
-                        Ok(u) => download_image(fetcher, &u, limits, &ctl.cancel, &*ctl.sleep).and_then(|n| {
-                            let file = format!("{name}.{}", n.ext);
-                            atomic_write(&assets_dir.join(&file), &n.bytes).map(|_| (file, n.bytes.len() as u64)).map_err(|e| match e {
-                                Error::Storage(m) => DownloadError::Transient(m),
-                                e => DownloadError::Permanent(e.to_string()),
-                            })
-                        }),
+                    let result = if let Some((mode, tex)) = math::parse_math_url(&url) {
+                        let t = Instant::now();
+                        let rendered = math::render(tex, mode);
+                        formulas.fetch_add(1, Ordering::Relaxed);
+                        formula_ms.fetch_add(t.elapsed().as_millis() as u64, Ordering::Relaxed);
+                        match rendered {
+                            Ok(m) => {
+                                let file = format!("{name}.png");
+                                let metrics = format!("{:.4} {:.4}\n", m.width_em, m.depth_em);
+                                atomic_write(&assets_dir.join(&file), &m.png)
+                                    .and_then(|_| atomic_write(&assets_dir.join(format!("{name}.math")), metrics.as_bytes()))
+                                    .map(|_| (file, m.png.len() as u64))
+                                    .map_err(|e| match e {
+                                        Error::Storage(m) => DownloadError::Transient(m),
+                                        e => DownloadError::Permanent(e.to_string()),
+                                    })
+                            }
+                            Err(why) => {
+                                formulas_failed.fetch_add(1, Ordering::Relaxed);
+                                eprintln!("math: {why}");
+                                Err(DownloadError::Permanent(why))
+                            }
+                        }
+                    } else {
+                        match url::Url::parse(&url) {
+                            Err(_) => Err(DownloadError::Permanent("bad URL".into())),
+                            Ok(u) => download_image(fetcher, &u, limits, &ctl.cancel, &*ctl.sleep).and_then(|n| {
+                                let file = format!("{name}.{}", n.ext);
+                                atomic_write(&assets_dir.join(&file), &n.bytes).map(|_| (file, n.bytes.len() as u64)).map_err(|e| match e {
+                                    Error::Storage(m) => DownloadError::Transient(m),
+                                    e => DownloadError::Permanent(e.to_string()),
+                                })
+                            }),
+                        }
                     };
                     if tx.send((name, url, result)).is_err() {
                         break;
@@ -536,6 +572,14 @@ impl Cache {
                 }
             }
         });
+        let n = formulas.load(Ordering::Relaxed);
+        if n > 0 {
+            eprintln!(
+                "math: {n} formulas typeset in {} ms, {} not understood",
+                formula_ms.load(Ordering::Relaxed),
+                formulas_failed.load(Ordering::Relaxed)
+            );
+        }
         match hard_error {
             Some(e) => Err(e),
             None => Ok(changed),
@@ -779,4 +823,8 @@ pub fn asset_name_for(url: &str) -> String {
 
 pub fn now() -> i64 {
     now_secs()
+}
+
+fn is_done(s: Option<&AssetState>) -> bool {
+    matches!(s, Some(AssetState::Done(_) | AssetState::Formula { .. }))
 }

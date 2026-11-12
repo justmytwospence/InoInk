@@ -17,7 +17,7 @@ document tests inside the build container, and the install/launcher tests).
 | Local store: durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts | `crates/inoink/tests/store_intent.rs` (32) | PASS |
 | API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (24) | PASS |
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging, skipping unchanged listings, organization refresh on change | `crates/inoink/tests/sync_faults.rs` (32) | PASS |
-| Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction | `crates/inoink/tests/content_cache.rs` (21) | PASS |
+| Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (24) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
 | Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (13), in the container | PASS |
@@ -108,6 +108,9 @@ that was merged.
 | Highlight, add a note, edit and remove in an article; they survive leaving and restarting | NOT RUN |
 | An Inoreader annotation is underlined at the right place, and holding it shows its note | NOT RUN |
 | Highlights are kept after Load original page | NOT RUN |
+| Inline and display formulas: right size and baseline, follow font size changes | NOT RUN |
+| A math-heavy article caches in reasonable time (`math:` line in inoink.log) | NOT RUN |
+| SVG images show in articles | NOT RUN |
 | `inoink-cli highlights --data` on the USB-mounted data directory lists the highlights | NOT RUN |
 | Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
 
@@ -127,5 +130,7 @@ that was merged.
 - The Atom representation of streams is not implemented (JSON only, as Inoreader advises).
 - `inoink-cli acceptance --live` makes read-only checks only.
 - Hyphenation patterns and dictionaries are not shipped (license audit pending), so hyphenation is off.
-- SVG images are not rendered (shown as retryable placeholders).
+- Inline `<svg>` markup inside articles is not shown (SVG image files are).
+- Formulas that use macros a site defines for itself, or LaTeX packages MiTeX does not know, show as LaTeX source.
+- Articles cached before formula support keep their old text until re-downloaded.
 - Sleep-cover and screen-cover images from Plato's library are not available; the logo text is used.

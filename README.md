@@ -28,6 +28,10 @@ public API and does not try to match the Inoreader website feature for feature; 
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
   to every article.
+- Math and diagrams: formulas from KaTeX, MathJax, MathML and plain LaTeX are typeset on the Kobo
+  (sized with the text, offline once downloaded),
+  and SVG images are shown. A formula
+  that cannot be typeset appears as its LaTeX source.
 - Hacker News and Lobsters: link posts open as the full linked article, with the discussion one
   tap away (an Article | comments switch in the bar). Both are cached for offline reading.
 - **Done** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps

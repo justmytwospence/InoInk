@@ -98,6 +98,20 @@ img {
 	max-width: 100%;
 }
 
+img.inoink-math {
+	display: inline;
+	margin: 0;
+}
+
+img.inoink-math-display {
+	display: block;
+	margin: 0.6em auto;
+}
+
+code.inoink-tex {
+	font-size: 0.85em;
+}
+
 table {
 	margin: 0.8em 0;
 	font-size: 0.9em;

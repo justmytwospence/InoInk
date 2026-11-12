@@ -113,7 +113,7 @@ impl Selector {
 
 impl SimpleSelector {
     fn matches(&self, node: NodeRef) -> bool {
-        if self.tag_name.iter().any(|name| node.tag_name() != Some(name)) {
+        if self.tag_name.iter().any(|name| node.tag_name() != Some(name.as_str())) {
             return false;
         }
 
@@ -121,7 +121,7 @@ impl SimpleSelector {
             return false;
         }
 
-        if self.id.iter().any(|id| node.id() != Some(id)) {
+        if self.id.iter().any(|id| node.id() != Some(id.as_str())) {
             return false;
         }
 

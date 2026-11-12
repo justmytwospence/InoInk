@@ -45,6 +45,9 @@ grab mupdf mupdf-1.27.0-source.tar.gz COPYING
 cp LICENSE-AGPLv3 "$OUT/LICENSE-AGPLv3"
 cp LICENSE-MIT "$OUT/LICENSE-MIT"
 mkdir -p "$OUT/fonts" && cp build/OFL-1.1.txt "$OUT/fonts/OFL-1.1.txt"
+mkdir -p "$OUT/math"
+cp crates/inoink/assets/math/GUST-FONT-LICENSE.txt "$OUT/math/GUST-FONT-LICENSE.txt"
+cp crates/inoink/assets/math/mitex/LICENSE "$OUT/math/MITEX-LICENSE"
 
 python3 - <<'PY'
 import json, subprocess, struct, glob, os, sys
@@ -98,6 +101,9 @@ for f in sorted(glob.glob("fonts/*")):
     lic = (info.get(13) or info.get(0) or "no license string in the font").replace("\n", " ").replace("|", "/")[:160]
     cp = (info.get(0) or "").replace("\n", " ").replace("|", "/")[:120]
     lines.append(f"| `{os.path.basename(f)}` | {cp} | {lic} |")
+lines += ["", "## Embedded for typesetting formulas", "", "| Component | License | Text |", "|---|---|---|",
+ "| New Computer Modern Math (`crates/inoink/assets/math/NewCMMath-Regular.otf`) | GUST Font License | `licenses/math/GUST-FONT-LICENSE.txt` |",
+ "| MiTeX 0.2.7 LaTeX definitions (`crates/inoink/assets/math/mitex/`) | Apache-2.0 | `licenses/math/MITEX-LICENSE` |"]
 lines += ["", "## Rust crates (from `cargo metadata`, all workspace members)", "", "| Crate | Version | License |", "|---|---|---|"]
 for n, v, l in rows:
     lines.append(f"| {n} | {v} | {l} |")
