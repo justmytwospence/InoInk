@@ -1,6 +1,6 @@
 [package]
 name = "inoink-cli"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT OR AGPL-3.0-or-later"
 

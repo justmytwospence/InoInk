@@ -16,8 +16,7 @@ public API and does not try to match the Inoreader website feature for feature; 
   (folders in your Inoreader order, then tags and the other streams) and **Read later** (your
   starred articles, the reading queue). Each view remembers its own filter, grouping and sort.
   Search covers every downloaded article.
-- Tap a headline in the Newsfeed or a category to save it for later (star it); hold it to read it
-  now. This is a setting. At the end of an unread list a card offers **Mark N read** for what you
+- Tap a headline to read it; hold it to save it for later (star it). Settings can swap the two. At the end of an unread list a card offers **Mark N read** for what you
   saw and did not save.
 - A compact list: bold for unread, the source, a relative date ("3 h ago") and the reading
   time ("6 min read") on one line.
@@ -43,7 +42,7 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Status
 
-Early and unofficial (version 0.2.1). It is developed and tested on one Kobo Libra Colour on
+Early and unofficial (version 0.2.2). It is developed and tested on one Kobo Libra Colour on
 firmware 4.46.23852. Other Kobo models that Plato supports may work, but nobody has tested them.
 [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how.
 
@@ -77,7 +76,7 @@ Then:
 2. Install, with the menu entry:
 
    ```sh
-   sh install-inoink.sh inoink-0.2.1-kobo.tar.gz /Volumes/KOBOeReader --menu
+   sh install-inoink.sh inoink-0.2.2-kobo.tar.gz /Volumes/KOBOeReader --menu
    ```
 
    Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,
@@ -106,8 +105,9 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 
 ## Using it
 
-- **Tabs:** Newsfeed, Categories and Read later sit under the top bar. In the Newsfeed tapping a
-  headline saves it for later and holding opens it (Settings can swap them). The footer menu
+- **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
+  it and holding saves it for later (Settings can swap them); swipe down on a list or tap the
+  sync icon to sync. The footer menu
   ("Unread - Newest") chooses unread or all, grouping and sort; long-press a row (Read later) for
   Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
   folder and its feeds.

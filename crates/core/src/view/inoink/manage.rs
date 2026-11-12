@@ -111,8 +111,11 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
     let radio = |label: &str, e: InoInkEntry, on: bool| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(e), on);
     let mut entries = vec![
         EntryKind::SubMenu(
-            "Tapping a headline".into(),
-            vec![radio("Saves it for later", InoInkEntry::SetHeadlineTap(HeadlineTap::Star), s.headline_tap == HeadlineTap::Star), radio("Opens it", InoInkEntry::SetHeadlineTap(HeadlineTap::Open), s.headline_tap == HeadlineTap::Open)],
+            "Headlines".into(),
+            vec![
+                radio("Tap opens, hold saves for later", InoInkEntry::SetHeadlineTap(HeadlineTap::Open), s.list_tap == HeadlineTap::Open),
+                radio("Tap saves for later, hold opens", InoInkEntry::SetHeadlineTap(HeadlineTap::Star), s.list_tap == HeadlineTap::Star),
+            ],
         ),
         EntryKind::SubMenu(
             "At the end of an article".into(),

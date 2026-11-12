@@ -18,7 +18,7 @@ use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleActio
 use crate::view::inoink::categories::{category_items, CategoryItem, CategoryRow};
 use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
-use crate::view::inoink::row::ArticleRow;
+use crate::view::inoink::row::{ArticleRow, RowMode};
 use crate::view::inoink::state::{ReadingQueue, Tab};
 use crate::view::inoink::tab_bar::TabBar;
 use crate::settings::HeadlineTap;
@@ -72,7 +72,7 @@ pub struct InoInkHome {
     cat_pages: Vec<usize>,
     cat_page: usize,
     showing_cats: bool,
-    tap_stars: bool,
+    row_mode: RowMode,
     /// Every article shown in this list since it was opened (for "Mark N read").
     seen: BTreeSet<ArticleId>,
     /// The page that only holds the end-of-list card.
@@ -104,6 +104,11 @@ impl View for List {
                     }
                     Dir::East => {
                         bus.push_back(Event::Page(CycleDir::Previous));
+                        return true;
+                    }
+                    Dir::South => {
+                        // Pull down to refresh.
+                        bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
                         return true;
                     }
                     _ => {}
@@ -183,8 +188,9 @@ impl InoInkHome {
         let (small_thickness, big_thickness) = halves(thickness);
         let mut children: Vec<Box<dyn View>> = Vec::new();
 
-        let title = collection_title(context, &context.inoink.collection.clone());
-        let top = TopBar::new(rect![rect.min.x, rect.min.y, rect.max.x, rect.min.y + small_height - small_thickness], Event::Toggle(ViewId::SearchBar), title, context);
+        let title = String::new();
+        let top = TopBar::new(rect![rect.min.x, rect.min.y, rect.max.x, rect.min.y + small_height - small_thickness], Event::Toggle(ViewId::SearchBar), title, context)
+            .with_sync(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
         children.push(Box::new(top));
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.min.y + small_height - small_thickness, rect.max.x, rect.min.y + small_height + big_thickness], BLACK)));
 
@@ -218,7 +224,7 @@ impl InoInkHome {
             cat_pages: vec![0],
             cat_page: 0,
             showing_cats: false,
-            tap_stars: false,
+            row_mode: RowMode::OpenMenu,
             seen: BTreeSet::new(),
             end_only: false,
             next_is_end: false,
@@ -234,9 +240,16 @@ impl InoInkHome {
         self.search.is_none() && context.inoink.tab == Tab::Categories && context.inoink.show_categories
     }
 
-    /// Tapping a headline saves it (and holding opens it): Newsfeed and Categories only.
-    fn tap_stars_mode(&self, context: &Context) -> bool {
-        self.search.is_none() && context.inoink.tab != Tab::ReadLater && context.settings.inoink.headline_tap == HeadlineTap::Star
+    /// How rows answer taps and holds. In Read later and search results a tap opens and a hold
+    /// shows the menu; elsewhere one of them saves for later (the setting says which).
+    fn row_mode(&self, context: &Context) -> RowMode {
+        if self.search.is_some() || context.inoink.tab == Tab::ReadLater {
+            RowMode::OpenMenu
+        } else if context.settings.inoink.list_tap == HeadlineTap::Star {
+            RowMode::SaveOpen
+        } else {
+            RowMode::OpenSave
+        }
     }
 
     fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
@@ -260,7 +273,7 @@ impl InoInkHome {
     /// Reloads the current page from the local database. Never touches the network.
     pub fn load_page(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         self.showing_cats = self.showing_categories(context);
-        self.tap_stars = self.tap_stars_mode(context);
+        self.row_mode = self.row_mode(context);
         if self.showing_cats {
             self.load_categories(rq, context);
         } else if !self.load_articles(hub, rq, context) {
@@ -407,12 +420,14 @@ impl InoInkHome {
     /// Title, back/search icon and tab labels.
     fn update_chrome(&mut self, rq: &mut RenderQueue, context: &Context) {
         let in_category = context.inoink.tab == Tab::Categories && !context.inoink.show_categories;
+        // The tabs already name the Newsfeed, Categories and Read later: the title only says
+        // where you are inside Categories, or what you searched for.
         let title = if let Some(q) = &self.search {
             format!("Search: {q}")
-        } else if self.showing_cats {
-            "Categories".to_string()
+        } else if in_category {
+            format!("{} \u{25be}", collection_title(context, &context.inoink.collection))
         } else {
-            collection_title(context, &context.inoink.collection)
+            String::new()
         };
         let icon = if self.search.is_some() || in_category { "back" } else { "search" };
         if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
@@ -461,7 +476,7 @@ impl InoInkHome {
         let rows = self.rows;
         let items = self.items.clone();
         let cats = self.cat_items.clone();
-        let tap_stars = self.tap_stars;
+        let row_mode = self.row_mode;
         let end_count = self.end_count;
         let layout = self.layout.clone();
         let list = self.children[LIST].downcast_mut::<List>().unwrap();
@@ -503,7 +518,7 @@ impl InoInkHome {
                     list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { small_thickness }], text.clone())));
                 }
                 Slot::Item(i) => {
-                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, tap_stars)));
+                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, row_mode)));
                     if !last {
                         list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
                     }
@@ -845,6 +860,7 @@ impl InoInkHome {
             InoInkEntry::SyncNow => {
                 if context.inoink.handle.is_some() {
                     context.inoink.submit(inoink::runtime::Command::SyncNow);
+                    self.notify("Syncing", hub, rq, context);
                 } else {
                     self.notify("Sign in to sync. See the setup guide.", hub, rq, context);
                 }
@@ -910,8 +926,8 @@ impl InoInkHome {
                 hub.send(Event::OpenDetails(*id)).ok();
             }
             InoInkEntry::SetHeadlineTap(h) => {
-                context.settings.inoink.headline_tap = *h;
-                context.inoink.settings.headline_tap = *h;
+                context.settings.inoink.list_tap = *h;
+                context.inoink.settings.list_tap = *h;
                 self.reset(hub, rq, context);
             }
             InoInkEntry::SetContinueOnSwipe(b) => {

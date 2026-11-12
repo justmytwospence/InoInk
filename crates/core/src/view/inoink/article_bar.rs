@@ -47,9 +47,9 @@ impl ArticleBar {
             }
             None => children.push(Box::new(Label::new(title_rect, title, Align::Center))),
         }
-        children.push(Box::new(Icon::new(if starred { "star-filled" } else { "star" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
-        children.push(Box::new(Icon::new("check_mark", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
-        children.push(Box::new(Icon::new("menu", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
+        children.push(Box::new(Icon::new(if starred { "bookmark-filled" } else { "bookmark" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
+        children.push(Box::new(Icon::new("archive", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
+        children.push(Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
         children.push(Box::new(Label::new(aa_rect, "Aa".to_string(), Align::Center).event(Some(Event::Toggle(ViewId::TextPanel)))));
         ArticleBar { id, rect, children, article }
     }
@@ -62,7 +62,7 @@ impl ArticleBar {
         let children: Vec<Box<dyn View>> = vec![
             Box::new(Icon::new("back", rect![rect.min, rect.min + side], Event::Back)),
             Box::new(Label::new(title_rect, title, Align::Center)),
-            Box::new(Icon::new("menu", more_rect, Event::ToggleNear(ViewId::LinkMenu, more_rect))),
+            Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::LinkMenu, more_rect))),
         ];
         ArticleBar { id: ID_FEEDER.next(), rect, children, article: ArticleId(0) }
     }
@@ -77,7 +77,7 @@ impl ArticleBar {
             return;
         }
         if let Some(icon) = self.children[2].downcast_mut::<Icon>() {
-            let name = if starred { "star-filled" } else { "star" };
+            let name = if starred { "bookmark-filled" } else { "bookmark" };
             if icon.name != name {
                 icon.name = name.to_string();
                 rq.add(RenderData::new(icon.id(), *icon.rect(), UpdateMode::Gui));

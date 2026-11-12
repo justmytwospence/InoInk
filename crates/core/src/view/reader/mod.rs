@@ -98,6 +98,8 @@ pub struct Reader {
     article: Option<ArticleBinding>,
     /// Set when this reader shows a linked page (its address); nothing about it is saved.
     web: Option<String>,
+    /// How far through an InoInk article the end of the shown page is (0 to 1).
+    progress: f32,
     last_checkpoint: std::time::Instant,
     last_saved_page: usize,
 }
@@ -446,6 +448,7 @@ impl Reader {
                 finished: false,
                 article: None,
                 web: None,
+                progress: 0.0,
                 last_checkpoint: std::time::Instant::now(),
                 last_saved_page: 0,
             })
@@ -515,6 +518,7 @@ impl Reader {
             finished: false,
             article: None,
             web: None,
+            progress: 0.0,
             last_checkpoint: std::time::Instant::now(),
             last_saved_page: 0,
         }
@@ -1218,6 +1222,11 @@ impl Reader {
 
         self.update_annotations();
         self.update_noninverted_regions(context.fb.inverted());
+
+        if self.article.is_some() {
+            let next = self.doc.lock().unwrap().resolve_location(Location::Next(last_location));
+            self.progress = next.map(|n| n as f32 / self.pages_count.max(1) as f32).unwrap_or(1.0).clamp(0.0, 1.0);
+        }
 
         if self.view_port.zoom_mode == ZoomMode::FitToPage ||
            self.view_port.zoom_mode == ZoomMode::FitToWidth {
@@ -2842,10 +2851,32 @@ impl Reader {
         }
     }
 
+    /// A thin progress line along the bottom edge of an article: a hairline track, the part read
+    /// in black, and a dot where you are.
+    fn render_progress(&self, fb: &mut dyn Framebuffer, clip: &Rectangle) {
+        let dpi = CURRENT_DEVICE.dpi;
+        let pad = self.rect.width() as i32 / 12;
+        let bottom = self.rect.max.y - scale_by_dpi(24.0, dpi) as i32;
+        let thick = scale_by_dpi(5.0, dpi).max(2.0) as i32;
+        let hair = scale_by_dpi(1.0, dpi).max(1.0) as i32;
+        let x0 = self.rect.min.x + pad;
+        let x1 = self.rect.max.x - pad;
+        let area = rect![x0 - thick * 2, bottom - thick * 2, x1 + thick * 2, bottom + thick * 2];
+        if !area.overlaps(clip) {
+            return;
+        }
+        fb.draw_rectangle(&rect![x0, bottom - hair / 2, x1, bottom - hair / 2 + hair], crate::color::GRAY10);
+        let xp = x0 + ((x1 - x0) as f32 * self.progress).round() as i32;
+        if xp > x0 {
+            fb.draw_rectangle(&rect![x0, bottom - thick / 2, xp, bottom - thick / 2 + thick], BLACK);
+        }
+        fb.draw_disk(pt!(xp, bottom), thick + hair, BLACK);
+    }
+
     /// "42% \u{b7} 4 min left \u{b7} Read later 3 of 12".
     fn footer_text(&self, context: &Context) -> String {
         let Some(binding) = self.article.as_ref() else { return String::new() };
-        let pct = (self.current_page * 100 / self.pages_count.max(1)).min(100);
+        let pct = (self.progress * 100.0).round() as usize;
         let mut parts = vec![format!("{pct}%")];
         if binding.kind == crate::view::inoink::actions::DocKind::Article {
             let words = context.inoink.store().and_then(|s| s.words(binding.id).ok()).unwrap_or(0);
@@ -4804,6 +4835,10 @@ impl View for Reader {
                     }
                 }
             }
+        }
+
+        if self.article.is_some() {
+            self.render_progress(fb, &rect);
         }
 
         if self.info.reader.as_ref().map_or(false, |r| r.bookmarks.contains(&self.current_page)) {

@@ -85,9 +85,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   **Categories** lists your folders in Inoreader's order (with the unread count on the device),
   then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
   **Read later** is your starred articles. The numbers in the tabs are counts on the device.
-- In the Newsfeed and in categories, **tap a headline to save it for later** (it gets a star and a
-  bar at the left edge); **hold it to read it now**. Main menu > Settings > Tapping a headline
-  swaps these. In Read later, tapping opens the article.
+- In the Newsfeed and in categories, **tap a headline to read it** and **hold it to save it for
+  later** (it gets a bookmark and a bar at the left edge). Main menu > Settings > Headlines swaps
+  these. In Read later, holding a headline shows its menu.
+- Swipe down on a list, or tap the circular sync icon in the top bar, to sync now.
+- A thin line along the bottom of an article shows how far through it you are.
 - On the last page of an unread list a card says "Mark N read": N is what you were shown in this
   visit that is still unread and not starred. Nothing is marked read by turning pages.
 - The footer label ("Unread - Newest") opens a menu: unread only or all, group (none, unread

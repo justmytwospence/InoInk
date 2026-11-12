@@ -89,6 +89,16 @@ impl TopBar {
         }
     }
 
+    /// Adds a sync button left of the clock (the article lists); the title gives up the room.
+    pub fn with_sync(mut self, event: Event) -> TopBar {
+        let side = self.rect.height() as i32;
+        let clock = *self.children[2].rect();
+        let sync_rect = rect![clock.min.x - side, self.rect.min.y, clock.min.x, self.rect.max.y];
+        self.children[1].rect_mut().max.x = sync_rect.min.x;
+        self.children.push(Box::new(Icon::new("sync", sync_rect, event)) as Box<dyn View>);
+        self
+    }
+
     pub fn update_root_icon(&mut self, name: &str, rq: &mut RenderQueue) {
         let icon = self.child_mut(0).downcast_mut::<Icon>().unwrap();
         if icon.name != name {

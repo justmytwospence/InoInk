@@ -20,13 +20,29 @@ pub struct ArticleRow {
     pub item: ArticleSummary,
     index: usize,
     active: bool,
-    /// Tapping saves the article (a hold opens it) instead of tapping opening it.
-    tap_stars: bool,
+    mode: RowMode,
+}
+
+/// What a tap and a hold on a row do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowMode {
+    /// Tap opens, hold shows the menu (Read later, search).
+    OpenMenu,
+    /// Tap opens, hold saves for later.
+    OpenSave,
+    /// Tap saves for later, hold opens.
+    SaveOpen,
 }
 
 impl ArticleRow {
-    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, tap_stars: bool) -> ArticleRow {
-        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, tap_stars }
+    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, mode: RowMode) -> ArticleRow {
+        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, mode }
+    }
+
+    fn open(&mut self, bus: &mut Bus, rq: &mut RenderQueue) {
+        self.active = true;
+        rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+        bus.push_back(Event::OpenArticle(self.item.id));
     }
 
     /// Shows or clears the saved mark and redraws the row.
@@ -94,23 +110,21 @@ impl View for ArticleRow {
     fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
             Event::Gesture(GestureEvent::Tap(center)) if self.rect.includes(center) => {
-                if self.tap_stars {
+                if self.mode == RowMode::SaveOpen {
                     bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar));
                 } else {
-                    self.active = true;
-                    rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
-                    bus.push_back(Event::OpenArticle(self.item.id));
+                    self.open(bus, rq);
                 }
                 true
             }
             Event::Gesture(GestureEvent::HoldFingerShort(center, ..)) if self.rect.includes(center) => {
-                if self.tap_stars {
-                    self.active = true;
-                    rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
-                    bus.push_back(Event::OpenArticle(self.item.id));
-                } else {
-                    let pt = Point::new(center.x, self.rect.center().y);
-                    bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
+                match self.mode {
+                    RowMode::OpenMenu => {
+                        let pt = Point::new(center.x, self.rect.center().y);
+                        bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
+                    }
+                    RowMode::OpenSave => bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar)),
+                    RowMode::SaveOpen => self.open(bus, rq),
                 }
                 true
             }
@@ -171,15 +185,20 @@ impl View for ArticleRow {
             }
         }
 
-        // Saved articles: a bar down the left edge and a star beside the title.
+        // Saved for later: a bar down the left edge and a bookmark ribbon beside the title, like
+        // Inoreader's Read later mark.
         if self.item.starred {
+            let ink = if self.active { WHITE } else { BLACK };
+            let paper = if self.active { BLACK } else { WHITE };
             let bar_w = scale_by_dpi(6.0, dpi) as i32;
-            fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.min.x + bar_w, self.rect.max.y], if self.active { WHITE } else { BLACK });
-            let c = Point::new(self.rect.min.x + padding + marker_w / 3, top + tlh / 2);
-            let r = mxh.max(4);
-            for (dx, dy) in [(0, r), (r, 0), (r, r), (r, -r)] {
-                fb.draw_segment(c - Point::new(dx, dy), c + Point::new(dx, dy), 2.0, 2.0, if self.active { WHITE } else { BLACK });
-            }
+            fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.min.x + bar_w, self.rect.max.y], ink);
+            let cx = self.rect.min.x + padding + marker_w / 3;
+            let cy = top + tlh / 2;
+            let half_w = (mxh * 2 / 3).max(4);
+            let half_h = (mxh * 6 / 5).max(6);
+            let (x0, x1, y0, y1) = (cx - half_w, cx + half_w, cy - half_h, cy + half_h);
+            fb.draw_rectangle(&rect![x0, y0, x1, y1], ink);
+            fb.draw_triangle(&[Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w)], paper);
         }
 
         // Meta line: source, relative date, reading time, offline mark.
