@@ -19,6 +19,8 @@ public API and does not try to match the Inoreader website feature for feature; 
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
   to every article.
+- Hacker News and Lobsters: link posts open as the full linked article, with the discussion one
+  tap away (an Article | comments switch in the bar). Both are cached for offline reading.
 - **Done** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
 - Offline first: text and colour images are cached; every change is saved on the Kobo first and

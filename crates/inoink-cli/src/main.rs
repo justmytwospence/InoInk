@@ -248,6 +248,20 @@ fn png_gradient(w: u32, h: u32, seed: u8) -> Vec<u8> {
 struct FixtureImages;
 impl Fetcher for FixtureImages {
     fn get(&self, url: &url::Url, _max: usize) -> Result<Fetched> {
+        if url.as_str() == "https://blog.example/posts/linked-story" {
+            let body: String = (1..=8).map(paragraph).collect();
+            let page = format!("<html><body><nav>Menu Menu Menu</nav><article><h1>The linked story</h1>{body}</article></body></html>");
+            return Ok(Fetched { status: 200, content_type: Some("text/html; charset=utf-8".into()), location: None, body: page.into_bytes() });
+        }
+        if url.as_str() == "https://hn.algolia.com/api/v1/items/4242" {
+            let json = r#"{"type":"story","title":"A linked story","url":"https://blog.example/posts/linked-story","text":null,"children":[
+              {"type":"comment","author":"alice","text":"<p>Great write-up. The part about <i>pagination</i> is what I keep running into.</p>","created_at_i":1799990000,"children":[
+                {"type":"comment","author":"bob","text":"<p>Agreed, though I would not call it solved.</p>","created_at_i":1799990600,"children":[
+                  {"type":"comment","author":"alice","text":"<p>Fair. Solved enough for e-ink.</p>","created_at_i":1799991200,"children":[]}]}]},
+              {"type":"comment","author":null,"text":null,"children":[
+                {"type":"comment","author":"carol","text":"<p>Replying under a deleted comment.</p>","created_at_i":1799992000,"children":[]}]}]}"#;
+            return Ok(Fetched { status: 200, content_type: Some("application/json".into()), location: None, body: json.as_bytes().to_vec() });
+        }
         let name = url.path().rsplit('/').next().unwrap_or("");
         let seed = name.bytes().fold(7u8, |a, b| a.wrapping_mul(31).wrapping_add(b));
         let (w, h) = match name {
@@ -301,6 +315,8 @@ pub fn fixture_articles() -> Vec<(&'static str, String)> {
         ("Weekly newsletter", newsletter),
         ("Table of results", table),
         ("Code listing", code),
+        // A Hacker News link post: the full text lives on the linked page.
+        ("A linked story", "<a href=\"https://news.ycombinator.com/item?id=4242\">Comments</a>".to_string()),
     ]
 }
 
@@ -326,16 +342,16 @@ fn fixtures(args: &[String]) -> Result<()> {
     for (i, (title, html)) in fixture_articles().into_iter().enumerate() {
         let id = 1000 + i as u64;
         let mut cats = vec!["user/1/state/com.google/reading-list".to_string()];
-        if i == 0 || i == 1 {
+        if i == 0 || i == 1 || i == 5 {
             cats.push("user/1/state/com.google/starred".into());
         }
         let rec = ArticleRecord {
             id,
             title: title.into(),
             author: "Fixture Author".into(),
-            origin_stream: feed.into(),
-            origin_title: "Example Blog".into(),
-            canonical_url: format!("https://blog.example/posts/{id}"),
+            origin_stream: if i == 5 { "feed/https://news.ycombinator.com/rss".into() } else { feed.into() },
+            origin_title: if i == 5 { "Hacker News".into() } else { "Example Blog".into() },
+            canonical_url: if i == 5 { "https://blog.example/posts/linked-story".into() } else { format!("https://blog.example/posts/{id}") },
             published: base_ts - i as i64 * 3600,
             timestamp_usec: (base_ts - i as i64 * 3600) * 1_000_000,
             summary_html: html,

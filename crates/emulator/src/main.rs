@@ -20,7 +20,8 @@ use plato_core::view::{View, Event, ViewId, EntryId, AppCmd, EntryKind, SliderId
 use plato_core::view::{process_render_queue, wait_for_all, handle_event, RenderQueue, RenderData};
 use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::actions::{open_article, open_document, InoInkEntry, OpenResult};
-use plato_core::inoink::model::ArticleSort;
+use plato_core::inoink::model::{ArticleId, ArticleSort};
+use plato_core::view::inoink::actions::DocKind;
 use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
@@ -816,6 +817,17 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Shot("08-photo-essay-p2"));
     t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
     t.push_back(TourStep::Shot("09-photo-essay-p3"));
+    t.push_back(TourStep::Send(Event::Back));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Tap(w / 2, bar + 3 * row));
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("10-link-post-article"));
+    t.push_back(TourStep::Tap(w / 2, h / 2));
+    t.push_back(TourStep::Wait(500));
+    t.push_back(TourStep::Shot("11-link-post-bar"));
+    t.push_back(TourStep::Send(Event::ShowDocument(ArticleId(1005), DocKind::Comments)));
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("12-comments"));
     t.push_back(TourStep::Quit);
     t
 }

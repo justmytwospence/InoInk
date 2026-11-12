@@ -42,7 +42,8 @@ Module paths are in `crates/inoink/src`.
 - Annotation editing: existing annotations and summaries are displayed read-only; offset
   conventions are not specified.
 - Full-content extraction: optional unauthenticated original-page extraction is an InoInk
-  local feature, not an Inoreader API.
+  local feature, not an Inoreader API. Discussion threads for Hacker News (hn.algolia.com) and
+  Lobsters (public JSON) are fetched the same way, without credentials.
 - Rule management; web-feed / change-tracking management.
 - Reading-position sync: positions are local only.
 - Concurrent offline edits: there is no revision history, so concurrent changes are

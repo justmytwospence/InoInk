@@ -73,6 +73,7 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | Text panel: size, line spacing, margins, font and justification apply to all articles and survive a restart | NOT RUN |
 | Wi-Fi icon in the top bar follows the connection (no popup) | NOT RUN |
 | Group and sort per view, kept across restarts; paging is stable while syncing | NOT RUN |
+| Hacker News and Lobsters link posts: full article, comments switch, offline | NOT RUN |
 | Page-turn latency with and without a running sync (same article) | NOT RUN |
 | Update preserves data (install a second build over the first) | NOT RUN |
 | Bulk "Mark list read" does not touch articles that arrive meanwhile | NOT RUN |

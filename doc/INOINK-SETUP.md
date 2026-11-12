@@ -81,6 +81,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   article. More holds
   Mark read/unread, Tags, Like, Broadcast, Details (including summaries and
   annotations returned by Inoreader) and Load original page.
+- Items from Hacker News and Lobsters feeds are link posts: InoInk downloads the linked page and
+  extracts its text itself (no credentials, not an Inoreader feature), and caches the thread from
+  the site's public JSON. The bar shows an Article | N comments switch (also a link at the end
+  of the article); More has Refresh comments. Star, Done and Read apply to the one item.
+  Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
