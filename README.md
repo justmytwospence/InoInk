@@ -46,7 +46,7 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Status
 
-Early and unofficial (version 0.2.3). It is developed and tested on one Kobo Libra Colour on
+Early and unofficial. It is developed and tested on one Kobo Libra Colour on
 firmware 4.46.23852. Other Kobo models that Plato supports may work, but nobody has tested them.
 [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how.
 
@@ -80,7 +80,7 @@ Then:
 2. Install, with the menu entry:
 
    ```sh
-   sh install-inoink.sh inoink-0.2.3-kobo.tar.gz /Volumes/KOBOeReader --menu
+   sh install-inoink.sh inoink-<version>-kobo.tar.gz /Volumes/KOBOeReader --menu
    ```
 
    Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,

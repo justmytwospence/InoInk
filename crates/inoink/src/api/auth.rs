@@ -28,7 +28,7 @@ impl AppConfig {
             client_id: client_id.into(),
             client_secret: client_secret.into(),
             redirect_uri: redirect_uri.into(),
-            user_agent: concat!("InoInk/", env!("CARGO_PKG_VERSION"), " (unofficial Kobo client)").into(),
+            user_agent: format!("InoInk/{} (unofficial Kobo client)", crate::VERSION),
             base_url: "https://www.inoreader.com/reader/api/0".into(),
             token_url: TOKEN_URL.into(),
             app_id: None,

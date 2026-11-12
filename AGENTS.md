@@ -22,10 +22,15 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
   title is the conventional-commit message. Never push to `main` directly.
 - `gh` targets `justmytwospence/InoInk` (`gh repo set-default`). Never open a PR against
   `baskerville/plato`.
-- Releases: (1) bump `version` in `crates/inoink/Cargo.toml` and `crates/inoink-cli/Cargo.toml` in a
-  PR; (2) after it merges, `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`; (3) the Release
-  workflow builds a draft release; (4) record device evidence in `doc/INOINK-ACCEPTANCE.md`, then
-  publish the draft.
+- Dev loop: test a branch on the owner's Kobo before merging. With the Kobo mounted,
+  `scripts/kobo-dev.sh` builds the working tree as a dev version (`<last release>-dev.N.<sha>[.dirty]`)
+  and installs it (`--ci` installs CI's package for the pushed HEAD instead). Record device evidence
+  in the PR (template) and, for acceptance cases, in `doc/INOINK-ACCEPTANCE.md`.
+- Releases are automatic: merging to `main` is deploying to everyone. After CI passes on `main`, the
+  Release workflow computes the version from the conventional-commit titles since the last `v*` tag
+  (`scripts/version.sh next`: `feat` minor, `type!`/`BREAKING CHANGE` major, else patch; doc, CI and
+  test-only commits release nothing), tags it and publishes the release. Never tag or bump versions
+  by hand; the Cargo.toml versions are a `0.0.0` placeholder. So a PR title is a release decision.
 
 ## Layout
 

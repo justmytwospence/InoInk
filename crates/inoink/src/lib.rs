@@ -14,6 +14,11 @@ pub mod sync;
 pub mod util;
 
 /// The InoInk version shown in About and Status.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The release version. Release and dev builds set `INOINK_VERSION` (see `scripts/version.sh`);
+/// a plain `cargo build` falls back to the placeholder in Cargo.toml.
+pub const VERSION: &str = match option_env!("INOINK_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub use error::{Error, Result};

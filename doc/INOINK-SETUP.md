@@ -27,8 +27,15 @@ Requirements on the computer: Docker, `curl`, `jq`. `scripts/build-inoink.sh --t
 builds the emulator; `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures`
 replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`.
 
-Release packages are built by the `Release` GitHub workflow from `v*` tags as a draft, and are
-published after the device check.
+To try a change on your own Kobo, connect it by USB and run `scripts/kobo-dev.sh` (add `--menu`
+the first time). It builds the working tree, uncommitted changes included, as a dev version such as
+`0.2.3-dev.4.1a2b3c4.dirty` (Main menu > Status shows it) and installs it; your data is kept.
+Without Docker, or with `--ci`, it installs the package CI built for the pushed HEAD instead.
+
+Releases are automatic: every merge to `main` that changes what ships publishes the next version
+once CI passes on `main`. `feat:` titles bump the minor version, `type!:` the major, anything else
+the patch; docs, CI and test-only changes release nothing (`scripts/version.sh next` says what the
+next release would be).
 
 ## Install
 
