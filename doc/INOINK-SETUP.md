@@ -9,8 +9,9 @@
   Without it, start `.adds/inoink/current/inoink.sh` any way you launch scripts.
 - An Inoreader account with API access. Inoreader's developer portal states that the API is for
   public apps on unsupported platforms and otherwise needs a Pro plan; confirm your plan allows
-  it. The default Pro limit is 100 requests per day in each of two zones (read and write);
-  InoInk reads the real limits from the server's response headers.
+  it. Requests are limited per day in two zones (reads and writes); the limits depend on your
+  plan. InoInk reads the real limits from the server's response headers and shows them in
+  Settings > Inoreader API budget.
 - A registered Inoreader application (https://www.inoreader.com/developers/register-app) with a
   redirect URI such as `http://localhost:8080/callback` and the `read write` scope. Its client
   id and secret are yours: **no secret is shipped in InoInk**.
@@ -27,15 +28,25 @@ Requirements on the computer: Docker, `curl`, `jq`. `scripts/build-inoink.sh --t
 builds the emulator; `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures`
 replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`.
 
-To try a change on your own Kobo, connect it by USB and run `scripts/kobo-dev.sh` (add `--menu`
-the first time). It builds the working tree, uncommitted changes included, as a dev version such as
-`0.2.3-dev.4.1a2b3c4.dirty` (Main menu > Status shows it) and installs it; your data is kept.
-Without Docker, or with `--ci`, it installs the package CI built for the pushed HEAD instead.
+## Development and releases
 
-Releases are automatic: every merge to `main` that changes what ships publishes the next version
-once CI passes on `main`. `feat:` titles bump the minor version, `type!:` the major, anything else
-the patch; docs, CI and test-only changes release nothing (`scripts/version.sh next` says what the
-next release would be).
+1. Work on a branch and open a pull request against `main`. Its title is the commit message
+   (conventional commits: `feat:`, `fix:`, `perf:`, `docs:` ...) and decides the release below.
+2. Try it on a Kobo: connect it by USB and run `scripts/kobo-dev.sh` (add `--menu` the first
+   time). It builds the working tree, uncommitted changes included, as a dev version such as
+   `0.2.3-dev.4.1a2b3c4.dirty` (Main menu > Status shows it), installs it and ejects the Kobo; your
+   data is kept. Without Docker, or with `--ci`, it installs the package CI built for the pushed
+   HEAD instead. To go back, install a release the same way, or write the previous release's name
+   into `.adds/inoink/active-release`.
+3. Note in the pull request what you checked, on which device and firmware, and with which build.
+   Cases in `doc/INOINK-ACCEPTANCE.md` move from NOT RUN to PASS only with device evidence.
+4. CI must pass (`test`, `core`, `kobo`); the `kobo` job also uploads the package it built.
+5. Squash-merge. Merging is releasing: once CI passes on `main`, the Release workflow tags and
+   publishes the next version to everyone, with the Kobo package, the installer and `inoink-cli`.
+   The version comes from the titles merged since the last release: `feat:` bumps the minor
+   version, `type!:` or `BREAKING CHANGE:` the major, anything else the patch; changes that only
+   touch docs, CI or tests release nothing. `scripts/version.sh next` shows what merging now would
+   publish. Versions are never bumped or tagged by hand.
 
 ## Install
 
@@ -96,25 +107,31 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
   **Read later** is your starred articles. The numbers in the tabs are counts on the device.
 - In the Newsfeed and in categories, **tap a headline to read it** and **hold it to save it for
-  later** (it gets a bookmark and a bar at the left edge). Main menu > Settings > Headlines swaps
+  later** (it gets a bookmark at the right of the title and a bar along the left edge). Main menu > Settings > Headlines swaps
   these. In Read later, holding a headline shows its menu.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
   search, mark this list read (circled check mark; shows a count first), sync, Wi-Fi, light, menu.
-  The sync icon shows a dot and spins while a sync runs; the main menu shows the sync status.
+  The sync icon shows a dot and turns while a sync runs; Main menu > Status shows the last sync.
+- InoInk syncs when it starts, wakes or gets a network connection (at most every 15 minutes), and
+  sends your changes a few seconds after you make them; there is no timer keeping the Kobo awake.
+  A sync with nothing new costs one Inoreader request. Settings > Inoreader API budget shows
+  today's reads and writes against the limits Inoreader reports, when they reset and how many
+  requests the last sync used.
 - Swiping back on the first page of an article opens the previous article of the list at its
   beginning.
-- A thin line along the bottom of an article shows how far through it you are. The line under an
-  article is split into one segment per page while they fit.
+- A thin bar along the bottom of an article shows where you are: one segment per page while each
+  can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
 - On the last page of an unread list a card says "Mark N read": N is what you were shown in this
   visit that is still unread and not starred. Nothing is marked read by turning pages.
-- The footer label ("Unread - Newest") opens a menu: unread only or all, group (none, unread
+- The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, unread
   first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
   On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
-- The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above it: one segment per page while they fit across the screen, a line otherwise. Swipe or use the page buttons to move between
-  pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
+- The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
+  loaded from Inoreader), with a bar above it like the one under articles. Swipe or use the page
+  buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
   Back, Aa, Star, Done, More, with a line below showing progress, time left and your place in the
@@ -145,9 +162,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Follow a feed, Settings (what a
-  tap does, the end-of-article behaviour, offline storage, page-turn buttons, rotation, invert
-  colors), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
+- Main menu: Follow a feed, Settings (what a tap does, the end-of-article behaviour, offline
+  storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
+  Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,
   Karakeep) and About.
 - The bulb icon opens the light panel: on or off, brightness and warmth. Sliding a finger up or

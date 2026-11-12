@@ -40,7 +40,7 @@ document tests inside the build container, and the install/launcher tests).
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
-article with the bar and the progress line; the end card; the next article; a QR code; the light
+article with the bar and the page indicator; the end card; the next article; a QR code; the light
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
@@ -52,8 +52,10 @@ this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
 ## Device (Kobo Libra Colour, firmware 4.46.23852)
 
-None of these has been run. They need the physical device and your Inoreader credentials.
-Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each result.
+They need the physical device and your Inoreader credentials. Record date, build (Main menu >
+Status > Version, or the binary SHA-256 from `dist/SHA256SUMS`), model and firmware beside each
+result. Dev builds installed with `scripts/kobo-dev.sh` count when the build named is the one
+that was merged.
 
 | Case | Result |
 |---|---|
@@ -71,7 +73,14 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | Star an old article elsewhere: it arrives and is cached | NOT RUN |
 | Remote unstar and folder/rename changes arrive | NOT RUN |
 | Interrupted image download and write recovery (pull Wi-Fi mid-sync) | NOT RUN |
-| Expired token and quota exhaustion (watch the status line) | NOT RUN |
+| Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
+| Sync icon shows a dot and turns during a sync, and stops upright without the dot | NOT RUN |
+| Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
+| A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
+| List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |
+| Page bar: segments in portrait vs landscape follow the width (e.g. 15 pages: line in portrait, segments in landscape) | NOT RUN |
+| Article bar: short articles show one segment per page, long ones the line; it follows font size changes | NOT RUN |
+| Categories sort (Inoreader order, name, most unread) applies and is kept across restarts | NOT RUN |
 | Storage pressure behaviour | NOT RUN |
 | Brightness and warmth match Nickel's at launch | NOT RUN |
 | Left-edge slide changes brightness without turning pages | NOT RUN |
