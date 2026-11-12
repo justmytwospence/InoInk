@@ -1,0 +1,31 @@
+name: Kobo build images
+description: Fetch the pinned build inputs and load or build the Kobo cross-compilation images.
+runs:
+  using: composite
+  steps:
+    - id: inkey
+      shell: bash
+      run: echo "key=kobo-inputs-$(sha256sum build/inputs.lock.json | cut -c1-16)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: build/inputs
+        key: ${{ steps.inkey.outputs.key }}
+    - shell: bash
+      run: scripts/fetch-inputs.sh
+    - id: imkey
+      shell: bash
+      run: echo "key=kobo-images-$(cat build/Containerfile build/Containerfile.rust build/inputs.lock.json scripts/kobo-libs.sh | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+    - id: images
+      uses: actions/cache@v4
+      with:
+        path: /tmp/kobo-images.tar.zst
+        key: ${{ steps.imkey.outputs.key }}
+    - if: steps.images.outputs.cache-hit == 'true'
+      shell: bash
+      run: zstd -dc /tmp/kobo-images.tar.zst | docker load
+    - if: steps.images.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        docker build --platform linux/amd64 -f build/Containerfile -t inoink-kobo:local .
+        docker build -f build/Containerfile.rust -t inoink-kobo-rust:local build
+        docker save inoink-kobo:local inoink-kobo-rust:local | zstd -T0 -3 -o /tmp/kobo-images.tar.zst

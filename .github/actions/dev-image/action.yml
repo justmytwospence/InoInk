@@ -1,0 +1,21 @@
+name: Desktop development image
+description: Load inoink-dev:local from the cache, or build and cache it.
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: echo "key=dev-image-$(sha256sum build/Containerfile.dev | cut -c1-16)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: /tmp/dev-image.tar.zst
+        key: ${{ steps.key.outputs.key }}
+    - if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: zstd -dc /tmp/dev-image.tar.zst | docker load
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        docker build -f build/Containerfile.dev -t inoink-dev:local build
+        docker save inoink-dev:local | zstd -T0 -3 -o /tmp/dev-image.tar.zst

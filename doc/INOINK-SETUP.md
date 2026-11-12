@@ -27,6 +27,9 @@ Requirements on the computer: Docker, `curl`, `jq`. `scripts/build-inoink.sh --t
 builds the emulator; `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures`
 replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`.
 
+Release packages are built by the `Release` GitHub workflow from `v*` tags as a draft, and are
+published after the device check.
+
 ## Install
 
 1. Connect the Kobo by USB and open its storage.
