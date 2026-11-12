@@ -875,6 +875,22 @@ pub fn run() -> Result<(), Error> {
             },
             Event::Sync(ref u) => {
                 context.inoink.apply(u);
+                if let plato_core::inoink::runtime::Update::Cached(id, _) = u {
+                    if let Some((open, plato_core::view::inoink::state::OpenMode::Push)) = context.inoink.opening {
+                        if open == *id {
+                            context.inoink.opening = None;
+                            tx.send(Event::OpenArticle(*id)).ok();
+                        }
+                    }
+                }
+                if let plato_core::inoink::runtime::Update::CacheFailed(id, _) = u {
+                    if context.inoink.opening.is_some_and(|(open, _)| open == *id) {
+                        context.inoink.opening = None;
+                        let notif = Notification::new("This article could not be downloaded".to_string(), &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
+                    }
+                }
                 if let plato_core::inoink::runtime::Update::CommentsRefreshed(id, r) = u {
                     if context.inoink.opening_comments == Some(*id) {
                         context.inoink.opening_comments = None;

@@ -10,6 +10,7 @@ use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
 use crate::unit::scale_by_dpi;
 use crate::view::{Bus, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
+use crate::view::inoink::actions::ArticleAction;
 use inoink::model::{ArticleSummary, DownloadState};
 
 pub struct ArticleRow {
@@ -19,11 +20,21 @@ pub struct ArticleRow {
     pub item: ArticleSummary,
     index: usize,
     active: bool,
+    /// Tapping saves the article (a hold opens it) instead of tapping opening it.
+    tap_stars: bool,
 }
 
 impl ArticleRow {
-    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize) -> ArticleRow {
-        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false }
+    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, tap_stars: bool) -> ArticleRow {
+        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, tap_stars }
+    }
+
+    /// Shows or clears the saved mark and redraws the row.
+    pub fn set_starred(&mut self, starred: bool, rq: &mut RenderQueue) {
+        if self.item.starred != starred {
+            self.item.starred = starred;
+            rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+        }
     }
 
 }
@@ -80,17 +91,27 @@ mod tests {
 }
 
 impl View for ArticleRow {
-    fn handle_event(&mut self, evt: &Event, hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
+    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
             Event::Gesture(GestureEvent::Tap(center)) if self.rect.includes(center) => {
-                self.active = true;
-                rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
-                hub.send(Event::OpenArticle(self.item.id)).ok();
+                if self.tap_stars {
+                    bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar));
+                } else {
+                    self.active = true;
+                    rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+                    bus.push_back(Event::OpenArticle(self.item.id));
+                }
                 true
             }
             Event::Gesture(GestureEvent::HoldFingerShort(center, ..)) if self.rect.includes(center) => {
-                let pt = Point::new(center.x, self.rect.center().y);
-                bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
+                if self.tap_stars {
+                    self.active = true;
+                    rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+                    bus.push_back(Event::OpenArticle(self.item.id));
+                } else {
+                    let pt = Point::new(center.x, self.rect.center().y);
+                    bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
+                }
                 true
             }
             Event::Invalid(..) => {
@@ -150,10 +171,12 @@ impl View for ArticleRow {
             }
         }
 
-        // Star marker, centred on the first title line.
+        // Saved articles: a bar down the left edge and a star beside the title.
         if self.item.starred {
+            let bar_w = scale_by_dpi(6.0, dpi) as i32;
+            fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.min.x + bar_w, self.rect.max.y], if self.active { WHITE } else { BLACK });
             let c = Point::new(self.rect.min.x + padding + marker_w / 3, top + tlh / 2);
-            let r = (mxh / 2).max(3);
+            let r = mxh.max(4);
             for (dx, dy) in [(0, r), (r, 0), (r, r), (r, -r)] {
                 fb.draw_segment(c - Point::new(dx, dy), c + Point::new(dx, dy), 2.0, 2.0, if self.active { WHITE } else { BLACK });
             }

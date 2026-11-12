@@ -5,6 +5,7 @@ use crate::context::Context;
 use inoink::content::relocate;
 use inoink::model::*;
 use crate::settings::HeadlineTap;
+use crate::view::inoink::state::{OpenMode, Tab};
 use inoink::runtime::Command;
 use std::path::PathBuf;
 
@@ -15,6 +16,8 @@ pub enum ArticleAction {
     Done,
     /// Mark read (or unread) without touching the star.
     ToggleRead,
+    /// Mark read, leaving the star alone.
+    MarkRead,
     ToggleLike,
     ToggleBroadcast,
     AddTag(String),
@@ -33,7 +36,12 @@ pub enum DocKind {
 /// Menu choices of the list and management screens.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InoInkEntry {
-    Collection(Collection),
+    Tab(Tab),
+    /// Open a category (folder, feed, tag...) from the Categories tab.
+    OpenCategory(Collection),
+    /// Mark read what was seen in this list and not starred (the end-of-list card).
+    MarkSeenRead,
+    ConfirmMarkSeenRead,
     UnreadOnly(bool),
     ViewGroup(ArticleGroup),
     ViewSort(ArticleSort),
@@ -87,6 +95,12 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
     match action {
         ArticleAction::ToggleStar => flag_action(context, id, Membership::Starred),
         ArticleAction::ToggleRead => flag_action(context, id, Membership::Read),
+        ArticleAction::MarkRead => {
+            let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
+            store.apply_intent(id, &Membership::Read, true).map_err(|_| SAVE_FAILED)?;
+            context.inoink.changed();
+            Ok(ActionOutcome::default())
+        }
         ArticleAction::ToggleLike => flag_action(context, id, Membership::Like),
         ArticleAction::ToggleBroadcast => flag_action(context, id, Membership::Broadcast),
         ArticleAction::AddTag(name) | ArticleAction::RemoveTag(name) => {
@@ -225,7 +239,7 @@ fn fetch_for_open(context: &mut Context, id: ArticleId) -> OpenResult {
     if context.inoink.handle.is_none() {
         return OpenResult::Unavailable("This article is not available offline".into());
     }
-    context.inoink.opening = Some(id);
+    context.inoink.opening = Some((id, OpenMode::Push));
     context.inoink.submit(Command::CacheNow(id));
     OpenResult::Fetching
 }

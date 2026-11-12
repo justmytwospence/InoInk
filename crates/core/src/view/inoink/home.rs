@@ -13,10 +13,16 @@ use crate::view::common::{locate, locate_by_id};
 use crate::view::dialog::Dialog;
 use crate::view::filler::Filler;
 use crate::view::icon::Icon;
+use crate::view::button::Button;
 use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleAction, InoInkEntry};
+use crate::view::inoink::categories::{category_items, CategoryItem, CategoryRow};
 use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
 use crate::view::inoink::row::ArticleRow;
+use crate::view::inoink::state::{ReadingQueue, Tab};
+use crate::view::inoink::tab_bar::TabBar;
+use crate::settings::HeadlineTap;
+use std::collections::BTreeSet;
 use crate::view::keyboard::Keyboard;
 use crate::view::label::Label;
 use crate::view::menu::{Menu, MenuKind};
@@ -32,6 +38,10 @@ use inoink::model::*;
 enum Slot {
     Header(String),
     Item(usize),
+    /// A category (an index into `cat_items`).
+    Cat(usize),
+    /// The "Mark N read" card at the end of an unread list.
+    End,
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +68,24 @@ pub struct InoInkHome {
     selection: Option<BulkSelection>,
     /// The article a row menu acts on.
     pending_row: Option<ArticleId>,
+    cat_items: Vec<CategoryItem>,
+    cat_pages: Vec<usize>,
+    cat_page: usize,
+    showing_cats: bool,
+    tap_stars: bool,
+    /// Every article shown in this list since it was opened (for "Mark N read").
+    seen: BTreeSet<ArticleId>,
+    /// The page that only holds the end-of-list card.
+    end_only: bool,
+    /// The last page of articles had no room for the card: Next shows it.
+    next_is_end: bool,
+    end_count: usize,
 }
 
 const TOP: usize = 0;
-const LIST: usize = 2;
-const FOOTER: usize = 4;
+const TABS: usize = 2;
+const LIST: usize = 4;
+const FOOTER: usize = 6;
 
 struct List {
     id: Id,
@@ -137,9 +160,9 @@ impl View for Footer {
 
 pub fn collection_title(context: &Context, c: &Collection) -> String {
     match c {
-        Collection::Starred => "Starred".into(),
+        Collection::Starred => "Read later".into(),
         Collection::Unread => "Unread".into(),
-        Collection::All => "All articles".into(),
+        Collection::All => "Newsfeed".into(),
         Collection::Feed(s) => context.inoink.store().and_then(|st| st.subscription(s.as_str()).ok().flatten()).map(|s| s.title).unwrap_or_else(|| "Feed".into()),
         Collection::Folder(n) => n.clone(),
         Collection::Tag(n) => format!("Tag: {n}"),
@@ -165,31 +188,149 @@ impl InoInkHome {
         children.push(Box::new(top));
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.min.y + small_height - small_thickness, rect.max.x, rect.min.y + small_height + big_thickness], BLACK)));
 
-        let list_rect = rect![rect.min.x, rect.min.y + small_height + big_thickness, rect.max.x, rect.max.y - small_height - small_thickness];
+        let tabs_rect = rect![rect.min.x, rect.min.y + small_height + big_thickness, rect.max.x, rect.min.y + 2 * small_height - small_thickness];
+        children.push(Box::new(TabBar::new(tabs_rect, context.inoink.tab, [String::new(), String::new(), String::new()])));
+        children.push(Box::new(Filler::new(rect![rect.min.x, tabs_rect.max.y, rect.max.x, rect.min.y + 2 * small_height + big_thickness], BLACK)));
+
+        let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - small_height - small_thickness];
         let rows = (((list_rect.height() as i32) + thickness) / big_height).max(1) as usize;
         children.push(Box::new(List { id: ID_FEEDER.next(), rect: list_rect, children: Vec::new() }));
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.max.y - small_height - small_thickness, rect.max.x, rect.max.y - small_height + big_thickness], BLACK)));
         let footer_rect = rect![rect.min.x, rect.max.y - small_height + big_thickness, rect.max.x, rect.max.y];
         children.push(Box::new(Footer { id: ID_FEEDER.next(), rect: footer_rect, children: Vec::new() }));
 
-        let mut home = InoInkHome { id, rect, children, items: Vec::new(), cursors: vec![None], page: 0, next: None, layout: Vec::new(), search: None, prompt: None, focus: None, rows, selection: None, pending_row: None };
+        let mut home = InoInkHome {
+            id,
+            rect,
+            children,
+            items: Vec::new(),
+            cursors: vec![None],
+            page: 0,
+            next: None,
+            layout: Vec::new(),
+            search: None,
+            prompt: None,
+            focus: None,
+            rows,
+            selection: None,
+            pending_row: None,
+            cat_items: Vec::new(),
+            cat_pages: vec![0],
+            cat_page: 0,
+            showing_cats: false,
+            tap_stars: false,
+            seen: BTreeSet::new(),
+            end_only: false,
+            next_is_end: false,
+            end_count: 0,
+        };
         home.load_page(hub, rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
 
-    fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
-        let v = context.inoink.view_options();
-        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: context.inoink.unread_only, search: self.search.clone(), limit, after, group: v.group, sort: v.sort }
+    /// The list of categories is showing (Categories tab, nothing opened, no search).
+    fn showing_categories(&self, context: &Context) -> bool {
+        self.search.is_none() && context.inoink.tab == Tab::Categories && context.inoink.show_categories
     }
 
-    /// The group and sort actually applied to the current list.
+    /// Tapping a headline saves it (and holding opens it): Newsfeed and Categories only.
+    fn tap_stars_mode(&self, context: &Context) -> bool {
+        self.search.is_none() && context.inoink.tab != Tab::ReadLater && context.settings.inoink.headline_tap == HeadlineTap::Star
+    }
+
+    fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
+        if let Some(text) = &self.search {
+            return ArticleQuery { collection: None, unread_only: false, search: Some(text.clone()), limit, after, group: ArticleGroup::None, sort: ArticleSort::Newest };
+        }
+        let o = Self::effective_options(context);
+        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: o.unread_only, search: None, limit, after, group: o.group, sort: o.sort }
+    }
+
+    /// The filter, group and sort actually applied to the current list.
     fn effective_options(context: &Context) -> ViewOptions {
-        ViewOptions { unread_only: context.inoink.unread_only, ..context.inoink.view_options() }.effective(&context.inoink.collection)
+        context.inoink.view_options().effective(&context.inoink.collection)
+    }
+
+    /// An unread list is finished with a "Mark N read" card.
+    fn end_card_applies(&self, context: &Context) -> bool {
+        self.search.is_none() && Self::effective_options(context).unread_only && !matches!(context.inoink.collection, Collection::Starred)
     }
 
     /// Reloads the current page from the local database. Never touches the network.
     pub fn load_page(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        self.showing_cats = self.showing_categories(context);
+        self.tap_stars = self.tap_stars_mode(context);
+        if self.showing_cats {
+            self.load_categories(rq, context);
+        } else if !self.load_articles(hub, rq, context) {
+            return;
+        }
+        self.update_chrome(rq, context);
+        if let Some(notice) = context.inoink.notice.take() {
+            let n = Notification::new(notice, hub, rq, context);
+            self.children.push(Box::new(n));
+        }
+    }
+
+    fn load_categories(&mut self, rq: &mut RenderQueue, context: &mut Context) {
+        self.cat_items = category_items(context);
+        let units = 2 * self.rows;
+        let mut pages = vec![0usize];
+        let mut used = 0;
+        for (i, it) in self.cat_items.iter().enumerate() {
+            // A header needs room for at least one entry under it.
+            let (cost, need) = match it {
+                CategoryItem::Header(_) => (1, 3),
+                CategoryItem::Entry { .. } => (2, 2),
+            };
+            if used + need > units && used > 0 {
+                pages.push(i);
+                used = 0;
+            }
+            used += cost;
+        }
+        self.cat_pages = pages;
+        self.cat_page = self.cat_page.min(self.cat_pages.len() - 1);
+        let start = self.cat_pages[self.cat_page];
+        let end = self.cat_pages.get(self.cat_page + 1).copied().unwrap_or(self.cat_items.len());
+        self.layout = (start..end)
+            .map(|i| match &self.cat_items[i] {
+                CategoryItem::Header(t) => Slot::Header(t.clone()),
+                CategoryItem::Entry { .. } => Slot::Cat(i),
+            })
+            .collect();
+        self.items.clear();
+        self.next = None;
+        self.next_is_end = false;
+        self.rebuild_list(rq, context);
+        self.rebuild_footer(rq, context);
+    }
+
+    /// Loads the article page. Returns false when it reloaded itself (a page past the end).
+    fn load_articles(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        self.next_is_end = false;
+        let opts = Self::effective_options(context);
+        let applies = self.end_card_applies(context);
+        let units = 2 * self.rows - if context.inoink.last_undo.is_some() { 2 } else { 0 };
+        if self.end_only {
+            self.end_count = self.count_unmarked(context);
+            if self.end_count == 0 || !applies {
+                self.end_only = false;
+                if self.page > 0 {
+                    self.page -= 1;
+                    self.cursors.truncate(self.page + 1);
+                }
+                self.load_page(hub, rq, context);
+                return false;
+            }
+            self.items.clear();
+            self.next = None;
+            self.layout = vec![Slot::End];
+            self.rebuild_list(rq, context);
+            self.rebuild_footer(rq, context);
+            return true;
+        }
         let after = self.cursors.get(self.page).cloned().flatten();
         let q = self.query(context, after, self.rows);
         let page = context.inoink.store().and_then(|s| s.query_articles(&q).ok());
@@ -201,17 +342,16 @@ impl InoInkHome {
         if items.is_empty() && self.page > 0 {
             self.page -= 1;
             self.cursors.truncate(self.page + 1);
-            return self.load_page(hub, rq, context);
+            self.load_page(hub, rq, context);
+            return false;
         }
         // Plan the page: headers cost one unit, articles two; a page has two units per row.
-        let opts = Self::effective_options(context);
-        let units = 2 * self.rows - if context.inoink.last_undo.is_some() { 2 } else { 0 };
         let mut layout = Vec::new();
         let mut used = 0;
         let mut placed = 0;
         let mut last_header: Option<String> = None;
         for (i, item) in items.iter().enumerate() {
-            let h = opts.group.header(item);
+            let h = opts.group.header(item).filter(|_| self.search.is_none());
             let needs_header = h.is_some() && h != last_header;
             let cost = 2 + needs_header as usize;
             if used + cost > units && placed > 0 {
@@ -229,18 +369,63 @@ impl InoInkHome {
         let mut items = items;
         items.truncate(placed);
         let next = if truncated { items.last().map(Cursor::from) } else { next };
+        if self.search.is_none() {
+            self.seen.extend(items.iter().map(|i| i.id));
+        }
+        if next.is_none() && applies {
+            self.end_count = self.count_unmarked(context);
+            if self.end_count > 0 {
+                if used + 2 <= units {
+                    layout.push(Slot::End);
+                } else {
+                    self.next_is_end = true;
+                }
+            }
+        }
         self.layout = layout;
         self.items = items;
         self.next = next;
         self.rebuild_list(rq, context);
         self.rebuild_footer(rq, context);
-        let title = if let Some(q) = &self.search { format!("Search: {q}") } else { collection_title(context, &context.inoink.collection.clone()) };
+        true
+    }
+
+    /// How many articles seen in this list are still unread and not saved.
+    fn count_unmarked(&self, context: &Context) -> usize {
+        self.unmarked(context).len()
+    }
+
+    fn unmarked(&self, context: &Context) -> Vec<ArticleId> {
+        let Some(store) = context.inoink.store() else { return Vec::new() };
+        self.seen
+            .iter()
+            .filter(|id| !store.effective(**id, &Membership::Read).unwrap_or(true) && !store.effective(**id, &Membership::Starred).unwrap_or(true))
+            .copied()
+            .collect()
+    }
+
+    /// Title, back/search icon and tab labels.
+    fn update_chrome(&mut self, rq: &mut RenderQueue, context: &Context) {
+        let in_category = context.inoink.tab == Tab::Categories && !context.inoink.show_categories;
+        let title = if let Some(q) = &self.search {
+            format!("Search: {q}")
+        } else if self.showing_cats {
+            "Categories".to_string()
+        } else {
+            collection_title(context, &context.inoink.collection)
+        };
+        let icon = if self.search.is_some() || in_category { "back" } else { "search" };
         if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
             top.update_title_label(&title, rq);
+            top.update_root_icon(icon, rq);
         }
-        if let Some(notice) = context.inoink.notice.take() {
-            let n = Notification::new(notice, hub, rq, context);
-            self.children.push(Box::new(n));
+        let count = |c: Collection, unread: bool| {
+            context.inoink.store().and_then(|s| s.count_articles(&ArticleQuery { collection: Some(c), unread_only: unread, ..Default::default() }).ok()).unwrap_or(0)
+        };
+        let label = |name: &str, n: usize| if n > 0 { format!("{name} ({n})") } else { name.to_string() };
+        let labels = [label("Newsfeed", count(Collection::All, true)), "Categories".to_string(), label("Read later", count(Collection::Starred, false))];
+        if let Some(tabs) = self.children[TABS].downcast_mut::<TabBar>() {
+            tabs.update(context.inoink.tab, labels, rq);
         }
     }
 
@@ -254,11 +439,16 @@ impl InoInkHome {
                 ("Sign in required".into(), "Connect the Kobo to a computer and run inoink-cli authorize.".into())
             }
             (Syncing, _) => ("Syncing".into(), "Articles appear as they arrive.".into()),
-            _ => match context.inoink.collection {
-                Collection::Starred => ("No starred articles".into(), "Star an article to keep it here.".into()),
-                Collection::Unread => ("All caught up".into(), String::new()),
-                _ => ("Nothing here".into(), String::new()),
-            },
+            _ => {
+                if self.showing_cats {
+                    return ("No folders yet".into(), "Folders appear after the first sync.".into());
+                }
+                match context.inoink.collection {
+                    Collection::Starred => ("Nothing in Read later".into(), "Tap a headline in the Newsfeed to save it here.".into()),
+                    _ if Self::effective_options(context).unread_only => ("All caught up".into(), String::new()),
+                    _ => ("Nothing here".into(), String::new()),
+                }
+            }
         }
     }
 
@@ -270,6 +460,10 @@ impl InoInkHome {
         let empty = self.empty_message(context);
         let rows = self.rows;
         let items = self.items.clone();
+        let cats = self.cat_items.clone();
+        let tap_stars = self.tap_stars;
+        let end_count = self.end_count;
+        let layout = self.layout.clone();
         let list = self.children[LIST].downcast_mut::<List>().unwrap();
         list.children.clear();
         let rect = list.rect;
@@ -277,24 +471,25 @@ impl InoInkHome {
         let unit_h = divide(rect.height() as i32, total_units);
         let span = |from: i32, n: i32| -> i32 { unit_h[from as usize..(from + n) as usize].iter().sum() };
         let mut y = rect.min.y;
-        let _ = big_height;
         let mut unit = 0i32;
-        if let Some((_, title)) = context.inoink.last_undo.as_ref() {
-            // The undo bar takes the first row until superseded.
-            let h = span(0, 2);
-            let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
-            let label = format!("Done: {}", title.chars().take(40).collect::<String>());
-            let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
-            list.children.push(Box::new(lbl));
-            list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
-            list.children.push(Box::new(Filler::new(rect![rect.min.x, r.max.y, rect.max.x, r.max.y + thickness], SEPARATOR_NORMAL)));
-            y += h;
-            unit = 2;
+        if !self.showing_cats {
+            if let Some((_, title)) = context.inoink.last_undo.as_ref() {
+                // The undo bar takes the first row until superseded.
+                let h = span(0, 2);
+                let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
+                let label = format!("Done: {}", title.chars().take(40).collect::<String>());
+                let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
+                list.children.push(Box::new(lbl));
+                list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
+                list.children.push(Box::new(Filler::new(rect![rect.min.x, r.max.y, rect.max.x, r.max.y + thickness], SEPARATOR_NORMAL)));
+                y += h;
+                unit = 2;
+            }
         }
-        for slot in &self.layout {
+        for slot in &layout {
             let n = match slot {
                 Slot::Header(_) => 1,
-                Slot::Item(_) => 2,
+                Slot::Item(_) | Slot::Cat(_) | Slot::End => 2,
             };
             if unit + n > total_units {
                 break;
@@ -308,16 +503,33 @@ impl InoInkHome {
                     list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { small_thickness }], text.clone())));
                 }
                 Slot::Item(i) => {
-                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i)));
+                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, tap_stars)));
                     if !last {
                         list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
                     }
+                }
+                Slot::Cat(i) => {
+                    if let CategoryItem::Entry { label, count, target } = &cats[*i] {
+                        list.children.push(Box::new(CategoryRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], label.clone(), *count, target.clone())));
+                        if !last {
+                            list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
+                        }
+                    }
+                }
+                Slot::End => {
+                    let r = rect![rect.min.x, y_min, rect.max.x, y_max];
+                    let half = r.height() as i32 / 2;
+                    list.children.push(Box::new(Label::new(rect![r.min.x, r.min.y, r.max.x, r.min.y + half], "End of unread articles".to_string(), Align::Center)));
+                    let w = r.width() as i32 / 3;
+                    let cx = (r.min.x + r.max.x) / 2;
+                    let pad = half / 6;
+                    list.children.push(Box::new(Button::new(rect![cx - w, r.min.y + half + pad, cx + w, r.max.y - pad], Event::Select(EntryId::InoInk(InoInkEntry::MarkSeenRead)), format!("Mark {end_count} read"))));
                 }
             }
             y += h;
             unit += n;
         }
-        if items.is_empty() {
+        if layout.is_empty() {
             let cy = rect.min.y + rect.height() as i32 / 3;
             let h = big_height;
             list.children.push(Box::new(Filler::new(rect![rect.min.x, y, rect.max.x, rect.max.y], WHITE)));
@@ -332,11 +544,14 @@ impl InoInkHome {
     }
 
     fn rebuild_footer(&mut self, rq: &mut RenderQueue, context: &Context) {
-        let prev = self.page > 0;
-        let next = self.next.is_some();
-        let page = self.page + 1;
+        let (prev, next, page) = if self.showing_cats {
+            (self.cat_page > 0, self.cat_page + 1 < self.cat_pages.len(), self.cat_page + 1)
+        } else {
+            (self.page > 0, self.next.is_some() || self.next_is_end, self.page + 1)
+        };
         let status = context.inoink.status_text();
-        let filter = if context.inoink.unread_only || matches!(context.inoink.collection, Collection::Unread) { "Unread" } else { "All" };
+        let opts = Self::effective_options(context);
+        let view_text = if self.showing_cats || self.search.is_some() { String::new() } else { format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short()) };
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
         let rect = footer.rect;
         let side = rect.height() as i32;
@@ -348,16 +563,17 @@ impl InoInkHome {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
         let inner = rect.width() as i32 - 2 * side;
-        let filter_w = inner / 6;
-        let view_w = inner / 4;
+        let view_w = inner * 3 / 10;
         let page_w = inner / 6;
-        let status_w = inner - filter_w - view_w - page_w;
-        let sort_text = format!("{} \u{25be}", Self::effective_options(context).sort.short());
+        let status_w = inner - view_w - page_w;
         let x0 = rect.min.x + side;
-        footer.children.push(Box::new(Label::new(rect![x0, rect.min.y, x0 + filter_w, rect.max.y], filter.to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UnreadOnly(filter != "Unread")))))));
-        let view_rect = rect![x0 + filter_w, rect.min.y, x0 + filter_w + view_w, rect.max.y];
-        footer.children.push(Box::new(Label::new(view_rect, sort_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
-        let sx = x0 + filter_w + view_w;
+        let view_rect = rect![x0, rect.min.y, x0 + view_w, rect.max.y];
+        if view_text.is_empty() {
+            footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
+        } else {
+            footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
+        }
+        let sx = x0 + view_w;
         footer.children.push(Box::new(Label::new(rect![sx, rect.min.y, sx + status_w, rect.max.y], status, Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))))));
         footer.children.push(Box::new(Label::new(rect![sx + status_w, rect.min.y, rect.max.x - side, rect.max.y], format!("Page {page}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
@@ -370,6 +586,15 @@ impl InoInkHome {
     }
 
     fn go(&mut self, dir: CycleDir, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if self.showing_cats {
+            match dir {
+                CycleDir::Next if self.cat_page + 1 < self.cat_pages.len() => self.cat_page += 1,
+                CycleDir::Previous if self.cat_page > 0 => self.cat_page -= 1,
+                _ => return,
+            }
+            self.load_page(hub, rq, context);
+            return;
+        }
         match dir {
             CycleDir::Next => {
                 if let Some(c) = self.next.clone() {
@@ -377,7 +602,13 @@ impl InoInkHome {
                     self.cursors.truncate(self.page);
                     self.cursors.push(Some(c));
                     self.load_page(hub, rq, context);
-                } else if matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages) && context.inoink.handle.is_some() && self.search.is_none() && Self::effective_options(context) == ViewOptions::default() {
+                } else if self.next_is_end {
+                    self.end_only = true;
+                    self.page += 1;
+                    self.cursors.truncate(self.page);
+                    self.cursors.push(None);
+                    self.load_page(hub, rq, context);
+                } else if !self.end_only && self.search.is_none() && context.inoink.handle.is_some() && self.can_browse(context) {
                     // End of what is stored: browse further back through history online.
                     context.inoink.submit(inoink::runtime::Command::Browse { collection: context.inoink.collection.clone(), continuation: context.inoink.store().and_then(|s| s.get_meta(&browse_key(&context.inoink.collection)).ok().flatten()) });
                     let n = Notification::new("Loading older articles".to_string(), hub, rq, context);
@@ -385,6 +616,9 @@ impl InoInkHome {
                 }
             }
             CycleDir::Previous => {
+                if self.end_only {
+                    self.end_only = false;
+                }
                 if self.page > 0 {
                     self.page -= 1;
                     self.cursors.truncate(self.page + 1);
@@ -394,15 +628,46 @@ impl InoInkHome {
         }
     }
 
+    /// Browsing older history online only makes sense for the plain "everything, newest
+    /// first" views.
+    fn can_browse(&self, context: &Context) -> bool {
+        let o = Self::effective_options(context);
+        matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages) && !o.unread_only && o.group == ArticleGroup::None && o.sort == ArticleSort::Newest
+    }
+
     fn reset(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         self.page = 0;
         self.cursors = vec![None];
+        self.cat_page = 0;
+        self.seen.clear();
+        self.end_only = false;
+        self.next_is_end = false;
         self.load_page(hub, rq, context);
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         let n = Notification::new(text.to_string(), hub, rq, context);
         self.children.push(Box::new(n));
+    }
+
+    /// The articles on screen, in order.
+    pub fn visible_articles(&self) -> Vec<ArticleId> {
+        self.items.iter().map(|i| i.id).collect()
+    }
+
+    /// The headers and categories on screen, in order.
+    pub fn category_labels(&self) -> Vec<String> {
+        self.layout
+            .iter()
+            .filter_map(|s| match s {
+                Slot::Header(t) => Some(t.clone()),
+                Slot::Cat(i) => match &self.cat_items[*i] {
+                    CategoryItem::Entry { label, .. } => Some(label.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
     }
 
     // ---- menus ------------------------------------------------------------------------------
@@ -421,6 +686,30 @@ impl InoInkHome {
         self.children.push(Box::new(menu));
     }
 
+    /// The title menu: inside a folder or feed, switch between the folder and its feeds.
+    fn title_menu_entries(&self, context: &Context) -> Vec<EntryKind> {
+        if self.search.is_some() || self.showing_cats {
+            return Vec::new();
+        }
+        let Some(store) = context.inoink.store() else { return Vec::new() };
+        let subs = store.subscriptions().unwrap_or_default();
+        let folder = match &context.inoink.collection {
+            Collection::Folder(f) => f.clone(),
+            Collection::Feed(s) => match subs.iter().find(|x| x.id == s.0).and_then(|x| x.folders.first().cloned()) {
+                Some(f) => f,
+                None => return Vec::new(),
+            },
+            _ => return Vec::new(),
+        };
+        let current = &context.inoink.collection;
+        let mut entries = vec![EntryKind::RadioButton(format!("All in {folder}"), EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Folder(folder.clone()))), *current == Collection::Folder(folder.clone()))];
+        for s in subs.iter().filter(|s| s.folders.contains(&folder)) {
+            let c = Collection::Feed(StreamId::new(&s.id));
+            entries.push(EntryKind::RadioButton(s.title.clone(), EntryId::InoInk(InoInkEntry::OpenCategory(c.clone())), *current == c));
+        }
+        manage::paged(entries)
+    }
+
     fn close_menus(&mut self, rq: &mut RenderQueue) {
         for id in [ViewId::TitleMenu, ViewId::MainMenu, ViewId::BookMenu, ViewId::ManageMenu, ViewId::SortMenu] {
             if let Some(i) = locate_by_id(self, id) {
@@ -435,7 +724,7 @@ impl InoInkHome {
         let e = |a: ArticleAction| EntryId::InoInk(InoInkEntry::Article(a));
         self.pending_row = Some(item.id);
         let entries = vec![
-            EntryKind::Command(if item.starred { "Unstar" } else { "Star" }.to_string(), e(ArticleAction::ToggleStar)),
+            EntryKind::Command(if item.starred { "Remove from Read later" } else { "Save for later" }.to_string(), e(ArticleAction::ToggleStar)),
             EntryKind::Command(if item.read { "Mark unread" } else { "Mark read" }.to_string(), e(ArticleAction::ToggleRead)),
             EntryKind::Command("Done".to_string(), e(ArticleAction::Done)),
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(item.id))),
@@ -499,20 +788,46 @@ impl InoInkHome {
 
     fn select(&mut self, entry: &InoInkEntry, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         match entry {
-            InoInkEntry::Collection(c) => {
-                let unread = context.inoink.unread_only;
-                context.inoink.set_view(c.clone(), unread);
+            InoInkEntry::Tab(t) => {
                 self.search = None;
+                context.inoink.set_tab(*t);
+                self.reset(hub, rq, context);
+            }
+            InoInkEntry::OpenCategory(c) => {
+                self.search = None;
+                context.inoink.open_collection(c.clone());
                 self.reset(hub, rq, context);
             }
             InoInkEntry::UnreadOnly(v) => {
-                let c = context.inoink.collection.clone();
-                if matches!(c, Collection::Unread) && !*v {
-                    context.inoink.set_view(Collection::All, false);
-                } else {
-                    context.inoink.set_view(c, *v);
-                }
+                let mut o = context.inoink.view_options();
+                o.unread_only = *v;
+                context.inoink.set_view_options(o);
                 self.reset(hub, rq, context);
+            }
+            InoInkEntry::MarkSeenRead => {
+                let mut ids = self.unmarked(context);
+                ids.truncate(inoink::store::BULK_LIMIT);
+                let frozen = context.inoink.store_mut().and_then(|s| s.freeze_ids(&ids).ok());
+                match frozen {
+                    Some(sel) if !sel.articles.is_empty() => {
+                        let n = sel.articles.len();
+                        self.selection = Some(sel);
+                        self.confirm(format!("Mark {n} articles read? Starred articles stay unread."), InoInkEntry::ConfirmMarkSeenRead, rq, context);
+                    }
+                    _ => self.notify("Nothing to mark", hub, rq, context),
+                }
+            }
+            InoInkEntry::ConfirmMarkSeenRead => {
+                if let (Some(sel), Some(store)) = (self.selection.take(), context.inoink.store_mut()) {
+                    match store.apply_bulk(&sel, BulkAction::MarkRead) {
+                        Ok(n) => {
+                            context.inoink.changed();
+                            self.notify(&format!("Marked {n} read"), hub, rq, context);
+                        }
+                        Err(_) => self.notify(crate::view::inoink::actions::SAVE_FAILED, hub, rq, context),
+                    }
+                    self.reset(hub, rq, context);
+                }
             }
             InoInkEntry::ViewGroup(g) => {
                 let mut v = context.inoink.view_options();
@@ -663,13 +978,19 @@ impl View for InoInkHome {
                 true
             }
             Event::ToggleNear(ViewId::TitleMenu, rect) => {
-                let entries = manage::collection_entries(context);
+                let entries = self.title_menu_entries(context);
                 self.toggle_menu(ViewId::TitleMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::SortMenu, rect) => {
                 let stored = context.inoink.view_options();
-                let mut entries = vec![EntryKind::Message("Group by".to_string(), None)];
+                let mut entries = vec![
+                    EntryKind::Message("Show".to_string(), None),
+                    EntryKind::RadioButton("Unread only".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(true)), stored.unread_only),
+                    EntryKind::RadioButton("All articles".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(false)), !stored.unread_only),
+                    EntryKind::Separator,
+                    EntryKind::Message("Group by".to_string(), None),
+                ];
                 for g in ArticleGroup::ALL {
                     entries.push(EntryKind::RadioButton(g.label().to_string(), EntryId::InoInk(InoInkEntry::ViewGroup(g)), g == stored.group));
                 }
@@ -706,9 +1027,43 @@ impl View for InoInkHome {
             Event::Toggle(ViewId::SearchBar) => {
                 if self.prompt.is_some() {
                     self.close_prompt(hub, rq, context);
+                } else if self.search.is_some() {
+                    self.search = None;
+                    self.reset(hub, rq, context);
+                } else if context.inoink.tab == Tab::Categories && !context.inoink.show_categories {
+                    context.inoink.show_category_list();
+                    self.reset(hub, rq, context);
                 } else {
                     self.show_prompt("Search downloaded articles", Prompt::Search, hub, rq, context);
                 }
+                true
+            }
+            Event::ArticleAction(id, ArticleAction::ToggleStar) => {
+                match apply_article_action(context, id, &ArticleAction::ToggleStar) {
+                    Ok(_) => {
+                        let starred = context.inoink.store().and_then(|s| s.effective(id, &Membership::Starred).ok()).unwrap_or(false);
+                        for i in self.items.iter_mut().filter(|i| i.id == id) {
+                            i.starred = starred;
+                        }
+                        if let Some(list) = self.children[LIST].downcast_mut::<List>() {
+                            for row in list.children.iter_mut().filter_map(|c| c.downcast_mut::<ArticleRow>()) {
+                                if row.item.id == id {
+                                    row.set_starred(starred, rq);
+                                }
+                            }
+                        }
+                        self.update_chrome(rq, context);
+                    }
+                    Err(m) => self.notify(&m, hub, rq, context),
+                }
+                true
+            }
+            Event::OpenArticle(id) => {
+                let ids = context.inoink.store().and_then(|s| s.query_ids(&self.query(context, None, 0), inoink::store::BULK_LIMIT).ok()).unwrap_or_default();
+                let label = if self.search.is_some() { "Search".to_string() } else { collection_title(context, &context.inoink.collection) };
+                let read_later = self.search.is_none() && context.inoink.collection == Collection::Starred;
+                context.inoink.queue = Some(ReadingQueue { ids, read_later, label });
+                hub.send(Event::OpenArticle(id)).ok();
                 true
             }
             Event::Select(EntryId::InoInk(ref entry)) => {
@@ -739,19 +1094,6 @@ impl View for InoInkHome {
             }
             Event::Sync(ref u) => {
                 let refresh = context.inoink.apply(u);
-                if let inoink::runtime::Update::Cached(id, _) = u {
-                    if context.inoink.opening == Some(*id) {
-                        context.inoink.opening = None;
-                        hub.send(Event::OpenArticle(*id)).ok();
-                    }
-                }
-                if let inoink::runtime::Update::CacheFailed(id, _) = u {
-                    if context.inoink.opening == Some(*id) {
-                        context.inoink.opening = None;
-                        self.notify("This article could not be downloaded", hub, rq, context);
-                        hub.send(Event::Invalid(Default::default())).ok();
-                    }
-                }
                 if let inoink::runtime::Update::Browsed { collection, next } = u {
                     if let Some(store) = context.inoink.store_mut() {
                         let _ = store.set_meta(&browse_key(collection), next.as_deref().unwrap_or(""));
@@ -815,6 +1157,8 @@ impl View for InoInkHome {
         self.rect = rect;
         self.page = 0;
         self.cursors = vec![None];
+        self.cat_page = 0;
+        self.end_only = false;
         self.load_page(hub, rq, context);
         rq.add(RenderData::new(self.id, rect, UpdateMode::Full));
     }

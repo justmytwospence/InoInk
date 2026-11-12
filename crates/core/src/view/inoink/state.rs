@@ -3,6 +3,7 @@
 //! the network lives entirely on the sync worker.
 
 use crate::settings::InoInkSettings;
+use serde::{Deserialize, Serialize};
 use crate::view::Event;
 use inoink::api::{ApiClient, SystemClock, UreqTransport};
 use inoink::cache::{Cache, CacheConfig};
@@ -19,6 +20,49 @@ use std::time::Duration;
 
 pub const DB_FILE: &str = "inoink.db";
 
+/// The three places the interface opens into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Tab {
+    /// Inoreader's overall view of all feeds; unread articles by default.
+    Newsfeed,
+    /// Folders, tags and the other streams.
+    Categories,
+    /// What was starred: the reading queue.
+    ReadLater,
+}
+
+/// How an article that had to be downloaded first is shown once it arrives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenMode {
+    /// On top of the list.
+    Push,
+    /// Instead of the article being read (continuing to the next one).
+    Replace,
+}
+
+/// The articles of the list an article was opened from, in the order shown then.
+#[derive(Clone, Debug)]
+pub struct ReadingQueue {
+    pub ids: Vec<ArticleId>,
+    /// True when the list is Read later: finishing an article also removes its star.
+    pub read_later: bool,
+    /// Name of the list, for the position shown while reading ("Read later 3 of 12").
+    pub label: String,
+}
+
+impl ReadingQueue {
+    /// 1-based position of `id` and the length of the queue.
+    pub fn position(&self, id: ArticleId) -> Option<(usize, usize)> {
+        self.ids.iter().position(|i| *i == id).map(|p| (p + 1, self.ids.len()))
+    }
+
+    /// The article after `id`, if there is one.
+    pub fn next_after(&self, id: ArticleId) -> Option<ArticleId> {
+        let p = self.ids.iter().position(|i| *i == id)?;
+        self.ids.get(p + 1).copied()
+    }
+}
+
 pub struct InoInk {
     pub data_dir: PathBuf,
     pub account: String,
@@ -28,14 +72,21 @@ pub struct InoInk {
     pub handle: Option<Handle>,
     pub status: SyncStatus,
     pub cache: Cache,
+    /// The tab shown.
+    pub tab: Tab,
+    /// The article list shown: All for the Newsfeed, Starred for Read later, or the category
+    /// opened from Categories.
     pub collection: Collection,
-    pub unread_only: bool,
+    /// In Categories: the list of categories rather than the articles of one.
+    pub show_categories: bool,
+    /// The list the open article came from, for "next article".
+    pub queue: Option<ReadingQueue>,
     /// The most recent Done, offered for undo until superseded.
     pub last_undo: Option<(UndoId, String)>,
     /// A one-line message for the next redraw of the list.
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.
-    pub opening: Option<ArticleId>,
+    pub opening: Option<(ArticleId, OpenMode)>,
     /// A link post whose comments are being fetched; they open when they arrive.
     pub opening_comments: Option<ArticleId>,
     pub settings: InoInkSettings,
@@ -73,8 +124,10 @@ impl InoInk {
             handle: None,
             status: SyncStatus::Idle { last_sync: None },
             cache,
-            collection: Collection::Starred,
-            unread_only: false,
+            tab: Tab::Newsfeed,
+            collection: Collection::All,
+            show_categories: true,
+            queue: None,
             last_undo: None,
             notice: None,
             opening: None,
@@ -122,31 +175,73 @@ impl InoInk {
 
     fn load_ui_state(&mut self) {
         let Some(store) = self.store.as_ref() else { return };
+        if let Ok(Some(t)) = store.get_meta("ui_tab") {
+            if let Ok(t) = serde_json::from_str::<Tab>(&t) {
+                self.tab = t;
+            }
+        }
         if let Ok(Some(c)) = store.get_meta("ui_collection") {
             if let Ok(c) = serde_json::from_str::<Collection>(&c) {
                 self.collection = c;
             }
         }
-        if let Ok(Some(u)) = store.get_meta("ui_unread_only") {
-            self.unread_only = u == "1";
+        if let Ok(Some(v)) = store.get_meta("ui_show_categories") {
+            self.show_categories = v != "0";
+        }
+        self.normalize_view();
+    }
+
+    /// The collection each tab shows: All for the Newsfeed, Starred for Read later.
+    fn normalize_view(&mut self) {
+        match self.tab {
+            Tab::Newsfeed => self.collection = Collection::All,
+            Tab::ReadLater => self.collection = Collection::Starred,
+            Tab::Categories => {
+                if matches!(self.collection, Collection::All | Collection::Starred | Collection::Unread) {
+                    self.show_categories = true;
+                }
+            }
         }
     }
 
-    /// Remembers the collection and filter so the app reopens where it was left.
-    pub fn set_view(&mut self, collection: Collection, unread_only: bool) {
-        self.collection = collection;
-        self.unread_only = unread_only;
+    fn persist_view(&mut self) {
+        let (tab, collection, show) = (self.tab, self.collection.clone(), self.show_categories);
         if let Some(store) = self.store.as_mut() {
-            let _ = store.set_meta("ui_collection", &serde_json::to_string(&self.collection).unwrap_or_default());
-            let _ = store.set_meta("ui_unread_only", if unread_only { "1" } else { "0" });
+            let _ = store.set_meta("ui_tab", &serde_json::to_string(&tab).unwrap_or_default());
+            let _ = store.set_meta("ui_collection", &serde_json::to_string(&collection).unwrap_or_default());
+            let _ = store.set_meta("ui_show_categories", if show { "1" } else { "0" });
         }
+    }
+
+    /// Switches tab. Categories opens on its list of categories.
+    pub fn set_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        if tab == Tab::Categories {
+            self.show_categories = true;
+        }
+        self.normalize_view();
+        self.persist_view();
+    }
+
+    /// Opens one category (folder, feed, tag...) from the Categories tab.
+    pub fn open_collection(&mut self, c: Collection) {
+        self.tab = Tab::Categories;
+        self.collection = c;
+        self.show_categories = false;
+        self.persist_view();
+    }
+
+    /// Goes back from one category to the list of categories.
+    pub fn show_category_list(&mut self) {
+        self.show_categories = true;
+        self.persist_view();
     }
 
     fn view_key(&self) -> String {
-        format!("view:{}", serde_json::to_string(&self.collection).unwrap_or_default())
+        format!("view2:{}", serde_json::to_string(&self.collection).unwrap_or_default())
     }
 
-    /// The group and sort chosen for the current collection, or its default.
+    /// The filter, group and sort chosen for the current list, or its default.
     pub fn view_options(&self) -> ViewOptions {
         self.store
             .as_ref()

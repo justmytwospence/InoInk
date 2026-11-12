@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod article_bar;
+pub mod categories;
 pub mod details;
 pub mod group_header;
 pub mod home;
@@ -11,4 +12,5 @@ pub mod light_panel;
 pub mod manage;
 pub mod row;
 pub mod state;
+pub mod tab_bar;
 pub mod text_panel;

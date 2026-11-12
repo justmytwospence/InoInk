@@ -501,6 +501,14 @@ fn main() -> Result<(), Error> {
                 },
                 Event::Sync(ref u) => {
                     context.inoink.apply(u);
+                    if let plato_core::inoink::runtime::Update::Cached(id, _) = u {
+                        if let Some((open, plato_core::view::inoink::state::OpenMode::Push)) = context.inoink.opening {
+                            if open == *id {
+                                context.inoink.opening = None;
+                                tx.send(Event::OpenArticle(*id)).ok();
+                            }
+                        }
+                    }
                     handle_event(view.as_mut(), &evt, &tx, &mut bus, &mut rq, &mut context);
                 },
                 Event::Open(info) => {

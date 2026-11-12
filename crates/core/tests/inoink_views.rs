@@ -14,7 +14,7 @@ use plato_core::settings::Settings;
 use plato_core::view::inoink::actions::*;
 use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::row::ArticleRow;
-use plato_core::view::inoink::state::InoInk;
+use plato_core::view::inoink::state::{InoInk, Tab};
 use plato_core::view::{EntryId, Event, RenderQueue, View};
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
@@ -77,7 +77,7 @@ fn env() -> Env {
 }
 
 fn rows(home: &InoInkHome) -> Vec<u64> {
-    home.children()[2].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).map(|r| r.item.id.0).collect()
+    home.children()[4].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).map(|r| r.item.id.0).collect()
 }
 
 fn send(home: &mut InoInkHome, env: &mut Env, e: Event) {
@@ -87,22 +87,96 @@ fn send(home: &mut InoInkHome, env: &mut Env, e: Event) {
 }
 
 #[test]
-fn opens_on_starred_by_default_and_lists_newest_first() {
+fn opens_on_the_newsfeed_with_unread_only() {
     let mut e = env();
-    assert_eq!(e.context.inoink.collection, Collection::Starred);
+    assert_eq!(e.context.inoink.tab, Tab::Newsfeed);
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    assert_eq!(rows(&home), vec![2, 1], "only starred articles, newest first");
+    assert_eq!(rows(&home), vec![4, 3, 2, 1], "every article is unread; newest first");
+    assert_eq!(home.visible_articles().len(), 4);
 }
 
 #[test]
-fn collection_and_filter_are_remembered() {
+fn tab_and_category_are_remembered() {
     let mut e = env();
-    e.context.inoink.set_view(Collection::Unread, true);
+    e.context.inoink.open_collection(Collection::Folder("X".into()));
     drop(e.context.inoink.store.take());
     let s = Store::open(&e.context.inoink.data_dir.join("inoink.db"), "local").unwrap();
-    assert!(s.get_meta("ui_collection").unwrap().unwrap().contains("Unread"));
-    assert_eq!(s.get_meta("ui_unread_only").unwrap().as_deref(), Some("1"));
+    assert!(s.get_meta("ui_tab").unwrap().unwrap().contains("Categories"));
+    assert!(s.get_meta("ui_collection").unwrap().unwrap().contains("Folder"));
+    assert_eq!(s.get_meta("ui_show_categories").unwrap().as_deref(), Some("0"));
+}
+
+#[test]
+fn tapping_a_headline_in_the_newsfeed_saves_it() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::ArticleAction(ArticleId(3), ArticleAction::ToggleStar));
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(3), &Membership::Starred).unwrap());
+    assert_eq!(rows(&home), vec![4, 3, 2, 1], "it stays in the list");
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(3), &Membership::Read).unwrap(), "saving does not mark it read");
+}
+
+#[test]
+fn read_later_shows_starred_newest_first() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    assert_eq!(rows(&home), vec![2, 1]);
+}
+
+#[test]
+fn opening_builds_a_reading_queue() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::OpenArticle(ArticleId(4)));
+    let q = e.context.inoink.queue.clone().expect("a queue");
+    assert_eq!(q.ids.iter().map(|i| i.0).collect::<Vec<_>>(), vec![4, 3, 2, 1]);
+    assert_eq!(q.next_after(ArticleId(4)), Some(ArticleId(3)));
+    assert_eq!(q.position(ArticleId(3)), Some((2, 4)));
+    assert_eq!(q.next_after(ArticleId(1)), None);
+    assert!(!q.read_later);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::OpenArticle(ArticleId(2)));
+    assert!(e.context.inoink.queue.clone().unwrap().read_later);
+}
+
+#[test]
+fn end_of_unread_marks_only_seen_unstarred() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(rows(&home), vec![4, 3, 2, 1]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::MarkSeenRead)));
+    // A new article arrives after the user saw the count and before they confirmed.
+    e.context.inoink.store_mut().unwrap().upsert_article(&rec(5, 500_000_000, false), 0).unwrap();
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkSeenRead)));
+    let st = e.context.inoink.store().unwrap();
+    // 1 and 2 are starred in the fixtures and stay unread; 3 and 4 were seen and unstarred.
+    assert!(st.effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(5), &Membership::Read).unwrap(), "the newcomer was never seen");
+}
+
+#[test]
+fn categories_list_folders_in_inoreader_order() {
+    let mut e = env();
+    {
+        let st = e.context.inoink.store_mut().unwrap();
+        let tag = |n: &str, sid: &str| inoink::store::TagInfo { id: format!("user/-/label/{n}"), kind: "folder".into(), sort_id: sid.into() };
+        st.replace_tags(&[tag("Alpha", "00000001"), tag("Beta", "00000002")]).unwrap();
+        st.set_stream_order(STATE_ROOT, "0000000200000001").unwrap();
+    }
+    e.context.inoink.set_tab(Tab::Categories);
+    let mut rq = RenderQueue::new();
+    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let labels = home.category_labels();
+    assert_eq!(&labels[..3], &["Folders".to_string(), "Beta".to_string(), "Alpha".to_string()]);
 }
 
 #[test]
@@ -157,7 +231,6 @@ fn a_failed_save_changes_nothing_and_says_so() {
 #[test]
 fn marking_a_list_read_uses_a_frozen_selection() {
     let mut e = env();
-    e.context.inoink.set_view(Collection::Unread, false);
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(rows(&home), vec![4, 3, 2, 1]);
