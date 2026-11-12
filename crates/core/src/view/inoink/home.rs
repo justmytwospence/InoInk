@@ -185,7 +185,7 @@ impl InoInkHome {
 
     /// The group and sort actually applied to the current list.
     fn effective_options(context: &Context) -> ViewOptions {
-        context.inoink.view_options().effective(context.inoink.unread_only, &context.inoink.collection)
+        ViewOptions { unread_only: context.inoink.unread_only, ..context.inoink.view_options() }.effective(&context.inoink.collection)
     }
 
     /// Reloads the current page from the local database. Never touches the network.

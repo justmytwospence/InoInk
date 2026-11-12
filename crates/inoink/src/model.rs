@@ -323,27 +323,35 @@ impl ArticleGroup {
     }
 }
 
-/// How one list is grouped (primary order) and sorted (secondary order).
+/// How one list is filtered, grouped (primary order) and sorted (secondary order).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewOptions {
+    /// Show only unread articles.
+    #[serde(default)]
+    pub unread_only: bool,
     pub group: ArticleGroup,
     pub sort: ArticleSort,
 }
 
 impl ViewOptions {
+    /// The defaults of each view: the Newsfeed is unread only, Read later (starred) shows
+    /// everything, and folders, feeds and other streams show everything with unread first.
     pub fn default_for(c: &Collection) -> ViewOptions {
         match c {
-            Collection::Starred => ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest },
-            Collection::Folder(_) => ViewOptions { group: ArticleGroup::Source, sort: ArticleSort::Newest },
-            _ => ViewOptions::default(),
+            Collection::All | Collection::Unread => ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest },
+            Collection::Starred => ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Newest },
+            _ => ViewOptions { unread_only: false, group: ArticleGroup::Unread, sort: ArticleSort::Newest },
         }
     }
 
     /// What is actually applied: no "unread first" when only unread is shown, and no source
     /// sort inside a source grouping.
-    pub fn effective(self, unread_only: bool, c: &Collection) -> ViewOptions {
+    pub fn effective(self, c: &Collection) -> ViewOptions {
         let mut v = self;
-        if v.group == ArticleGroup::Unread && (unread_only || matches!(c, Collection::Unread)) {
+        if matches!(c, Collection::Unread) {
+            v.unread_only = true;
+        }
+        if v.group == ArticleGroup::Unread && v.unread_only {
             v.group = ArticleGroup::None;
         }
         if v.group == ArticleGroup::Source && v.sort == ArticleSort::Source {
@@ -472,19 +480,34 @@ mod view_option_tests {
 
     #[test]
     fn defaults_per_view() {
-        assert_eq!(ViewOptions::default_for(&Collection::Starred), ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest });
-        assert_eq!(ViewOptions::default_for(&Collection::Folder("x".into())).group, ArticleGroup::Source);
-        assert_eq!(ViewOptions::default_for(&Collection::All), ViewOptions::default());
+        assert_eq!(
+            ViewOptions::default_for(&Collection::All),
+            ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest }
+        );
+        assert_eq!(
+            ViewOptions::default_for(&Collection::Starred),
+            ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Newest }
+        );
+        let folder = ViewOptions::default_for(&Collection::Folder("x".into()));
+        assert_eq!((folder.unread_only, folder.group), (false, ArticleGroup::Unread));
+        assert_eq!(ViewOptions::default_for(&Collection::Tag("t".into())).group, ArticleGroup::Unread);
     }
 
     #[test]
     fn effective_options_drop_redundant_choices() {
-        let v = ViewOptions { group: ArticleGroup::Unread, sort: ArticleSort::Newest };
-        assert_eq!(v.effective(true, &Collection::All).group, ArticleGroup::None);
-        assert_eq!(v.effective(false, &Collection::Unread).group, ArticleGroup::None);
-        assert_eq!(v.effective(false, &Collection::All).group, ArticleGroup::Unread);
-        let s = ViewOptions { group: ArticleGroup::Source, sort: ArticleSort::Source };
-        assert_eq!(s.effective(false, &Collection::All).sort, ArticleSort::Newest);
+        let v = ViewOptions { unread_only: true, group: ArticleGroup::Unread, sort: ArticleSort::Newest };
+        assert_eq!(v.effective(&Collection::All).group, ArticleGroup::None);
+        let all = ViewOptions { unread_only: false, ..v };
+        assert_eq!(all.effective(&Collection::All).group, ArticleGroup::Unread);
+        assert!(all.effective(&Collection::Unread).unread_only);
+        let s = ViewOptions { unread_only: false, group: ArticleGroup::Source, sort: ArticleSort::Source };
+        assert_eq!(s.effective(&Collection::All).sort, ArticleSort::Newest);
+    }
+
+    #[test]
+    fn old_stored_options_still_parse() {
+        let v: ViewOptions = serde_json::from_str(r#"{"group":"Unread","sort":"Newest"}"#).unwrap();
+        assert!(!v.unread_only);
     }
 
     #[test]

@@ -65,6 +65,20 @@ pub fn format_read_time(words: u32) -> Option<String> {
     })
 }
 
+/// Time left at 230 words per minute: "Less than a minute left", "4 min left", "1 h 5 min left".
+pub fn format_time_left(words_left: u32) -> String {
+    let m = words_left / 230;
+    if m == 0 {
+        "Less than a minute left".to_string()
+    } else if m < 60 {
+        format!("{m} min left")
+    } else if m.is_multiple_of(60) {
+        format!("{} h left", m / 60)
+    } else {
+        format!("{} h {} min left", m / 60, m % 60)
+    }
+}
+
 /// Largest article HTML accepted for processing.
 pub const MAX_HTML: usize = 16 * 1024 * 1024;
 /// Placeholder link scheme the reader handles to retry one image.

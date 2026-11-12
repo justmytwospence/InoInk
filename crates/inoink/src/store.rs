@@ -525,14 +525,12 @@ impl Store {
         Ok(v.map(|v| v != 0))
     }
 
-    pub fn query_articles(&self, q: &ArticleQuery) -> Result<ArticlePage> {
-        let limit = if q.limit == 0 { 50 } else { q.limit };
-        let mut sql = String::from("SELECT a.id, a.title, a.origin_title, a.published, a.timestamp_usec, a.download_state, ");
-        sql.push_str(&flag_expr("read"));
-        sql.push_str(" AS is_read, ");
-        sql.push_str(&flag_expr("starred"));
-        sql.push_str(" AS is_starred, a.words FROM articles a WHERE a.account=?1");
-        let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
+    /// The conditions of a query (collection, unread filter, text search) as `" AND ..."` text
+    /// to append after `WHERE a.account=?1`, with their bound values. `None` when the search
+    /// text has nothing to look for.
+    fn filter_sql(&self, q: &ArticleQuery) -> Option<(String, Vec<rusqlite::types::Value>)> {
+        let mut sql = String::new();
+        let mut args: Vec<rusqlite::types::Value> = Vec::new();
         let mut push = |sql: &mut String, cond: &str, vals: Vec<rusqlite::types::Value>| {
             sql.push_str(" AND ");
             sql.push_str(cond);
@@ -580,18 +578,114 @@ impl Store {
             push(&mut sql, &format!("{}=0", flag_expr("read")), vec![]);
         }
         if let Some(text) = &q.search {
-            match fts_query(text) {
-                Some(m) => push(
-                    &mut sql,
-                    "a.id IN (SELECT article FROM article_fts WHERE account=? AND article_fts MATCH ?)",
-                    vec![self.account.clone().into(), m.into()],
-                ),
-                None => return Ok(ArticlePage { items: vec![], next: None }),
+            let m = fts_query(text)?;
+            push(
+                &mut sql,
+                "a.id IN (SELECT article FROM article_fts WHERE account=? AND article_fts MATCH ?)",
+                vec![self.account.clone().into(), m.into()],
+            );
+        }
+        Some((sql, args))
+    }
+
+    /// How many articles match a query's conditions (ignoring its paging).
+    pub fn count_articles(&self, q: &ArticleQuery) -> Result<usize> {
+        let Some((cond, args)) = self.filter_sql(q) else { return Ok(0) };
+        let sql = format!("SELECT COUNT(*) FROM articles a WHERE a.account=?1{cond}");
+        let mut all: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
+        all.extend(args);
+        let n: i64 = self.conn.query_row(&sql, rusqlite::params_from_iter(all.iter()), |r| r.get(0))?;
+        Ok(n.max(0) as usize)
+    }
+
+    /// The ids of a query in its order, at most `max`. Changes nothing.
+    pub fn query_ids(&self, q: &ArticleQuery, max: usize) -> Result<Vec<ArticleId>> {
+        let mut ids = Vec::new();
+        let mut q = q.clone();
+        q.limit = 200;
+        q.after = None;
+        loop {
+            let page = self.query_articles(&q)?;
+            ids.extend(page.items.iter().map(|i| i.id));
+            match page.next {
+                Some(c) if ids.len() < max => q.after = Some(c),
+                _ => break,
             }
         }
+        ids.truncate(max);
+        Ok(ids)
+    }
+
+    /// Unread articles per folder, from the articles on the device.
+    pub fn unread_by_folder(&self) -> Result<std::collections::HashMap<String, usize>> {
+        let sql = format!(
+            "SELECT f.folder, COUNT(*) FROM articles a JOIN subscription_folders f ON f.account=a.account AND f.feed=a.origin_stream \
+             WHERE a.account=?1 AND {}=0 GROUP BY f.folder",
+            flag_expr("read")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![self.account], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut out = std::collections::HashMap::new();
+        for r in rows {
+            let (f, n) = r?;
+            out.insert(f, n.max(0) as usize);
+        }
+        Ok(out)
+    }
+
+    /// Folder names in Inoreader's own order (the root `subscription-ordering`), the rest
+    /// alphabetically after them.
+    pub fn folders_in_order(&self) -> Result<Vec<String>> {
+        let mut names: Vec<String> = Vec::new();
+        let mut sort_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for t in self.tags()? {
+            if t.kind == "folder" {
+                if let Some(n) = t.id.strip_prefix("user/-/label/") {
+                    sort_ids.insert(n.to_string(), t.sort_id.clone());
+                    names.push(n.to_string());
+                }
+            }
+        }
+        for s in self.subscriptions()? {
+            names.extend(s.folders);
+        }
+        names.sort_by_key(|n| n.to_lowercase());
+        names.dedup();
+        let order = self.stream_order(STATE_ROOT)?.map(|o| crate::api::types::split_sort_ids(&o)).unwrap_or_default();
+        let rank = |n: &String| sort_ids.get(n).and_then(|sid| order.iter().position(|o| o == sid)).unwrap_or(usize::MAX);
+        names.sort_by_key(|n| rank(n));
+        Ok(names)
+    }
+
+    /// Word count of an article, 0 when unknown.
+    pub fn words(&self, id: ArticleId) -> Result<u32> {
+        let n: Option<i64> = self
+            .conn
+            .query_row("SELECT words FROM articles WHERE account=?1 AND id=?2", params![self.account, id.to_db()], |r| r.get(0))
+            .optional()?;
+        Ok(n.unwrap_or(0).max(0) as u32)
+    }
+
+    pub fn query_articles(&self, q: &ArticleQuery) -> Result<ArticlePage> {
+        let limit = if q.limit == 0 { 50 } else { q.limit };
+        let mut sql = String::from("SELECT a.id, a.title, a.origin_title, a.published, a.timestamp_usec, a.download_state, ");
+        sql.push_str(&flag_expr("read"));
+        sql.push_str(" AS is_read, ");
+        sql.push_str(&flag_expr("starred"));
+        sql.push_str(" AS is_starred, a.words FROM articles a WHERE a.account=?1");
+        let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
+        let Some((cond, cond_args)) = self.filter_sql(q) else { return Ok(ArticlePage { items: vec![], next: None }) };
+        sql.push_str(&cond);
+        args.extend(cond_args);
+        let mut push = |sql: &mut String, cond: &str, vals: Vec<rusqlite::types::Value>| {
+            sql.push_str(" AND ");
+            sql.push_str(cond);
+            args.extend(vals);
+        };
         // Ordering: group keys first, then the sort keys, then the id. Each key is
         // (expression, descending, the cursor's value for it).
-        let opts = ViewOptions { group: q.group, sort: q.sort }.effective(q.unread_only, q.collection.as_ref().unwrap_or(&Collection::All));
+        let opts = ViewOptions { unread_only: q.unread_only, group: q.group, sort: q.sort }
+            .effective(q.collection.as_ref().unwrap_or(&Collection::All));
         let read_expr = flag_expr("read");
         let time_expr = "CASE WHEN a.published > 0 THEN a.published ELSE a.timestamp_usec / 1000000 END".to_string();
         let src_expr = "a.origin_title COLLATE NOCASE".to_string();
