@@ -13,7 +13,7 @@ use plato_core::view::{View, Event, EntryId, EntryKind, ViewId, AppCmd, RenderDa
 use plato_core::view::{handle_event, process_render_queue, wait_for_all};
 use plato_core::view::common::{locate, locate_by_id, transfer_notifications, overlapping_rectangle};
 use plato_core::view::common::{toggle_input_history_menu, toggle_keyboard_layout_menu};
-use plato_core::view::frontlight::FrontlightWindow;
+use plato_core::view::inoink::light_panel::LightPanel;
 use plato_core::view::menu::{Menu, MenuKind};
 use plato_core::view::dictionary::Dictionary as DictionaryApp;
 use plato_core::view::calculator::Calculator;
@@ -1025,7 +1025,7 @@ pub fn run() -> Result<(), Error> {
                     context.set_frontlight(true);
                     view.handle_event(&Event::ToggleFrontlight, &tx, &mut bus, &mut rq, &mut context);
                 }
-                let flw = FrontlightWindow::new(&mut context);
+                let flw = LightPanel::new(context.fb.rect(), &context);
                 rq.add(RenderData::new(flw.id(), *flw.rect(), UpdateMode::Gui));
                 view.children_mut().push(Box::new(flw) as Box<dyn View>);
             },
@@ -1036,7 +1036,7 @@ pub fn run() -> Result<(), Error> {
                 toggle_keyboard_layout_menu(view.as_mut(), rect, None, &mut rq, &mut context);
             },
             Event::Close(ViewId::Frontlight) => {
-                if let Some(index) = locate::<FrontlightWindow>(view.as_ref()) {
+                if let Some(index) = locate_by_id(view.as_ref(), ViewId::Frontlight) {
                     let rect = *view.child(index).rect();
                     view.children_mut().remove(index);
                     rq.add(RenderData::expose(rect, UpdateMode::Gui));

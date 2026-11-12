@@ -357,6 +357,8 @@ pub enum Event {
     ClockTick,
     BatteryTick,
     ToggleFrontlight,
+    /// The light panel changed the light.
+    FrontlightChanged,
     Load(PathBuf),
     LoadPreset(usize),
     Scroll(i32),

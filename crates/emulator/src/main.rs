@@ -27,7 +27,7 @@ use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
 use plato_core::view::notification::Notification;
 use plato_core::view::dialog::Dialog;
-use plato_core::view::frontlight::FrontlightWindow;
+use plato_core::view::inoink::light_panel::LightPanel;
 use plato_core::view::menu::{Menu, MenuKind};
 use plato_core::view::intermission::Intermission;
 use plato_core::view::dictionary::Dictionary;
@@ -591,7 +591,7 @@ fn main() -> Result<(), Error> {
                         context.set_frontlight(true);
                         view.handle_event(&Event::ToggleFrontlight, &tx, &mut bus, &mut rq, &mut context);
                     }
-                    let flw = FrontlightWindow::new(&mut context);
+                    let flw = LightPanel::new(context.fb.rect(), &context);
                     rq.add(RenderData::new(flw.id(), *flw.rect(), UpdateMode::Gui));
                     view.children_mut().push(Box::new(flw) as Box<dyn View>);
                 },
@@ -606,7 +606,7 @@ fn main() -> Result<(), Error> {
                     toggle_keyboard_layout_menu(view.as_mut(), rect, None, &mut rq, &mut context);
                 },
                 Event::Close(ViewId::Frontlight) => {
-                    if let Some(index) = locate::<FrontlightWindow>(view.as_ref()) {
+                    if let Some(index) = locate_by_id(view.as_ref(), ViewId::Frontlight) {
                         let rect = *view.child(index).rect();
                         view.children_mut().remove(index);
                         rq.add(RenderData::expose(rect, UpdateMode::Gui));

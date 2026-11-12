@@ -7,6 +7,7 @@ pub mod details;
 pub mod group_header;
 pub mod home;
 pub mod image_view;
+pub mod light_panel;
 pub mod manage;
 pub mod row;
 pub mod state;

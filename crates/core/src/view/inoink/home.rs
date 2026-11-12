@@ -785,7 +785,7 @@ impl View for InoInkHome {
                 }
                 true
             }
-            Event::ToggleFrontlight => {
+            Event::ToggleFrontlight | Event::FrontlightChanged => {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.update_frontlight_icon(rq, context);
                 }
