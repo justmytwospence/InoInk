@@ -81,7 +81,7 @@ pub struct FileCredentials {
     lock: Mutex<()>,
 }
 
-fn restrict(path: &Path) {
+pub(crate) fn restrict(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
 }
@@ -164,6 +164,13 @@ pub fn write_transfer(data_dir: &Path, encrypted: &[u8]) -> Result<()> {
     atomic_write(&data_dir.join(TRANSFER), encrypted)
 }
 
+/// Device side: decrypts a transfer file with this device's key.
+pub(crate) fn decrypt_with_device_key(data_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>> {
+    let key = std::fs::read_to_string(data_dir.join(DEVICE_KEY)).map_err(|_| Error::Data("device key is missing".into()))?;
+    let id = age::x25519::Identity::from_str(key.trim()).map_err(|_| Error::Data("device key is damaged".into()))?;
+    age::decrypt(&id, bytes).map_err(|_| Error::Data("the transfer file is not for this device".into()))
+}
+
 /// Device side: imports and deletes a pending transfer file. Returns whether one was imported.
 /// A damaged or foreign file is deleted too, and reported as an error.
 pub fn import_provisioned(data_dir: &Path) -> Result<bool> {
@@ -174,9 +181,7 @@ pub fn import_provisioned(data_dir: &Path) -> Result<bool> {
         Err(e) => return Err(e.into()),
     };
     let result = (|| {
-        let key = std::fs::read_to_string(data_dir.join(DEVICE_KEY)).map_err(|_| Error::Data("device key is missing".into()))?;
-        let id = age::x25519::Identity::from_str(key.trim()).map_err(|_| Error::Data("device key is damaged".into()))?;
-        let plain = age::decrypt(&id, &bytes).map_err(|_| Error::Data("the transfer file is not for this device".into()))?;
+        let plain = decrypt_with_device_key(data_dir, &bytes)?;
         let creds: Credentials = serde_json::from_slice(&plain).map_err(|_| Error::Data("the transfer file is damaged".into()))?;
         FileCredentials::new(data_dir).save_credentials(&creds)
     })();

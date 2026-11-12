@@ -89,6 +89,8 @@ pub struct InoInk {
     pub opening: Option<(ArticleId, OpenMode)>,
     /// A linked page being fetched for the reading view.
     pub opening_page: Option<String>,
+    /// Services links can be sent to (Karakeep).
+    pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
     pub opening_comments: Option<ArticleId>,
     pub settings: InoInkSettings,
@@ -112,7 +114,11 @@ impl InoInk {
             if let Err(e) = import_provisioned(&dir) {
                 provision_error = Some(e.to_string());
             }
+            if let Err(e) = inoink::share::import_provisioned(&dir) {
+                provision_error = Some(format!("Karakeep setup failed: {e}"));
+            }
         }
+        let share = inoink::share::load_config(&dir).unwrap_or_default();
         let creds_store = FileCredentials::new(&dir);
         let creds = creds_store.load_credentials().ok().flatten();
         let account = creds.as_ref().map(|c| c.user_id.clone()).filter(|u| !u.is_empty()).unwrap_or_else(|| "local".to_string());
@@ -134,6 +140,7 @@ impl InoInk {
             notice: None,
             opening: None,
             opening_page: None,
+            share,
             opening_comments: None,
             settings: settings.clone(),
             provision_error,
@@ -155,8 +162,11 @@ impl InoInk {
         let cache = Cache::new(&self.data_dir.join("cache"), &self.account, cache_config(&self.settings));
         let fetcher = Arc::new(UreqFetcher::new(&cfg.user_agent));
         let free_dir = self.data_dir.clone();
-        let engine = SyncEngine::new(engine_store, api, cache, fetcher, clock, SyncConfig::default())
+        let mut engine = SyncEngine::new(engine_store, api, cache, fetcher, clock, SyncConfig::default())
             .with_free_space(Arc::new(move || inoink::cache::free_space_of(&free_dir)));
+        if self.share.karakeep.is_some() {
+            engine = engine.with_sharer(Arc::new(inoink::share::HttpSharer::new(self.share.clone(), Arc::new(UreqTransport::new()))));
+        }
         let (utx, urx) = channel::<Update>();
         let account = self.account.clone();
         let db2 = db.to_path_buf();

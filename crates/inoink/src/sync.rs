@@ -83,7 +83,17 @@ pub struct CycleReport {
     pub cached: usize,
     pub storage_paused: bool,
     pub skipped_interval: bool,
+    /// Links sent (or refused) to other services during this pass.
+    pub shares: Vec<ShareResult>,
     pub error: Option<SyncError>,
+}
+
+/// The outcome of sending one queued link.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareResult {
+    pub target: String,
+    pub title: String,
+    pub error: Option<String>,
 }
 
 pub struct SyncEngine {
@@ -96,6 +106,7 @@ pub struct SyncEngine {
     clock: Arc<dyn Clock>,
     sleep: Arc<dyn Fn(std::time::Duration) + Send + Sync>,
     free_space: Arc<dyn Fn() -> Option<u64> + Send + Sync>,
+    sharer: Option<Arc<dyn crate::share::Sharer>>,
 }
 
 impl SyncEngine {
@@ -117,12 +128,47 @@ impl SyncEngine {
             clock,
             sleep: Arc::new(std::thread::sleep),
             free_space: Arc::new(|| None),
+            sharer: None,
         }
     }
 
     pub fn with_sleep(mut self, f: Arc<dyn Fn(std::time::Duration) + Send + Sync>) -> SyncEngine {
         self.sleep = f;
         self
+    }
+
+    /// Sends queued shares (Karakeep) with `s`.
+    pub fn with_sharer(mut self, s: Arc<dyn crate::share::Sharer>) -> SyncEngine {
+        self.sharer = Some(s);
+        self
+    }
+
+    /// Sends queued links. A transient failure stops the pass and keeps the rest; a refusal is
+    /// recorded and reported. Never touches the Inoreader quota.
+    pub fn flush_shares(&mut self, rep: &mut CycleReport) -> Result<()> {
+        use crate::share::ShareOutcome;
+        let Some(sharer) = self.sharer.clone() else { return Ok(()) };
+        for row in self.store.pending_shares(20)? {
+            if self.cancelled() {
+                break;
+            }
+            let label = if row.title.is_empty() { row.url.clone() } else { row.title.clone() };
+            match sharer.share(&row.target, &row.url, &row.title) {
+                ShareOutcome::Sent => {
+                    self.store.share_sent(row.id)?;
+                    rep.shares.push(ShareResult { target: row.target, title: label, error: None });
+                }
+                ShareOutcome::Retry(e) => {
+                    self.store.share_retry(row.id, &e)?;
+                    break;
+                }
+                ShareOutcome::Failed(e) => {
+                    self.store.share_failed(row.id, &e)?;
+                    rep.shares.push(ShareResult { target: row.target, title: label, error: Some(e) });
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn with_free_space(mut self, f: Arc<dyn Fn() -> Option<u64> + Send + Sync>) -> SyncEngine {
@@ -647,7 +693,9 @@ impl SyncEngine {
     }
 
     fn cycle_inner(&mut self, reason: Reason, prio: Priority, rep: &mut CycleReport) -> Result<()> {
-        // Writes first: local intent is the most valuable thing to get to the server.
+        // Shares first: they use another service, so Inoreader's quota or sign-in never blocks them.
+        self.flush_shares(rep)?;
+        // Writes next: local intent is the most valuable thing to get to the server.
         self.reconcile_org(prio)?;
         self.flush_org(prio, rep)?;
         self.flush_outbox(prio, rep)?;

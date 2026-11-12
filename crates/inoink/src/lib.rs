@@ -7,6 +7,7 @@ pub mod credentials;
 pub mod error;
 pub mod model;
 pub mod runtime;
+pub mod share;
 pub mod store;
 pub mod sync;
 pub mod util;

@@ -939,6 +939,12 @@ pub fn run() -> Result<(), Error> {
                         }
                     }
                 }
+                if let plato_core::inoink::runtime::Update::Cycle(rep) = u {
+                    if let Some(m) = plato_core::view::inoink::actions::share_message(rep) {
+                        let notif = Notification::new(m, &tx, &mut rq, &mut context);
+                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    }
+                }
                 if let plato_core::inoink::runtime::Update::PageReady(url, r) = u {
                     if context.inoink.opening_page.as_deref() == Some(url.as_str()) {
                         context.inoink.opening_page = None;

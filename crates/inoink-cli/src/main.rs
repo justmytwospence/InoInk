@@ -24,6 +24,9 @@ const USAGE: &str = "inoink-cli <command>
       (plaintext: delete it after provisioning).
   provision --credentials FILE --device MOUNT
       Encrypt previously authorized credentials for the Kobo's key.
+  karakeep --url URL --device MOUNT
+      Set up sending links to Karakeep. The API key is read from INOINK_KARAKEEP_KEY or a hidden
+      prompt, checked against your Karakeep, then written encrypted to the mounted Kobo.
   fixtures --output DIR
       Build deterministic offline sample data (articles, images, tables, code).
   verify-cache --data DIR [--account ID]
@@ -51,14 +54,23 @@ fn random_hex(n: usize) -> Result<String> {
 }
 
 fn read_secret() -> Result<String> {
-    if let Ok(s) = std::env::var("INOINK_CLIENT_SECRET") {
+    read_secret_from(
+        "INOINK_CLIENT_SECRET",
+        "the client secret",
+        "Paste the app key (client secret), then press Enter. Nothing is shown while you type: ",
+    )
+}
+
+/// A secret from the environment variable `env`, or a hidden prompt. Never from arguments.
+fn read_secret_from(env: &str, what: &str, prompt: &str) -> Result<String> {
+    if let Ok(s) = std::env::var(env) {
         if !s.trim().is_empty() {
-            eprintln!("Using the client secret from INOINK_CLIENT_SECRET.");
+            eprintln!("Using {what} from {env}.");
             return Ok(s.trim().to_string());
         }
     }
     for _ in 0..3 {
-        eprint!("Paste the app key (client secret), then press Enter. Nothing is shown while you type: ");
+        eprint!("{prompt}");
         let _ = std::process::Command::new("stty").arg("-echo").stdin(std::process::Stdio::inherit()).status();
         let mut line = String::new();
         let r = std::io::stdin().lock().read_line(&mut line);
@@ -87,7 +99,7 @@ fn read_secret() -> Result<String> {
         );
         return Ok(s);
     }
-    Err(Error::InvalidRequest("no client secret was entered".into()))
+    Err(Error::InvalidRequest(format!("{what} was not entered")))
 }
 
 /// Waits for the browser redirect on a loopback address and, at the same time, accepts the
@@ -227,6 +239,43 @@ fn provision(args: &[String]) -> Result<()> {
     let enc = encrypt_for(&read_device_recipient(&dir)?, &creds)?;
     write_transfer(&dir, &enc)?;
     println!("Encrypted credentials written for the Kobo at {}.", dir.display());
+    Ok(())
+}
+
+/// Sets up Karakeep: checks the key, then writes the encrypted settings for the Kobo to import.
+fn karakeep(args: &[String]) -> Result<()> {
+    use inoink::api::{HttpRequest, Method, Transport};
+    let url = arg(args, "--url").ok_or_else(|| Error::InvalidRequest("--url is required".into()))?;
+    let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(Error::InvalidRequest("--url must start with https:// (or http://)".into()));
+    }
+    let dir = data_dir_of(Path::new(&device));
+    let recipient = read_device_recipient(&dir)?;
+    let key = read_secret_from(
+        "INOINK_KARAKEEP_KEY",
+        "the Karakeep API key",
+        "Paste the Karakeep API key, then press Enter. Nothing is shown while you type: ",
+    )?;
+    let probe = HttpRequest {
+        method: Method::Get,
+        url: format!("{}/api/v1/users/me", url.trim_end_matches('/')),
+        headers: vec![("Authorization".into(), format!("Bearer {key}")), ("Accept".into(), "application/json".into())],
+        body: None,
+    };
+    match UreqTransport::new().send(&probe) {
+        Ok(r) if r.status == 200 => println!("Karakeep accepted the key."),
+        Ok(r) if r.status == 401 || r.status == 403 => return Err(Error::InvalidRequest("Karakeep refused the API key".into())),
+        Ok(r) => println!("Could not verify the key (HTTP {}); saving it anyway.", r.status),
+        Err(e) => println!("Could not verify the key ({e}); saving it anyway."),
+    }
+    let cfg = inoink::share::ShareConfig {
+        karakeep: Some(inoink::share::KarakeepConfig { url: url.trim_end_matches('/').to_string(), api_key: key }),
+    };
+    let enc = inoink::share::encrypt_for(&recipient, &cfg)?;
+    inoink::share::write_transfer(&dir, &enc)?;
+    println!("The Karakeep settings were encrypted for this Kobo and written to {}.", dir.join("provision/share.age").display());
+    println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
     Ok(())
 }
 
@@ -481,6 +530,7 @@ fn main() {
     let result = match args.first().map(String::as_str) {
         Some("authorize") => authorize(&args[1..]),
         Some("provision") => provision(&args[1..]),
+        Some("karakeep") => karakeep(&args[1..]),
         Some("fixtures") => fixtures(&args[1..]),
         Some("verify-cache") => verify_cache(&args[1..]),
         Some("acceptance") => acceptance(&args[1..]),

@@ -166,7 +166,13 @@ fn status_entries(context: &Context) -> Vec<EntryKind> {
         let est = if r1.estimated { " (estimated)" } else { "" };
         entries.push(EntryKind::Message(format!("Inoreader today: {} of {} reads, {} of {} writes left{est}", r1.remaining, r1.limit, r2.remaining, r2.limit), None));
     }
-    entries.push(EntryKind::Message("Karakeep: not set up".into(), None));
+    let karakeep = if context.inoink.share.karakeep.is_none() {
+        "Karakeep: not set up".to_string()
+    } else {
+        let (waiting, failed) = context.inoink.store().and_then(|s| s.share_counts().ok()).unwrap_or((0, 0));
+        format!("Karakeep: {waiting} waiting, {failed} failed")
+    };
+    entries.push(EntryKind::Message(karakeep, None));
     entries.push(EntryKind::Message(format!("Version {}", inoink::VERSION), None));
     entries
 }

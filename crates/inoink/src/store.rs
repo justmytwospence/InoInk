@@ -16,6 +16,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002.sql"),
     include_str!("../migrations/0003.sql"),
     include_str!("../migrations/0004.sql"),
+    include_str!("../migrations/0005.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -104,6 +105,16 @@ pub struct AssetRow {
     pub url: String,
     pub state: String,
     pub bytes: i64,
+    pub tries: i64,
+}
+
+/// A queued share.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareRow {
+    pub id: i64,
+    pub target: String,
+    pub url: String,
+    pub title: String,
     pub tries: i64,
 }
 
@@ -658,6 +669,68 @@ impl Store {
     }
 
     /// Word count of an article, 0 when unknown.
+    /// Queues a link for another service. Sending the same link twice while it still waits
+    /// keeps one entry.
+    pub fn enqueue_share(&mut self, target: &str, url: &str, title: &str) -> Result<i64> {
+        if let Some(id) = self
+            .conn
+            .query_row(
+                "SELECT id FROM shares WHERE account=?1 AND target=?2 AND url=?3 AND state='pending'",
+                params![self.account, target, url],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+        {
+            return Ok(id);
+        }
+        self.conn.execute(
+            "INSERT INTO shares(account,target,url,title,created) VALUES(?1,?2,?3,?4,?5)",
+            params![self.account, target, url, title, now_secs()],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn pending_shares(&self, limit: usize) -> Result<Vec<ShareRow>> {
+        let mut stmt =
+            self.conn.prepare("SELECT id,target,url,title,tries FROM shares WHERE account=?1 AND state='pending' ORDER BY id LIMIT ?2")?;
+        let rows = stmt.query_map(params![self.account, limit as i64], |r| {
+            Ok(ShareRow { id: r.get(0)?, target: r.get(1)?, url: r.get(2)?, title: r.get(3)?, tries: r.get(4)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The share reached its target: forget it.
+    pub fn share_sent(&mut self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM shares WHERE account=?1 AND id=?2", params![self.account, id])?;
+        Ok(())
+    }
+
+    /// A transient failure: keep it for the next attempt.
+    pub fn share_retry(&mut self, id: i64, error: &str) -> Result<()> {
+        self.conn.execute("UPDATE shares SET tries=tries+1, error=?3 WHERE account=?1 AND id=?2", params![self.account, id, error])?;
+        Ok(())
+    }
+
+    /// The target refused it for good.
+    pub fn share_failed(&mut self, id: i64, error: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE shares SET state='failed', tries=tries+1, error=?3 WHERE account=?1 AND id=?2",
+            params![self.account, id, error],
+        )?;
+        Ok(())
+    }
+
+    /// (waiting, failed) shares.
+    pub fn share_counts(&self) -> Result<(usize, usize)> {
+        let n = |state: &str| -> Result<usize> {
+            let c: i64 =
+                self.conn
+                    .query_row("SELECT COUNT(*) FROM shares WHERE account=?1 AND state=?2", params![self.account, state], |r| r.get(0))?;
+            Ok(c.max(0) as usize)
+        };
+        Ok((n("pending")?, n("failed")?))
+    }
+
     pub fn words(&self, id: ArticleId) -> Result<u32> {
         let n: Option<i64> = self
             .conn

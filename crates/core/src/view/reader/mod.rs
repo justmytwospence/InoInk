@@ -2892,6 +2892,7 @@ impl Reader {
             EntryKind::CheckBox("Like".to_string(), act(ArticleAction::ToggleLike), like),
             EntryKind::CheckBox("Broadcast".to_string(), act(ArticleAction::ToggleBroadcast), broadcast),
             EntryKind::Separator,
+            EntryKind::Command("Send to Karakeep".to_string(), EntryId::InoInk(InoInkEntry::ShareArticle)),
             EntryKind::Command("Show QR code".to_string(), EntryId::InoInk(InoInkEntry::QrArticle)),
             EntryKind::Separator,
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
@@ -3077,6 +3078,7 @@ impl Reader {
             EntryKind::Message(host, None),
             EntryKind::Command("Open in reading view".to_string(), e(InoInkEntry::OpenLink(url.clone()))),
             EntryKind::Command("Show QR code".to_string(), e(InoInkEntry::ShowQr(url.clone()))),
+            EntryKind::Command("Send to Karakeep".to_string(), e(InoInkEntry::ShareLink(url.clone(), String::new()))),
             EntryKind::Command("Follow in Inoreader".to_string(), e(InoInkEntry::SubscribeUrl(url))),
         ];
         let menu = Menu::new(rect, ViewId::LinkMenu, MenuKind::Contextual, entries, context);
@@ -3282,6 +3284,25 @@ impl Reader {
                         Some(u) => self.show_qr(&u, hub, rq, context),
                         None => self.notify("This article has no web address", hub, rq, context),
                     }
+                    Some(true)
+                }
+                InoInkEntry::ShareLink(u, t) => {
+                    let msg = match crate::view::inoink::actions::share_url(context, u, t) {
+                        Ok(m) | Err(m) => m,
+                    };
+                    self.notify(&msg, hub, rq, context);
+                    Some(true)
+                }
+                InoInkEntry::ShareArticle => {
+                    let id = self.article.as_ref().map(|a| a.id);
+                    let rec = id.and_then(|id| context.inoink.store().and_then(|s| s.article_record(id).ok().flatten()));
+                    let msg = match rec.filter(|r| !r.canonical_url.is_empty()) {
+                        Some(r) => match crate::view::inoink::actions::share_url(context, &r.canonical_url, &r.title) {
+                            Ok(m) | Err(m) => m,
+                        },
+                        None => "This article has no web address".to_string(),
+                    };
+                    self.notify(&msg, hub, rq, context);
                     Some(true)
                 }
                 InoInkEntry::SubscribeUrl(u) => {

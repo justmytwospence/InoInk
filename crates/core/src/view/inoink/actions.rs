@@ -80,6 +80,10 @@ pub enum InoInkEntry {
     SubscribeUrl(String),
     /// Show the open article's address as a QR code.
     QrArticle,
+    /// Send a link (address, title) to Karakeep.
+    ShareLink(String, String),
+    /// Send the open article's address to Karakeep.
+    ShareArticle,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,5 +273,34 @@ pub fn release_article(context: &mut Context, id: ArticleId, version: i64) {
     }
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.release_lease(id, version);
+    }
+}
+
+/// Queues a link for Karakeep. It is sent as soon as the network allows.
+pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String, String> {
+    if context.inoink.share.karakeep.is_none() {
+        return Err("Karakeep is not set up. See the setup guide.".into());
+    }
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Only web addresses can be shared".into());
+    }
+    let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
+    store.enqueue_share(inoink::share::KARAKEEP, url, title).map_err(|_| SAVE_FAILED.to_string())?;
+    context.inoink.changed();
+    Ok("Sending to Karakeep".into())
+}
+
+/// What a sync pass reports about shares: the first refusal, or how many were saved.
+pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
+    if let Some(e) = rep.shares.iter().find_map(|s| s.error.as_ref()) {
+        return Some(format!("Karakeep: {e}"));
+    }
+    match rep.shares.len() {
+        0 => None,
+        1 => {
+            let t: String = rep.shares[0].title.chars().take(40).collect();
+            Some(format!("Saved to Karakeep: {}", if t.is_empty() { "link" } else { &t }))
+        }
+        n => Some(format!("Saved {n} links to Karakeep")),
     }
 }

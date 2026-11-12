@@ -377,6 +377,7 @@ fn migration_backs_up_and_rejects_newer_schema() {
     {
         let c = rusqlite::Connection::open(&path).unwrap();
         for t in [
+            "DROP TABLE shares",
             "DROP TABLE discussions",
             "ALTER TABLE articles DROP COLUMN words",
             "DROP TABLE article_fts",
