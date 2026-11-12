@@ -634,3 +634,60 @@ fn migration_copies_annotations() {
     assert_eq!(list.len(), 1);
     assert_eq!((list[0].id, list[0].start, list[0].end, list[0].text.as_str(), list[0].note.as_str()), (7, 3, 8, "hello", "n"));
 }
+
+fn hl(uid: &str, article: u64, exact: &str, start: i64) -> inoink::highlight::Highlight {
+    inoink::highlight::Highlight {
+        uid: uid.into(),
+        article: id(article),
+        quote: inoink::highlight::TextQuote { exact: exact.into(), prefix: "before".into(), suffix: "after".into() },
+        note: String::new(),
+        content_hash: "h1".into(),
+        start_loc: start,
+        end_loc: start + 5,
+        created: 100,
+        modified: 100,
+        deleted: false,
+    }
+}
+
+#[test]
+fn highlights_crud_tombstones_and_exports() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    s.insert_highlight(&hl("b", 1, "second", 40)).unwrap();
+    s.insert_highlight(&hl("a", 1, "first", 5)).unwrap();
+    let list = s.highlights(id(1)).unwrap();
+    assert_eq!(list.iter().map(|h| h.uid.as_str()).collect::<Vec<_>>(), vec!["a", "b"], "text order");
+    assert_eq!((list[0].quote.prefix.as_str(), list[0].quote.suffix.as_str()), ("before", "after"));
+
+    s.set_highlight_note("a", "my note", 200).unwrap();
+    let a = &s.highlights(id(1)).unwrap()[0];
+    assert_eq!((a.note.as_str(), a.modified), ("my note", 200));
+
+    s.set_highlight_anchor("a", "h2", 7, 12).unwrap();
+    let a = &s.highlights(id(1)).unwrap()[0];
+    assert_eq!((a.content_hash.as_str(), a.start_loc, a.end_loc, a.modified), ("h2", 7, 12, 200), "anchoring is not an edit");
+
+    let ex = s.highlight_exports().unwrap();
+    assert_eq!(ex.len(), 2);
+    assert_eq!(ex[0].article, id(1).to_long());
+    assert_eq!(ex[0].text, "first");
+    assert_eq!(ex[0].title, "Article 1");
+    assert_eq!(s.highlight_accounts().unwrap(), vec!["acct".to_string()]);
+
+    s.delete_highlight("b", 300).unwrap();
+    assert_eq!(s.highlights(id(1)).unwrap().len(), 1);
+    assert_eq!(s.highlight_exports().unwrap().len(), 1);
+    let (deleted, modified): (i64, i64) =
+        s.conn().query_row("SELECT deleted,modified FROM highlights WHERE uid='b'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert_eq!((deleted, modified), (1, 300), "the tombstone stays");
+}
+
+#[test]
+fn highlights_survive_clear_content() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    s.insert_highlight(&hl("a", 1, "kept", 5)).unwrap();
+    s.clear_content(id(1)).unwrap();
+    assert_eq!(s.highlights(id(1)).unwrap().len(), 1);
+}

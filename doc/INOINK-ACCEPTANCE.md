@@ -14,11 +14,12 @@ document tests inside the build container, and the install/launcher tests).
 
 | Area | Where | Result |
 |---|---|---|
-| Local store: durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts | `crates/inoink/tests/store_intent.rs` (22) | PASS |
-| API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (23) | PASS |
-| Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging | `crates/inoink/tests/sync_faults.rs` (28) | PASS |
+| Local store: durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts | `crates/inoink/tests/store_intent.rs` (32) | PASS |
+| API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (24) | PASS |
+| Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging | `crates/inoink/tests/sync_faults.rs` (30) | PASS |
 | Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction | `crates/inoink/tests/content_cache.rs` (21) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
+| Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
 | Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (13), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
@@ -40,7 +41,10 @@ document tests inside the build container, and the install/launcher tests).
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
 article with the bar and the progress line; the end card; the next article; a QR code; the light
-panel; the main menu; the Newsfeed after saving. Each run works on a fresh copy of the fixtures.
+panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
+underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
+highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
+tour does not turn to). Each run works on a fresh copy of the fixtures.
 Result: PASS (13 screenshots inspected on 2026-11-11). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
@@ -91,6 +95,10 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | QR code scans with a phone | NOT RUN |
 | Follow in Inoreader adds a feed from a held link | NOT RUN |
 | Karakeep: saved online, and queued offline then sent after reconnecting | NOT RUN |
+| Highlight, add a note, edit and remove in an article; they survive leaving and restarting | NOT RUN |
+| An Inoreader annotation is underlined at the right place, and holding it shows its note | NOT RUN |
+| Highlights are kept after Load original page | NOT RUN |
+| `inoink-cli highlights --data` on the USB-mounted data directory lists the highlights | NOT RUN |
 | Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
 
 ## Known gaps

@@ -111,8 +111,14 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Back, Aa, Star, Done, More, with a line below showing progress, time left and your place in the
   list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
-  QR code, Details (including summaries and annotations returned by Inoreader) and Load original
+  QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page.
+- Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
+  a highlight to add, edit or remove its note, or to remove it. They are saved on the Kobo and
+  found again if the article text is later replaced (for example by Load original page). Inoreader's
+  own annotations are underlined and read-only; hold one to see its note. Details lists both.
+  `inoink-cli highlights --data /Volumes/KOBOeReader/.adds/inoink/data` prints yours as Markdown
+  (`--format json` gives Readwise's highlight fields; nothing is sent anywhere).
 - Passing the last page (or holding the forward button) shows the end card: **Done** (Read later:
   mark read and remove the star) or **Mark read** (elsewhere), then the next article of the list;
   **Keep** goes on without changing anything; **Comments** for link posts; **Back to list**. With

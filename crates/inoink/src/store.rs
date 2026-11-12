@@ -507,6 +507,107 @@ impl Store {
         Ok(cleared)
     }
 
+    // ---- highlights made on this device ---------------------------------------------------
+
+    /// Live highlights of an article in text order.
+    pub fn highlights(&self, article: ArticleId) -> Result<Vec<crate::highlight::Highlight>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT uid,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified FROM highlights \
+             WHERE account=?1 AND article=?2 AND deleted=0 ORDER BY start_loc,created",
+        )?;
+        let rows = stmt.query_map(params![self.account, article.to_db()], |r| {
+            Ok(crate::highlight::Highlight {
+                uid: r.get(0)?,
+                article,
+                quote: crate::highlight::TextQuote { exact: r.get(1)?, prefix: r.get(2)?, suffix: r.get(3)? },
+                note: r.get(4)?,
+                content_hash: r.get(5)?,
+                start_loc: r.get(6)?,
+                end_loc: r.get(7)?,
+                created: r.get(8)?,
+                modified: r.get(9)?,
+                deleted: false,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn insert_highlight(&mut self, h: &crate::highlight::Highlight) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO highlights(account,uid,article,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified,deleted) \
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                self.account,
+                h.uid,
+                h.article.to_db(),
+                h.quote.exact,
+                h.quote.prefix,
+                h.quote.suffix,
+                h.note,
+                h.content_hash,
+                h.start_loc,
+                h.end_loc,
+                h.created,
+                h.modified,
+                h.deleted as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_highlight_note(&mut self, uid: &str, note: &str, now: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE highlights SET note=?3, modified=?4 WHERE account=?1 AND uid=?2", params![self.account, uid, note, now])?;
+        Ok(())
+    }
+
+    /// Records where the highlight was found in a content version. This is bookkeeping, not an
+    /// edit: `modified` is untouched.
+    pub fn set_highlight_anchor(&mut self, uid: &str, content_hash: &str, start: i64, end: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE highlights SET content_hash=?3, start_loc=?4, end_loc=?5 WHERE account=?1 AND uid=?2",
+            params![self.account, uid, content_hash, start, end],
+        )?;
+        Ok(())
+    }
+
+    /// Marks a highlight deleted; the row stays as a tombstone.
+    pub fn delete_highlight(&mut self, uid: &str, now: i64) -> Result<()> {
+        self.conn.execute("UPDATE highlights SET deleted=1, modified=?3 WHERE account=?1 AND uid=?2", params![self.account, uid, now])?;
+        Ok(())
+    }
+
+    /// Every live highlight with its article's details, newest article first.
+    pub fn highlight_exports(&self) -> Result<Vec<crate::highlight::HighlightExport>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT h.uid,h.article,h.exact,h.note,a.title,a.author,a.canonical_url,a.origin_title,h.created,h.modified \
+             FROM highlights h JOIN articles a ON a.account=h.account AND a.id=h.article \
+             WHERE h.account=?1 AND h.deleted=0 ORDER BY a.timestamp_usec DESC, h.article, h.created",
+        )?;
+        let rows = stmt.query_map(params![self.account], |r| {
+            Ok(crate::highlight::HighlightExport {
+                uid: r.get(0)?,
+                article: ArticleId::from_db(r.get(1)?).to_long(),
+                text: r.get(2)?,
+                note: r.get(3)?,
+                title: r.get(4)?,
+                author: r.get(5)?,
+                source_url: r.get(6)?,
+                feed_title: r.get(7)?,
+                highlighted_at: r.get(8)?,
+                modified: r.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Accounts that have live highlights.
+    pub fn highlight_accounts(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT DISTINCT account FROM highlights WHERE deleted=0 ORDER BY account")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn has_article(&self, id: ArticleId) -> Result<bool> {
         Ok(self
             .conn

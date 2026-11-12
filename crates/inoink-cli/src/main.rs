@@ -31,6 +31,9 @@ const USAGE: &str = "inoink-cli <command>
       Build deterministic offline sample data (articles, images, tables, code).
   verify-cache --data DIR [--account ID]
       Check published content versions and images.
+  highlights --data DIR [--account ID] [--format markdown|json]
+      Print the highlights made on the Kobo (DIR is the Kobo's .adds/inoink/data or a copy).
+      json uses Readwise's highlight fields; nothing is sent anywhere.
   acceptance --live --credentials FILE [--yes]
       Read-only checks against a real account (shows what it will request first).
 ";
@@ -438,9 +441,64 @@ fn fixtures(args: &[String]) -> Result<()> {
         store.upsert_article(&rec, 0)?;
         let state = cache.cache_article(&mut store, &FixtureImages, ArticleId(id), &ctl)?;
         println!("{id}: {title} -> {state:?}");
+        if i == 0 {
+            // A highlight made on the Kobo. Its content hash is empty, so opening the article
+            // finds it again from the quote.
+            store.insert_highlight(&inoink::highlight::Highlight {
+                uid: "fixture-local-1".into(),
+                article: ArticleId(id),
+                quote: inoink::highlight::TextQuote {
+                    exact: "Caf\u{e9} cr\u{e8}me br\u{fb}l\u{e9}e".into(),
+                    prefix: "justification and pagination.".into(),
+                    suffix: ", na\u{ef}ve fa\u{e7}ades".into(),
+                },
+                note: "Fixture note on the Kobo".into(),
+                content_hash: String::new(),
+                start_loc: 0,
+                end_loc: 0,
+                created: 1_800_000_000,
+                modified: 1_800_000_000,
+                deleted: false,
+            })?;
+        }
     }
     store.checkpoint()?;
     println!("Fixture data written to {}", out.display());
+    Ok(())
+}
+
+fn highlights(args: &[String]) -> Result<()> {
+    let data = PathBuf::from(arg(args, "--data").ok_or_else(|| Error::InvalidRequest("--data is required".into()))?);
+    let format = arg(args, "--format").unwrap_or_else(|| "markdown".into());
+    if format != "markdown" && format != "json" {
+        return Err(Error::InvalidRequest("--format must be markdown or json".into()));
+    }
+    let db = if data.join("inoink.db").exists() { data.join("inoink.db") } else { data.join("db.sqlite") };
+    let account = match arg(args, "--account") {
+        Some(a) => a,
+        None => {
+            let accounts = Store::open(&db, "")?.highlight_accounts()?;
+            match accounts.as_slice() {
+                [] => {
+                    println!("No highlights.");
+                    return Ok(());
+                }
+                [one] => one.clone(),
+                many => {
+                    return Err(Error::InvalidRequest(format!(
+                        "Several accounts have highlights; pass --account (one of: {})",
+                        many.join(", ")
+                    )))
+                }
+            }
+        }
+    };
+    let list = Store::open(&db, &account)?.highlight_exports()?;
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&inoink::highlight::to_readwise_json(&list)).unwrap_or_default());
+    } else {
+        print!("{}", inoink::highlight::to_markdown(&list));
+    }
     Ok(())
 }
 
@@ -546,6 +604,7 @@ fn main() {
         Some("karakeep") => karakeep(&args[1..]),
         Some("fixtures") => fixtures(&args[1..]),
         Some("verify-cache") => verify_cache(&args[1..]),
+        Some("highlights") => highlights(&args[1..]),
         Some("acceptance") => acceptance(&args[1..]),
         _ => {
             eprint!("{USAGE}");

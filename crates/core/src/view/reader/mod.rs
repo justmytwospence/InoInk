@@ -307,8 +307,8 @@ impl Reader {
         out
     }
 
-    /// Places Inoreader's annotations of this article in the text. One that cannot be found is
-    /// left out here (Details still lists it).
+    /// Places this article's highlights (Inoreader's and the ones made on this device) in the
+    /// text. One that cannot be found is left out (Details still lists it).
     fn load_article_highlights(&mut self, context: &mut Context) {
         let Some(binding) = self.article.clone() else { return };
         if binding.kind != crate::view::inoink::actions::DocKind::Article {
@@ -316,7 +316,8 @@ impl Reader {
         }
         let Some(store) = context.inoink.store() else { return };
         let remote = store.remote_annotations(binding.id).unwrap_or_default();
-        if remote.is_empty() {
+        let local = store.highlights(binding.id).unwrap_or_default();
+        if remote.is_empty() && local.is_empty() {
             return;
         }
         let summary = store.article_record(binding.id).ok().flatten().map(|r| r.summary_html).unwrap_or_default();
@@ -335,10 +336,89 @@ impl Reader {
                 });
             }
         }
+        let mut anchored = Vec::new();
+        for h in &local {
+            let at = if h.content_hash == binding.content_hash {
+                Some((h.start_loc as usize, h.end_loc as usize))
+            } else {
+                let at = inoink::highlight::locate(&refs, &h.quote, Some(h.start_loc as usize));
+                if let Some((s, e)) = at {
+                    anchored.push((h.uid.clone(), s as i64, e as i64));
+                }
+                at
+            };
+            if let Some((s, e)) = at {
+                found.push(Annotation {
+                    selection: [TextLocation::Dynamic(s), TextLocation::Dynamic(e)],
+                    note: h.note.clone(),
+                    text: h.quote.exact.clone(),
+                    modified: chrono::DateTime::from_timestamp(h.modified, 0).map(|d| d.naive_utc()).unwrap_or_default(),
+                    source: AnnotationSource::Local(h.uid.clone()),
+                });
+            }
+        }
+        if !anchored.is_empty() {
+            if let Some(store) = context.inoink.store_mut() {
+                for (uid, s, e) in &anchored {
+                    let _ = store.set_highlight_anchor(uid, &binding.content_hash, *s, *e);
+                }
+            }
+        }
         if let Some(r) = self.info.reader.as_mut() {
             r.annotations.extend(found);
         }
         self.update_annotations();
+    }
+
+    /// The text of the selection with its neighbouring words, for finding it again later.
+    fn article_quote(&mut self, sel: [TextLocation; 2]) -> Option<inoink::highlight::TextQuote> {
+        let exact = self.text_excerpt(sel)?;
+        let words = self.document_words();
+        let first = words.iter().position(|(_, l)| *l == sel[0].location())?;
+        let last = words.iter().position(|(_, l)| *l == sel[1].location())?;
+        let refs: Vec<&str> = words.iter().map(|(t, _)| t.as_str()).collect();
+        let mut quote = inoink::highlight::quote_from_words(&refs, first, last);
+        quote.exact = exact;
+        Some(quote)
+    }
+
+    /// Saves a new highlight of an article in the database. Elsewhere (comments, linked pages)
+    /// nothing is saved.
+    fn persist_new_highlight(&mut self, sel: [TextLocation; 2], note: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> AnnotationSource {
+        let Some(binding) = self.article.clone().filter(|b| b.kind == crate::view::inoink::actions::DocKind::Article) else {
+            return AnnotationSource::Plato;
+        };
+        let saved = self.article_quote(sel).and_then(|quote| {
+            let now = inoink::util::now_secs();
+            let uid = inoink::highlight::new_uid();
+            let h = inoink::highlight::Highlight {
+                uid: uid.clone(),
+                article: binding.id,
+                quote,
+                note: note.to_string(),
+                content_hash: binding.content_hash.clone(),
+                start_loc: sel[0].location() as i64,
+                end_loc: sel[1].location() as i64,
+                created: now,
+                modified: now,
+                deleted: false,
+            };
+            context.inoink.store_mut()?.insert_highlight(&h).ok().map(|_| uid)
+        });
+        match saved {
+            Some(uid) => AnnotationSource::Local(uid),
+            None => {
+                self.notify("Could not save the highlight.", hub, rq, context);
+                AnnotationSource::Plato
+            }
+        }
+    }
+
+    fn save_highlight_note(&self, uid: &str, note: &str, context: &mut Context) {
+        let now = inoink::util::now_secs();
+        if let Some(store) = context.inoink.store_mut() {
+            let _ = store.set_highlight_note(uid, note, now);
+        }
     }
 
     /// Opens the reading view of a linked page. Nothing about it is saved.
@@ -1937,12 +2017,14 @@ impl Reader {
                 EntryKind::Command("Add Note".to_string(), EntryId::AnnotateSelection)
             ];
 
-            entries.push(EntryKind::Separator);
-            entries.push(EntryKind::Command("Define".to_string(), EntryId::DefineSelection));
-            entries.push(EntryKind::Command("Search".to_string(), EntryId::SearchForSelection));
+            if self.article.is_none() {
+                entries.push(EntryKind::Separator);
+                entries.push(EntryKind::Command("Define".to_string(), EntryId::DefineSelection));
+                entries.push(EntryKind::Command("Search".to_string(), EntryId::SearchForSelection));
 
-            if self.info.reader.as_ref().map_or(false, |r| !r.page_names.is_empty()) {
-                entries.push(EntryKind::Command("Go To".to_string(), EntryId::GoToSelectedPageName));
+                if self.info.reader.as_ref().map_or(false, |r| !r.page_names.is_empty()) {
+                    entries.push(EntryKind::Command("Go To".to_string(), EntryId::GoToSelectedPageName));
+                }
             }
 
             entries.push(EntryKind::Separator);
@@ -4262,13 +4344,14 @@ impl View for Reader {
 
                 if let Some(sel) = selection {
                     let text = self.text_excerpt(sel).unwrap();
+                    let source = self.persist_new_highlight(sel, note, hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
                         r.annotations.push(Annotation {
                             selection: sel,
                             note: note.to_string(),
                             text,
                             modified: Local::now().naive_local(),
-                            source: AnnotationSource::Plato,
+                            source,
                         });
                     }
                     if let Some(rect) = self.text_rect(sel) {
@@ -4276,9 +4359,16 @@ impl View for Reader {
                     }
                 } else {
                     if let Some(sel) = self.target_annotation.take() {
+                        let mut local = None;
                         if let Some(annot) = self.find_annotation_mut(sel) {
                             annot.note = note.to_string();
                             annot.modified = Local::now().naive_local();
+                            if let AnnotationSource::Local(uid) = &annot.source {
+                                local = Some(uid.clone());
+                            }
+                        }
+                        if let Some(uid) = local {
+                            self.save_highlight_note(&uid, note, context);
                         }
                         if let Some(rect) = self.text_rect(sel) {
                             rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
@@ -4587,13 +4677,14 @@ impl View for Reader {
             Event::Select(EntryId::HighlightSelection) => {
                 if let Some(sel) = self.selection.take() {
                     let text = self.text_excerpt([sel.start, sel.end]).unwrap();
+                    let source = self.persist_new_highlight([sel.start, sel.end], "", hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
                         r.annotations.push(Annotation {
                             selection: [sel.start, sel.end],
                             note: String::new(),
                             text,
                             modified: Local::now().naive_local(),
-                            source: AnnotationSource::Plato,
+                            source,
                         });
                     }
                     if let Some(rect) = self.text_rect([sel.start, sel.end]) {
@@ -4660,10 +4751,17 @@ impl View for Reader {
                 true
             },
             Event::Select(EntryId::RemoveAnnotationNote(sel)) => {
+                let mut local = None;
                 if let Some(annot) = self.find_annotation_mut(sel) {
                     annot.note.clear();
                     annot.modified = Local::now().naive_local();
+                    if let AnnotationSource::Local(uid) = &annot.source {
+                        local = Some(uid.clone());
+                    }
                     self.update_annotations();
+                }
+                if let Some(uid) = local {
+                    self.save_highlight_note(&uid, "", context);
                 }
                 if let Some(rect) = self.text_rect(sel) {
                     rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
@@ -4671,6 +4769,20 @@ impl View for Reader {
                 true
             },
             Event::Select(EntryId::RemoveAnnotation(sel)) => {
+                let removed: Vec<String> = self.info.reader.as_ref().map(|r| {
+                    r.annotations.iter()
+                     .filter(|a| a.selection[0] == sel[0] && a.selection[1] == sel[1])
+                     .filter_map(|a| if let AnnotationSource::Local(uid) = &a.source { Some(uid.clone()) } else { None })
+                     .collect()
+                }).unwrap_or_default();
+                if !removed.is_empty() {
+                    let now = inoink::util::now_secs();
+                    if let Some(store) = context.inoink.store_mut() {
+                        for uid in &removed {
+                            let _ = store.delete_highlight(uid, now);
+                        }
+                    }
+                }
                 if let Some(annotations) = self.info.reader.as_mut().map(|r| &mut r.annotations) {
                     annotations.retain(|annot| matches!(annot.source, AnnotationSource::Inoreader(_)) || annot.selection[0] != sel[0] || annot.selection[1] != sel[1]);
                     self.update_annotations();
