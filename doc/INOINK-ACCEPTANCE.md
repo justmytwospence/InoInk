@@ -20,7 +20,7 @@ document tests inside the build container, and the install/launcher tests).
 | Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (24) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (13), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (27), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
@@ -40,13 +40,13 @@ document tests inside the build container, and the install/launcher tests).
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
-article with the bar and the page indicator; the end card; the next article; a QR code; the light
+article with the bar and the page indicator; the next article (swipe up); a QR code; the light
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
 tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
 and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
-Result: PASS (13 screenshots inspected on 2026-11-11). Not covered by the tour (tested headlessly
+Result: NOT RUN since the end card was removed (12 screenshots expected). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
@@ -99,8 +99,10 @@ that was merged.
 | Tap-to-save in the Newsfeed; hold opens; the setting swaps them | NOT RUN |
 | End of unread list: "Mark N read" marks only what was seen and not starred | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
-| End card via forward swipe and via holding the forward button (no immediate double action) | NOT RUN |
-| Continue to the next article; Done in Read later archives it on inoreader.com | NOT RUN |
+| Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
+| Done (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
+| Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
+| Titles row with the bar (tap opens); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
 | QR code scans with a phone | NOT RUN |
 | Follow in Inoreader adds a feed from a held link | NOT RUN |

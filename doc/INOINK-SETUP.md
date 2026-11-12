@@ -141,17 +141,19 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page.
+- Swipe left or right to turn pages. Swipe up, page past the last page or hold the forward button
+  for the next article of the list; swipe down or hold the back button for the previous one (it
+  reopens where you left it; paging back from the first page opens its last page). Changing
+  articles never marks one read: use Done or Mark read. After the last article of the list you are
+  back at the list. With the bar showing, a row above the footer names the previous and next
+  articles; tap one to open it. Settings > Previous and next titles > Always also names them beside
+  the progress line on every page.
 - Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
   a highlight to add, edit or remove its note, or to remove it. They are saved on the Kobo and
   found again if the article text is later replaced (for example by Load original page). Inoreader's
   own annotations are underlined and read-only; hold one to see its note. Details lists both.
   `inoink-cli highlights --data /Volumes/KOBOeReader/.adds/inoink/data` prints yours as Markdown
   (`--format json` gives Readwise's highlight fields; nothing is sent anywhere).
-- Passing the last page (or holding the forward button) shows the end card: **Done** (Read later:
-  mark read and remove the star) or **Mark read** (elsewhere), then the next article of the list;
-  **Keep** goes on without changing anything; **Comments** for link posts; **Back to list**. With
-  Settings > At the end of an article > Swipe again to continue, another forward swipe or press
-  does the main action; otherwise tap a button.
 - Links in an article: tap one for a reading view of the page (InoInk fetches it and extracts the
   text, without images; https only, needs Wi-Fi). Hold one for a menu: Open in reading view, Show
   QR code (scan it with a phone to open the page there), Send to Karakeep, Follow in Inoreader
@@ -164,7 +166,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Follow a feed, Settings (what a tap does, the end-of-article behaviour, offline
+- Main menu: Follow a feed, Settings (what a tap does, where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,

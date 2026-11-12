@@ -5,7 +5,6 @@ pub mod actions;
 pub mod article_bar;
 pub mod categories;
 pub mod details;
-pub mod end_card;
 pub mod group_header;
 pub mod home;
 pub mod image_view;

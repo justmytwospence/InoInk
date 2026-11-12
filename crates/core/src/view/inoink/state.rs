@@ -95,8 +95,8 @@ pub struct InoInk {
     pub opening: Option<(ArticleId, OpenMode)>,
     /// A linked page being fetched for the reading view.
     pub opening_page: Option<String>,
-    /// The next article opened starts at its beginning rather than where it was left.
-    pub open_at_start: bool,
+    /// The next article opened starts on its last page (paging back from the first page of the following one).
+    pub open_at_end: bool,
     /// Services links can be sent to (Karakeep).
     pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
@@ -148,7 +148,7 @@ impl InoInk {
             notice: None,
             opening: None,
             opening_page: None,
-            open_at_start: false,
+            open_at_end: false,
             share,
             opening_comments: None,
             settings: settings.clone(),

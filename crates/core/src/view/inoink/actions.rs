@@ -71,9 +71,9 @@ pub enum InoInkEntry {
     ConfirmMarkListRead,
     OpenDetails(ArticleId),
     SetHeadlineTap(HeadlineTap),
-    SetContinueOnSwipe(bool),
-    /// An action of the end-of-article card.
-    Finish(FinishAction),
+    SetQueueTitles(crate::settings::QueueTitles),
+    /// Open the previous or next article of the list (the titles row above the footer).
+    QueueArticle(crate::geom::CycleDir),
     /// Open a linked page in a reading view.
     OpenLink(String),
     ShowQr(String),
@@ -85,16 +85,6 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FinishAction {
-    /// Done (Read later) or Mark read, then the next article.
-    Primary,
-    /// Leave it as it is and go on.
-    Keep,
-    BackToList,
-    Comments,
 }
 
 #[derive(Debug, Default)]
@@ -204,7 +194,7 @@ pub enum OpenResult {
 /// Finds the published content for an article and takes a lease on it so the version stays
 /// until the reader closes.
 pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
-    let at_start = std::mem::take(&mut context.inoink.open_at_start);
+    let at_end = std::mem::take(&mut context.inoink.open_at_end);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {
         return fetch_for_open(context, id);
@@ -216,7 +206,9 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
     let mut offset = None;
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.lease(id, v.version);
-        if let Ok(Some(pos)) = store.position(id).map(|p| p.filter(|_| !at_start)) {
+        if at_end {
+            offset = Some(usize::MAX);
+        } else if let Ok(Some(pos)) = store.position(id) {
             offset = if pos.content_hash == v.hash {
                 Some(pos.offset as usize)
             } else {

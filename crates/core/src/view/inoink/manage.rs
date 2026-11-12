@@ -3,7 +3,7 @@
 
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::settings::{ButtonScheme, HeadlineTap, RotationLock};
+use crate::settings::{ButtonScheme, HeadlineTap, QueueTitles, RotationLock};
 use crate::view::inoink::actions::{InoInkEntry, SAVE_FAILED};
 use crate::view::{EntryId, EntryKind};
 use inoink::model::*;
@@ -116,8 +116,11 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
             ],
         ),
         EntryKind::SubMenu(
-            "At the end of an article".into(),
-            vec![radio("Swipe again to continue", InoInkEntry::SetContinueOnSwipe(true), s.continue_on_swipe), radio("Wait for a tap", InoInkEntry::SetContinueOnSwipe(false), !s.continue_on_swipe)],
+            "Previous and next titles".into(),
+            vec![
+                radio("With the bar", InoInkEntry::SetQueueTitles(QueueTitles::WithBar), s.queue_titles == QueueTitles::WithBar),
+                radio("Always", InoInkEntry::SetQueueTitles(QueueTitles::Always), s.queue_titles == QueueTitles::Always),
+            ],
         ),
     ];
     entries.push(EntryKind::SubMenu(

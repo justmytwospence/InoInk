@@ -462,10 +462,10 @@ pub enum ViewId {
     PromptInput,
     ConfirmDialog,
     ImageViewer,
-    EndCard,
     LinkMenu,
     QrView,
     ArticleFooter,
+    QueueNav,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

@@ -36,7 +36,7 @@ use plato_core::view::common::{locate, locate_by_id, transfer_notifications, ove
 use plato_core::view::common::{toggle_input_history_menu, toggle_keyboard_layout_menu};
 use plato_core::helpers::{load_toml, save_toml};
 use plato_core::settings::{Settings, settings_path, IntermKind};
-use plato_core::geom::{Rectangle, Axis};
+use plato_core::geom::{Rectangle, Axis, Dir};
 use plato_core::color::Color;
 use plato_core::gesture::{GestureEvent, gesture_events};
 use plato_core::device::CURRENT_DEVICE;
@@ -844,11 +844,10 @@ enum TourStep {
     Quit,
 }
 
-/// A deterministic walk through the tabs, an article, its end card, the QR code, the light
+/// A deterministic walk through the tabs, an article, the next article, the QR code, the light
 /// panel and the menu.
 fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     use plato_core::inoink::model::{ArticleId, Collection};
-    use plato_core::view::inoink::actions::FinishAction;
     use plato_core::view::inoink::state::Tab;
     let w = rect.width() as i32;
     let dpi = CURRENT_DEVICE.dpi as f32 / 300.0;
@@ -893,10 +892,8 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Tap(w / 2, rect.height() as i32 / 2));
     t.push_back(TourStep::Wait(500));
     t.push_back(TourStep::Shot("07-article-bar-footer"));
-    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::HoldButtonShort(ButtonCode::Forward))));
-    t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Shot("08-end-card"));
-    t.push_back(select(InoInkEntry::Finish(FinishAction::Primary)));
+    let h = rect.height() as i32;
+    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::Swipe { dir: Dir::North, start: pt!(w / 2, 3 * h / 4), end: pt!(w / 2, h / 4) })));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("09-next-article"));
     t.push_back(select(InoInkEntry::ShowQr("https://news.example/issue/42".into())));

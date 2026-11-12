@@ -1050,9 +1050,9 @@ impl InoInkHome {
                 context.inoink.settings.list_tap = *h;
                 self.reset(hub, rq, context);
             }
-            InoInkEntry::SetContinueOnSwipe(b) => {
-                context.settings.inoink.continue_on_swipe = *b;
-                context.inoink.settings.continue_on_swipe = *b;
+            InoInkEntry::SetQueueTitles(t) => {
+                context.settings.inoink.queue_titles = *t;
+                context.inoink.settings.queue_titles = *t;
             }
             other => match manage::apply(context, other, None) {
                 Ok(m) => {
