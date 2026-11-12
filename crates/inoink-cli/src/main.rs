@@ -379,6 +379,19 @@ pub fn fixture_articles() -> Vec<(&'static str, String)> {
     ]
 }
 
+/// An Inoreader annotation on the first article, in paragraph 2 (the sentence repeats in every
+/// paragraph, so placing it relies on context), with offsets as Inoreader counts them.
+fn fixture_annotations(html: &str) -> String {
+    let quote = "The quick brown fox jumps over the lazy dog";
+    let text = inoink::highlight::text_content(html);
+    let from = text.find("Paragraph 2.").unwrap_or(0);
+    let byte = from + text[from..].find(quote).unwrap_or(0);
+    let start = text[..byte].encode_utf16().count();
+    let end = start + quote.encode_utf16().count();
+    serde_json::json!({"annotations": [{"id": 1, "start": start, "end": end, "text": quote, "note": "Fixture note from Inoreader", "added_on": 1_800_000_000}]})
+        .to_string()
+}
+
 fn fixtures(args: &[String]) -> Result<()> {
     let out = PathBuf::from(arg(args, "--output").ok_or_else(|| Error::InvalidRequest("--output is required".into()))?);
     std::fs::create_dir_all(&out)?;
@@ -417,8 +430,8 @@ fn fixtures(args: &[String]) -> Result<()> {
             },
             published: base_ts - i as i64 * 3600,
             timestamp_usec: (base_ts - i as i64 * 3600) * 1_000_000,
+            raw_json: if i == 0 { fixture_annotations(&html) } else { "{}".into() },
             summary_html: html,
-            raw_json: "{}".into(),
             categories: cats,
             excerpt: false,
         };
