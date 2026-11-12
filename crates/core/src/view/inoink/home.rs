@@ -190,7 +190,10 @@ impl InoInkHome {
 
         let title = String::new();
         let top = TopBar::new(rect![rect.min.x, rect.min.y, rect.max.x, rect.min.y + small_height - small_thickness], Event::Toggle(ViewId::SearchBar), title, context)
-            .with_sync(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
+            .with_home_layout(vec![
+                ("mark-read", Event::Select(EntryId::InoInk(InoInkEntry::MarkListRead))),
+                ("sync", Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))),
+            ]);
         children.push(Box::new(top));
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.min.y + small_height - small_thickness, rect.max.x, rect.min.y + small_height + big_thickness], BLACK)));
 

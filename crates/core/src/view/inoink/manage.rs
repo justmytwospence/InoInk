@@ -92,8 +92,6 @@ pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
         entries.push(EntryKind::Message(format!("Provisioning failed: {e}"), None));
     }
     entries.push(EntryKind::Message(context.inoink.status_text(), None));
-    entries.push(cmd("Sync now", InoInkEntry::SyncNow));
-    entries.push(cmd("Mark this list read...", InoInkEntry::MarkListRead));
     entries.push(cmd("Follow a feed...", InoInkEntry::Subscribe));
     entries.push(EntryKind::Separator);
     entries.push(EntryKind::SubMenu("Settings".into(), settings_entries(context)));

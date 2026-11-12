@@ -952,6 +952,15 @@ impl Reader {
                             },
                         }
                     },
+                    CycleDir::Previous if self.article.is_some() => {
+                        // Before the first page: the beginning of the previous article in the list.
+                        let id = self.article.as_ref().map(|a| a.id);
+                        let prev = id.and_then(|id| context.inoink.queue.as_ref().and_then(|q| q.previous_before(id)));
+                        if let Some(prev) = prev {
+                            context.inoink.open_at_start = true;
+                            hub.send(Event::OpenNext(prev)).ok();
+                        }
+                    },
                     CycleDir::Previous => {
                         let notif = Notification::new("No previous page.".to_string(),
                                                       hub, rq, context);

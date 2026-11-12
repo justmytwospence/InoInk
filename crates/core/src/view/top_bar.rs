@@ -89,13 +89,38 @@ impl TopBar {
         }
     }
 
-    /// Adds a sync button left of the clock (the article lists); the title gives up the room.
-    pub fn with_sync(mut self, event: Event) -> TopBar {
-        let side = self.rect.height() as i32;
-        let clock = *self.children[2].rect();
-        let sync_rect = rect![clock.min.x - side, self.rect.min.y, clock.min.x, self.rect.max.y];
-        self.children[1].rect_mut().max.x = sync_rect.min.x;
-        self.children.push(Box::new(Icon::new("sync", sync_rect, event)) as Box<dyn View>);
+    /// The article-list layout: the clock and battery, which are only read, on the left; every
+    /// button together on the right (search, then `actions`, Wi-Fi, light, menu). The title sits
+    /// between them.
+    pub fn with_home_layout(mut self, actions: Vec<(&str, Event)>) -> TopBar {
+        let r = self.rect;
+        let side = r.height() as i32;
+        let mut put = |child: &mut Box<dyn View>, x0: i32, x1: i32| {
+            *child.rect_mut() = rect![x0, r.min.y, x1, r.max.y];
+        };
+        let clock_w = self.children[2].rect().width() as i32;
+        let x = r.min.x + side / 4;
+        put(&mut self.children[2], x, x + clock_w);
+        put(&mut self.children[3], x + clock_w, x + clock_w + side);
+        let left_end = x + clock_w + side;
+        let mut x = r.max.x;
+        for i in [5usize, 4, 6] {
+            put(&mut self.children[i], x - side, x);
+            x -= side;
+        }
+        for (name, event) in actions.into_iter().rev() {
+            self.children.push(Box::new(Icon::new(name, rect![x - side, r.min.y, x, r.max.y], event)) as Box<dyn View>);
+            x -= side;
+        }
+        put(&mut self.children[0], x - side, x);
+        x -= side;
+        let title_rect = rect![left_end, r.min.y, x.max(left_end), r.max.y];
+        self.children[1] = Box::new(Label::new(title_rect, String::new(), Align::Center).event(Some(Event::ToggleNear(ViewId::TitleMenu, title_rect))));
+        // Nothing else covers the margin before the clock: keep it white.
+        self.children.push(Box::new(crate::view::filler::Filler::new(rect![r.min.x, r.min.y, r.min.x + side / 4, r.max.y], crate::color::WHITE)) as Box<dyn View>);
+        // The menu opens from the menu icon, wherever it now is.
+        let menu_rect = *self.children[5].rect();
+        self.children[5] = Box::new(Icon::new("menu", menu_rect, Event::ToggleNear(ViewId::MainMenu, menu_rect)));
         self
     }
 

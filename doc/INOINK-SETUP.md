@@ -88,7 +88,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - In the Newsfeed and in categories, **tap a headline to read it** and **hold it to save it for
   later** (it gets a bookmark and a bar at the left edge). Main menu > Settings > Headlines swaps
   these. In Read later, holding a headline shows its menu.
-- Swipe down on a list, or tap the circular sync icon in the top bar, to sync now.
+- The top bar keeps what you only read (clock, battery) on the left and every button on the right:
+  search, mark this list read (double check mark; shows a count first), sync, Wi-Fi, light, menu.
+  Swiping down on a list also syncs.
+- Swiping back on the first page of an article opens the previous article of the list at its
+  beginning.
 - A thin line along the bottom of an article shows how far through it you are.
 - On the last page of an unread list a card says "Mark N read": N is what you were shown in this
   visit that is still unread and not starred. Nothing is marked read by turning pages.
@@ -123,7 +127,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Sync now, Mark this list read (shows a count first), Follow a feed, Settings (what a
+- Main menu: Follow a feed, Settings (what a
   tap does, the end-of-article behaviour, offline storage, page-turn buttons, rotation, invert
   colors), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,

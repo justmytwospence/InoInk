@@ -203,6 +203,7 @@ pub enum OpenResult {
 /// Finds the published content for an article and takes a lease on it so the version stays
 /// until the reader closes.
 pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
+    let at_start = std::mem::take(&mut context.inoink.open_at_start);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {
         return fetch_for_open(context, id);
@@ -214,7 +215,7 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
     let mut offset = None;
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.lease(id, v.version);
-        if let Ok(Some(pos)) = store.position(id) {
+        if let Ok(Some(pos)) = store.position(id).map(|p| p.filter(|_| !at_start)) {
             offset = if pos.content_hash == v.hash {
                 Some(pos.offset as usize)
             } else {

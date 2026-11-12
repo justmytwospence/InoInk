@@ -296,3 +296,52 @@ fn end_card_finishes_and_requests_the_next_article() {
     }
     assert_eq!(next, Some(ArticleId(1)), "the next article of the list is requested");
 }
+
+fn drive(reader: &mut Reader, e: &mut Env, evt: Event) {
+    let mut bus = VecDeque::new();
+    let mut rq = RenderQueue::new();
+    plato_core::view::handle_event(reader, &evt, &e.tx, &mut bus, &mut rq, &mut e.context);
+    while let Some(b) = bus.pop_front() {
+        plato_core::view::handle_event(reader, &b, &e.tx, &mut VecDeque::new(), &mut rq, &mut e.context);
+    }
+}
+
+fn requested_next(e: &Env) -> Option<ArticleId> {
+    let mut next = None;
+    while let Ok(evt) = e.rx.try_recv() {
+        if let Event::OpenNext(id) = evt {
+            next = Some(id);
+        }
+    }
+    next
+}
+
+#[test]
+fn swiping_forward_on_the_end_card_marks_read_and_continues_by_default() {
+    let mut e = env();
+    e.context.inoink.queue = Some(ReadingQueue { ids: vec![ArticleId(4), ArticleId(3)], read_later: false, label: "Newsfeed".into() });
+    let OpenResult::Ready(article) = open_article(&mut e.context, ArticleId(4)) else { panic!("cached article should open") };
+    let mut reader = Reader::new_article(e.context.fb.rect(), &article, &e.tx, &mut e.context).expect("reader");
+    drive(&mut reader, &mut e, Event::Update(plato_core::framebuffer::UpdateMode::Partial));
+    // The fixture article fits on one page: the next forward swipe shows the card, the one after continues.
+    let swipe = |x0: i32, x1: i32| Event::Gesture(GestureEvent::Swipe { dir: if x1 < x0 { plato_core::geom::Dir::West } else { plato_core::geom::Dir::East }, start: plato_core::geom::Point::new(x0, 800), end: plato_core::geom::Point::new(x1, 800) });
+    drive(&mut reader, &mut e, swipe(1000, 200));
+    assert!(locate_by_id(&reader, ViewId::EndCard).is_some());
+    drive(&mut reader, &mut e, swipe(1000, 200));
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap(), "marked read");
+    assert_eq!(requested_next(&e), Some(ArticleId(3)));
+}
+
+#[test]
+fn swiping_back_on_the_first_page_opens_the_previous_article_at_its_start() {
+    let mut e = env();
+    e.context.inoink.queue = Some(ReadingQueue { ids: vec![ArticleId(4), ArticleId(3)], read_later: false, label: "Newsfeed".into() });
+    let OpenResult::Ready(article) = open_article(&mut e.context, ArticleId(3)) else { panic!("cached article should open") };
+    let mut reader = Reader::new_article(e.context.fb.rect(), &article, &e.tx, &mut e.context).expect("reader");
+    drive(&mut reader, &mut e, Event::Update(plato_core::framebuffer::UpdateMode::Partial));
+    let back = Event::Gesture(GestureEvent::Swipe { dir: plato_core::geom::Dir::East, start: plato_core::geom::Point::new(200, 800), end: plato_core::geom::Point::new(1000, 800) });
+    drive(&mut reader, &mut e, back);
+    assert_eq!(requested_next(&e), Some(ArticleId(4)), "the previous article of the list");
+    assert!(e.context.inoink.open_at_start);
+    assert!(!reader.children().iter().any(|c| c.downcast_ref::<plato_core::view::notification::Notification>().is_some()), "no popup");
+}

@@ -56,6 +56,12 @@ impl ReadingQueue {
         self.ids.iter().position(|i| *i == id).map(|p| (p + 1, self.ids.len()))
     }
 
+    /// The article before `id`, if there is one.
+    pub fn previous_before(&self, id: ArticleId) -> Option<ArticleId> {
+        let p = self.ids.iter().position(|i| *i == id)?;
+        p.checked_sub(1).and_then(|p| self.ids.get(p).copied())
+    }
+
     /// The article after `id`, if there is one.
     pub fn next_after(&self, id: ArticleId) -> Option<ArticleId> {
         let p = self.ids.iter().position(|i| *i == id)?;
@@ -89,6 +95,8 @@ pub struct InoInk {
     pub opening: Option<(ArticleId, OpenMode)>,
     /// A linked page being fetched for the reading view.
     pub opening_page: Option<String>,
+    /// The next article opened starts at its beginning rather than where it was left.
+    pub open_at_start: bool,
     /// Services links can be sent to (Karakeep).
     pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
@@ -140,6 +148,7 @@ impl InoInk {
             notice: None,
             opening: None,
             opening_page: None,
+            open_at_start: false,
             share,
             opening_comments: None,
             settings: settings.clone(),
