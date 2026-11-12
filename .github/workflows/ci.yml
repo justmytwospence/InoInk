@@ -26,7 +26,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "device=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '^(doc/|README\.md$|AGENTS\.md$|LICENSE|THIRD-PARTY-NOTICES$)'; then
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '^(doc/|site/|README\.md$|AGENTS\.md$|LICENSE|THIRD-PARTY-NOTICES$|\.github/workflows/pages\.yml$)'; then
             echo "device=true" >> "$GITHUB_OUTPUT"
           else
             echo "device=false" >> "$GITHUB_OUTPUT"

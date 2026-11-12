@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InoInk: Inoreader on your Kobo</title>
+<meta name="description" content="InoInk is an unofficial, standalone Inoreader reader for the Kobo Libra Colour: your feeds, offline, on e-ink, with highlights and notes.">
+<meta property="og:title" content="InoInk: Inoreader on your Kobo">
+<meta property="og:description" content="Your Inoreader feeds on e-ink. Offline first, no server in between, highlights and notes included.">
+<meta property="og:image" content="shots/06-article.webp">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <nav>
+    <span class="brand">InoInk</span>
+    <span class="links">
+      <a href="#features">Features</a>
+      <a href="#screens">Screens</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/justmytwospence/InoInk">GitHub</a>
+    </span>
+  </nav>
+  <div class="hero-body">
+    <div class="pitch">
+      <h1>Your Inoreader feeds, on&nbsp;e&#8209;ink.</h1>
+      <p class="lede">InoInk turns a Kobo Libra Colour into a dedicated Inoreader reader. Skim the
+        newsfeed, save what matters, and read it later in proper book typography, offline, away
+        from the browser tabs.</p>
+      <p class="cta">
+        <a class="button" href="https://github.com/justmytwospence/InoInk/releases/latest">Download the latest release</a>
+        <a class="button ghost" href="https://github.com/justmytwospence/InoInk#readme">Read the docs</a>
+      </p>
+      <p class="fine">Free and open source (AGPL). Unofficial: not affiliated with Inoreader or Rakuten Kobo.</p>
+    </div>
+    <figure class="device hero-device">
+      <img src="shots/06-article.webp" alt="An article in InoInk with a highlight and an underlined Inoreader annotation" width="480" height="640">
+    </figure>
+  </div>
+</header>
+
+<main>
+
+<section id="features" class="features">
+  <h2>Built around how Inoreader is used</h2>
+  <div class="grid">
+    <article>
+      <h3>Newsfeed, Categories, Read later</h3>
+      <p>The same three places you know from Inoreader. Tap a headline to read it, hold it to save
+        it for later. Each view remembers its own filter, grouping and sort.</p>
+    </article>
+    <article>
+      <h3>Reading made for e-ink</h3>
+      <p>Plato's typesetting with hyphenation and justification, and an Aa panel for font, size,
+        spacing, margins and alignment. Page turns by tap or button, a quiet progress line, no
+        animations.</p>
+    </article>
+    <article>
+      <h3>Highlights and notes</h3>
+      <p>Hold a word to highlight it or add a note. Annotations you made in Inoreader show up
+        underlined in the text. Export yours as Markdown or Readwise-ready JSON.</p>
+    </article>
+    <article>
+      <h3>Offline first</h3>
+      <p>Text and colour images are cached on the Kobo. Every change is saved on the device first
+        and sent to Inoreader when Wi-Fi is back. Nothing is lost when the network is not.</p>
+    </article>
+    <article>
+      <h3>Finish and move on</h3>
+      <p>At the end of an article a card offers Done (mark read and unstar) and the next article
+        in the list. At the end of the newsfeed, mark everything you skimmed as read in one tap.</p>
+    </article>
+    <article>
+      <h3>The whole link, not the teaser</h3>
+      <p>Hacker News and Lobsters posts open as the linked article, with the discussion one tap
+        away. Tap any link for a clean reading view; hold it for a QR code to open on your phone.</p>
+    </article>
+    <article>
+      <h3>Your account, directly</h3>
+      <p>InoInk talks to Inoreader's public API with your own app registration. No server, no
+        browser extension, no read-later service in between. Your keys stay encrypted on the Kobo.</p>
+    </article>
+    <article>
+      <h3>Kobo conveniences</h3>
+      <p>Starts with the light and Wi-Fi you had, a bottom light panel and an edge slide for
+        brightness, page-turn buttons, and the normal Kobo interface back when you quit.</p>
+    </article>
+    <article>
+      <h3>Organise from the couch</h3>
+      <p>Tags, likes, broadcast, following feeds, folder management, monitoring searches and
+        Send to Karakeep, as far as Inoreader's public API allows.</p>
+    </article>
+  </div>
+</section>
+
+<section id="screens" class="screens">
+  <h2>A look around</h2>
+  <p class="note">Screenshots from InoInk's emulator at the Libra Colour's resolution, using its
+    built-in sample articles.</p>
+  <div class="gallery">
+    <figure class="device"><img loading="lazy" src="shots/01-newsfeed.webp" alt="The Newsfeed tab" width="720" height="960"><figcaption>The Newsfeed, with Mark read at the end of the list</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/03-categories.webp" alt="The Categories tab" width="720" height="960"><figcaption>Your folders in Inoreader's order, then tags and streams</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/05-read-later.webp" alt="The Read later tab" width="720" height="960"><figcaption>Read later: your starred articles</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/06c-selection-menu.webp" alt="Selecting text to highlight" width="720" height="960"><figcaption>Hold a word to highlight it or add a note</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/08-end-card.webp" alt="The end-of-article card" width="720" height="960"><figcaption>The end card: Done, Keep or back to the list</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/09-next-article.webp" alt="An article with images" width="720" height="960"><figcaption>Colour images, cached for offline reading</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/10-qr.webp" alt="A QR code for a link" width="720" height="960"><figcaption>A QR code to continue on your phone</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/11-light-panel.webp" alt="The light panel" width="720" height="960"><figcaption>Brightness and warmth from the bottom panel</figcaption></figure>
+  </div>
+</section>
+
+<section id="install" class="install">
+  <h2>Get started</h2>
+  <div class="cols">
+    <div>
+      <h3>You need</h3>
+      <ul>
+        <li>A <strong>Kobo Libra Colour</strong> (developed on firmware 4.46.23852), ideally with
+          <a href="https://pgaskin.net/NickelMenu/">NickelMenu</a> for a launcher entry.</li>
+        <li>An <strong>Inoreader plan with API access</strong> and your own
+          <a href="https://www.inoreader.com/developers/register-app">app registration</a>
+          (scope <code>read write</code>).</li>
+        <li>A Mac or Linux computer for installing and signing in.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Install</h3>
+      <ol>
+        <li>Download the Kobo package, <code>install-inoink.sh</code> and <code>inoink-cli</code> from the
+          <a href="https://github.com/justmytwospence/InoInk/releases/latest">latest release</a>.</li>
+        <li>Connect the Kobo by USB and run<br>
+          <code>sh install-inoink.sh inoink-&lt;version&gt;-kobo.tar.gz /Volumes/KOBOeReader --menu</code></li>
+        <li>Sign in once from the computer with <code>inoink-cli authorize --device /Volumes/KOBOeReader ...</code></li>
+        <li>Eject, then open InoInk from NickelMenu.</li>
+      </ol>
+      <p>The <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-SETUP.md">setup guide</a>
+        covers every step, updates and removal.</p>
+    </div>
+  </div>
+</section>
+
+<section class="honest">
+  <h2>Good to know</h2>
+  <ul>
+    <li><strong>Early and unofficial.</strong> InoInk is developed and tested on one Libra Colour.
+      Other Kobos that Plato supports may work; nobody has tried yet.
+      <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-ACCEPTANCE.md">What has been checked, and how.</a></li>
+    <li><strong>Leaves your Kobo alone.</strong> It only touches its own folder (and one NickelMenu
+      file). Books, settings and your Kobo account are untouched, and the normal interface comes
+      back when you quit.</li>
+    <li><strong>Public API only.</strong> InoInk uses Inoreader's documented API and does not try
+      to copy the website feature for feature. Annotations made on the Kobo stay on the Kobo
+      (or go to your notes by export) because Inoreader offers no way to write them.</li>
+    <li><strong>Built on <a href="https://github.com/baskerville/plato">Plato</a></strong>, the
+      excellent open-source Kobo document reader, and licensed AGPL-3.0-or-later like it.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p>InoInk &middot; <a href="https://github.com/justmytwospence/InoInk">Source on GitHub</a> &middot;
+    <a href="https://github.com/justmytwospence/InoInk/issues">Report an issue</a></p>
+  <p class="fine">Inoreader is a trademark of Innologica; Kobo is a trademark of Rakuten Kobo. InoInk is not affiliated with either.</p>
+</footer>
+
+</body>
+</html>
