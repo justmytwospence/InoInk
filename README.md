@@ -110,8 +110,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 ## Using it
 
 - **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
-  it and holding saves it for later (Settings can swap them); tap the sync icon to sync (it turns
-  dotted while syncing). The footer menu ("Unread - Newest") chooses unread or all, grouping and
+  it and holding saves it for later (Settings can swap them); tap the sync icon to sync (it shows a dot
+  and spins while syncing). The footer menu ("Unread - Newest") chooses unread or all, grouping and
   sort, and on the Categories list the order of folders; long-press a row (Read later) for
   Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
   folder and its feeds.

@@ -100,7 +100,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   these. In Read later, holding a headline shows its menu.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
   search, mark this list read (circled check mark; shows a count first), sync, Wi-Fi, light, menu.
-  The sync icon turns dotted while a sync runs; the main menu shows the sync status.
+  The sync icon shows a dot and spins while a sync runs; the main menu shows the sync status.
 - Swiping back on the first page of an article opens the previous article of the list at its
   beginning.
 - A thin line along the bottom of an article shows how far through it you are.

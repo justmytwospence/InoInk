@@ -80,6 +80,9 @@ pub struct InoInkHome {
     /// The last page of articles had no room for the card: Next shows it.
     next_is_end: bool,
     end_count: usize,
+    /// A spin tick is scheduled.
+    spinning: bool,
+    spin_frame: usize,
 }
 
 const TOP: usize = 0;
@@ -227,9 +230,11 @@ impl InoInkHome {
             end_only: false,
             next_is_end: false,
             end_count: 0,
+            spinning: false,
+            spin_frame: 0,
         };
         home.load_page(hub, rq, context);
-        home.update_sync_icon(rq, context);
+        home.update_sync_icon(hub, rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
@@ -665,14 +670,28 @@ impl InoInkHome {
         self.load_page(hub, rq, context);
     }
 
-    /// The sync button turns into a "syncing" icon while a sync runs.
-    fn update_sync_icon(&mut self, rq: &mut RenderQueue, context: &Context) {
-        let name = if matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing) { "syncing" } else { "sync" };
+    /// While a sync runs, the sync button gets a dot and turns: one frame every [`SPIN_FRAME`],
+    /// drawn with a fast black-and-white update. It stops upright, without the dot.
+    fn update_sync_icon(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &Context) {
+        let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
+        if syncing && !self.spinning {
+            self.spinning = true;
+            schedule_spin(hub);
+        }
+        if !syncing {
+            self.spin_frame = 0;
+        }
+        self.set_sync_frame(syncing, rq);
+    }
+
+    fn set_sync_frame(&mut self, syncing: bool, rq: &mut RenderQueue) {
+        let name = if syncing { SPIN_FRAMES[self.spin_frame % SPIN_FRAMES.len()] } else { "sync" };
         let Some(top) = self.children[TOP].downcast_mut::<TopBar>() else { return };
         for icon in top.children_mut().iter_mut().filter_map(|c| c.downcast_mut::<Icon>()) {
-            if matches!(icon.name.as_str(), "sync" | "syncing") && icon.name != name {
+            if (icon.name == "sync" || SPIN_FRAMES.contains(&icon.name.as_str())) && icon.name != name {
                 icon.name = name.to_string();
-                rq.add(RenderData::new(icon.id(), icon.rect, UpdateMode::Gui));
+                let mode = if name == "sync" { UpdateMode::Gui } else { UpdateMode::Fast };
+                rq.add(RenderData::new(icon.id(), icon.rect, mode));
             }
         }
     }
@@ -988,6 +1007,17 @@ impl InoInkHome {
     }
 }
 
+const SPIN_FRAMES: [&str; 4] = ["sync-0", "sync-1", "sync-2", "sync-3"];
+const SPIN_FRAME: std::time::Duration = std::time::Duration::from_millis(600);
+
+fn schedule_spin(hub: &Hub) {
+    let hub = hub.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(SPIN_FRAME);
+        hub.send(Event::SyncSpin).ok();
+    });
+}
+
 pub fn browse_key(c: &Collection) -> String {
     format!("browse:{}", serde_json::to_string(c).unwrap_or_default())
 }
@@ -1159,7 +1189,19 @@ impl View for InoInkHome {
                 if refresh {
                     self.load_page(hub, rq, context);
                 }
-                self.update_sync_icon(rq, context);
+                self.update_sync_icon(hub, rq, context);
+                true
+            }
+            Event::SyncSpin => {
+                let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
+                if syncing {
+                    self.spin_frame = (self.spin_frame + 1) % SPIN_FRAMES.len();
+                    schedule_spin(hub);
+                } else {
+                    self.spinning = false;
+                    self.spin_frame = 0;
+                }
+                self.set_sync_frame(syncing, rq);
                 true
             }
             Event::Reseed => {
@@ -1167,7 +1209,9 @@ impl View for InoInkHome {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
                 }
-                self.update_sync_icon(rq, context);
+                // A tick may have been lost while another view was in front.
+                self.spinning = false;
+                self.update_sync_icon(hub, rq, context);
                 // Coming back from the reader (or a menu): repaint everything.
                 rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 true

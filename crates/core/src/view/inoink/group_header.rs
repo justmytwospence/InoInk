@@ -31,7 +31,7 @@ impl View for GroupHeader {
         let dpi = CURRENT_DEVICE.dpi;
         fb.draw_rectangle(&self.rect, WHITE);
         let em = font_from_style(fonts, &LIST_TITLE, dpi).em() as i32;
-        let x = self.rect.min.x + 3 * em;
+        let x = self.rect.min.x + em;
         let max_w = self.rect.max.x - em - x;
         let font = font_from_style(fonts, &LIST_GROUP, dpi);
         let plan = font.plan(&self.text, Some(max_w), None);

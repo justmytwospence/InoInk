@@ -107,7 +107,7 @@ impl View for CategoryRow {
         }
         let style = if self.count > 0 { &*LIST_TITLE } else { &*LIST_TITLE_READ };
         let font = font_from_style(fonts, style, dpi);
-        let x = self.rect.min.x + 3 * padding;
+        let x = self.rect.min.x + padding;
         let plan = font.plan(&self.label, Some((right - x).max(1)), None);
         let y = self.rect.min.y + (self.rect.height() as i32 + font.x_heights.0 as i32) / 2;
         font.render(fb, if self.active { scheme[1] } else { BLACK }, &plan, Point::new(x, y));
