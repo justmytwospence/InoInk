@@ -17,6 +17,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003.sql"),
     include_str!("../migrations/0004.sql"),
     include_str!("../migrations/0005.sql"),
+    include_str!("../migrations/0006.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -222,6 +223,22 @@ fn observe_tx(tx: &Transaction, account: &str, article: ArticleId, key: &str, pr
     Ok(true)
 }
 
+fn replace_remote_annotations_tx(
+    tx: &Transaction,
+    account: &str,
+    article: ArticleId,
+    list: &[crate::highlight::RemoteAnnotation],
+) -> Result<()> {
+    tx.execute("DELETE FROM remote_annotations WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
+    for a in list {
+        tx.execute(
+            "INSERT OR REPLACE INTO remote_annotations(account,article,id,start,\"end\",text,note,added_on) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![account, article.to_db(), a.id, a.start, a.end, a.text, a.note, a.added_on],
+        )?;
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn open(path: &Path, account: &str) -> Result<Store> {
         if let Some(parent) = path.parent() {
@@ -403,6 +420,12 @@ impl Store {
             "UPDATE articles SET raw_json=?3 WHERE account=?1 AND id=?2 AND raw_json='{}'",
             params![account, id.to_db(), rec.raw_json],
         )?;
+        // Annotations are replaced whenever the object carries them (raw_json itself is frozen).
+        if let Some(list) =
+            serde_json::from_str::<serde_json::Value>(&rec.raw_json).ok().as_ref().and_then(crate::highlight::parse_annotations)
+        {
+            replace_remote_annotations_tx(&tx, &account, id, &list)?;
+        }
 
         tx.execute("DELETE FROM article_streams WHERE account=?1 AND article=?2", params![account, id.to_db()])?;
         let mut labels = BTreeSet::new();
@@ -443,6 +466,45 @@ impl Store {
         }
         tx.commit()?;
         Ok(!existed)
+    }
+
+    /// Inoreader's annotations of an article, in text order.
+    pub fn remote_annotations(&self, article: ArticleId) -> Result<Vec<crate::highlight::RemoteAnnotation>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id,start,\"end\",text,note,added_on FROM remote_annotations WHERE account=?1 AND article=?2 ORDER BY start,id",
+        )?;
+        let rows = stmt.query_map(params![self.account, article.to_db()], |r| {
+            Ok(crate::highlight::RemoteAnnotation {
+                id: r.get(0)?,
+                start: r.get(1)?,
+                end: r.get(2)?,
+                text: r.get(3)?,
+                note: r.get(4)?,
+                added_on: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Drops the annotations of every article not in `keep` (after a complete Annotated listing).
+    /// Returns how many articles were cleared.
+    pub fn clear_remote_annotations_except(&mut self, keep: &BTreeSet<ArticleId>) -> Result<usize> {
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let have: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT DISTINCT article FROM remote_annotations WHERE account=?1")?;
+            let rows = stmt.query_map(params![account], |r| r.get::<_, i64>(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut cleared = 0;
+        for a in have {
+            if !keep.contains(&ArticleId::from_db(a)) {
+                tx.execute("DELETE FROM remote_annotations WHERE account=?1 AND article=?2", params![account, a])?;
+                cleared += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(cleared)
     }
 
     pub fn has_article(&self, id: ArticleId) -> Result<bool> {
@@ -1698,7 +1760,7 @@ impl Store {
     }
 
     /// Drops all cached content bookkeeping for an article (eviction). The article row, its
-    /// raw API object, positions and pending intents are kept.
+    /// raw API object, positions, annotations, highlights and pending intents are kept.
     pub fn clear_content(&mut self, article: ArticleId) -> Result<()> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;

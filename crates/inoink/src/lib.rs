@@ -5,6 +5,7 @@ pub mod cache;
 pub mod content;
 pub mod credentials;
 pub mod error;
+pub mod highlight;
 pub mod model;
 pub mod runtime;
 pub mod share;

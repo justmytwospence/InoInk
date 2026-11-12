@@ -377,6 +377,8 @@ fn migration_backs_up_and_rejects_newer_schema() {
     {
         let c = rusqlite::Connection::open(&path).unwrap();
         for t in [
+            "DROP TABLE remote_annotations",
+            "DROP TABLE highlights",
             "DROP TABLE shares",
             "DROP TABLE discussions",
             "ALTER TABLE articles DROP COLUMN words",
@@ -569,4 +571,66 @@ fn published_zero_falls_back_to_arrival_time() {
     }
     // Arrival time 5000 s beats published 4000.
     assert_eq!(order(&s, ArticleGroup::None, ArticleSort::Newest, 100), vec![1, 2]);
+}
+
+fn rec_with(id: u64, raw: serde_json::Value) -> ArticleRecord {
+    ArticleRecord { raw_json: raw.to_string(), ..rec(id, 10, &[]) }
+}
+
+fn ann(id: i64, start: i64, end: i64, text: &str, note: &str) -> serde_json::Value {
+    serde_json::json!({"id": id, "start": start, "end": end, "text": text, "note": note, "added_on": 1700000000})
+}
+
+#[test]
+fn annotations_are_stored_and_replaced() {
+    let mut s = store();
+    s.upsert_article(&rec_with(1, serde_json::json!({"annotations": [ann(2, 50, 60, "b", ""), ann(1, 5, 9, "a", "note")]})), 0).unwrap();
+    let list = s.remote_annotations(id(1)).unwrap();
+    assert_eq!(list.iter().map(|a| a.id).collect::<Vec<_>>(), vec![1, 2], "text order");
+    assert_eq!((list[0].start, list[0].end, list[0].note.as_str()), (5, 9, "note"));
+    s.upsert_article(&rec_with(1, serde_json::json!({"annotations": [ann(2, 50, 60, "b", "")]})), 0).unwrap();
+    assert_eq!(s.remote_annotations(id(1)).unwrap().len(), 1);
+    s.upsert_article(&rec_with(1, serde_json::json!({"annotations": []})), 0).unwrap();
+    assert!(s.remote_annotations(id(1)).unwrap().is_empty());
+}
+
+#[test]
+fn annotations_untouched_without_key() {
+    let mut s = store();
+    s.upsert_article(&rec_with(1, serde_json::json!({"annotations": [ann(1, 5, 9, "a", "")]})), 0).unwrap();
+    s.upsert_article(&rec_with(1, serde_json::json!({})), 0).unwrap();
+    assert_eq!(s.remote_annotations(id(1)).unwrap().len(), 1, "an object fetched without annotations says nothing");
+}
+
+#[test]
+fn clearing_keeps_only_listed_articles() {
+    let mut s = store();
+    for n in 1..=3u64 {
+        s.upsert_article(&rec_with(n, serde_json::json!({"annotations": [ann(n as i64, 1, 2, "x", "")]})), 0).unwrap();
+    }
+    let keep: std::collections::BTreeSet<ArticleId> = [id(2)].into_iter().collect();
+    assert_eq!(s.clear_remote_annotations_except(&keep).unwrap(), 2);
+    assert!(s.remote_annotations(id(1)).unwrap().is_empty());
+    assert_eq!(s.remote_annotations(id(2)).unwrap().len(), 1);
+}
+
+#[test]
+fn migration_copies_annotations() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    {
+        let mut s = Store::open(&path, "acct").unwrap();
+        s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    }
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch("DROP TABLE remote_annotations; DROP TABLE highlights;").unwrap();
+        let raw = serde_json::json!({"annotations": [ann(7, 3, 8, "hello", "n")]}).to_string();
+        c.execute("UPDATE articles SET raw_json=?1 WHERE id=1", [raw]).unwrap();
+        c.pragma_update(None, "user_version", 5).unwrap();
+    }
+    let s = Store::open(&path, "acct").unwrap();
+    let list = s.remote_annotations(id(1)).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!((list[0].id, list[0].start, list[0].end, list[0].text.as_str(), list[0].note.as_str()), (7, 3, 8, "hello", "n"));
 }

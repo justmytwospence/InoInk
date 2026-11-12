@@ -61,17 +61,20 @@ pub fn details_html(store: &Store, id: ArticleId, rec: &ArticleRecord) -> String
             h.push_str(&format!("<h3>{}</h3><p>{}</p>", esc(name), esc(&body.text)));
         }
     }
-    if let Some(ann) = raw["annotations"].as_array().filter(|a| !a.is_empty()) {
-        h.push_str("<h2>Annotations</h2>");
-        for a in ann {
-            let text = a["text"].as_str().unwrap_or("");
-            let note = a["note"].as_str().unwrap_or("");
-            h.push_str(&format!("<blockquote><p>{}</p></blockquote>", esc(text)));
-            if !note.is_empty() {
-                h.push_str(&format!("<p><i>{}</i></p>", esc(note)));
+    let ann = store.remote_annotations(id).unwrap_or_default();
+    if !ann.is_empty() {
+        h.push_str("<h2>Inoreader annotations</h2>");
+        for a in &ann {
+            if a.text.trim().is_empty() {
+                h.push_str("<p><b>Note on the article</b></p>");
+            } else {
+                h.push_str(&format!("<blockquote><p>{}</p></blockquote>", esc(&a.text)));
+            }
+            if !a.note.is_empty() {
+                h.push_str(&format!("<p><i>{}</i></p>", esc(&a.note)));
             }
         }
-        h.push_str("<p><small>Annotations are read-only here.</small></p>");
+        h.push_str("<p><small>Made on the Inoreader website or apps; shown read-only.</small></p>");
     }
     h.push_str("</body></html>");
     h

@@ -19,6 +19,7 @@ pub struct SArt {
     pub starred: bool,
     pub like: bool,
     pub labels: BTreeSet<String>,
+    pub annotations: Vec<serde_json::Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -123,6 +124,7 @@ impl Fake {
                 starred: false,
                 like: false,
                 labels: BTreeSet::new(),
+                annotations: vec![],
             },
         );
     }
@@ -156,7 +158,7 @@ impl Fake {
     }
 }
 
-fn items_json(arts: &[SArt], subs: &[SSub]) -> serde_json::Value {
+fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool) -> serde_json::Value {
     let items: Vec<_> = arts
         .iter()
         .map(|a| {
@@ -179,7 +181,7 @@ fn items_json(arts: &[SArt], subs: &[SSub]) -> serde_json::Value {
                     cats.push(format!("user/42/label/{f}"));
                 }
             }
-            serde_json::json!({
+            let mut item = serde_json::json!({
                 "id": ArticleId(a.id).to_long(),
                 "timestampUsec": a.ts.to_string(),
                 "crawlTimeMsec": (a.ts / 1000).to_string(),
@@ -190,7 +192,11 @@ fn items_json(arts: &[SArt], subs: &[SSub]) -> serde_json::Value {
                 "summary": {"direction": "ltr", "content": a.html},
                 "author": "Au",
                 "origin": {"streamId": a.feed, "title": "Blog", "htmlUrl": "https://blog.example/"}
-            })
+            });
+            if with_annotations {
+                item["annotations"] = serde_json::Value::Array(a.annotations.clone());
+            }
+            item
         })
         .collect();
     serde_json::Value::Array(items)
@@ -347,6 +353,7 @@ impl Transport for Fake {
                         "user/-/state/com.google/starred" => a.starred,
                         "user/-/state/com.google/reading-list" => true,
                         "user/-/state/com.google/like" => a.like,
+                        "user/-/state/com.google/annotated" => !a.annotations.is_empty(),
                         s if s.starts_with("feed/") => a.feed == s,
                         s if s.starts_with("user/-/label/") => {
                             let l = s.trim_start_matches("user/-/label/");
@@ -372,7 +379,7 @@ impl Transport for Fake {
                         None
                     };
                     let mut body = if contents {
-                        serde_json::json!({"items": items_json(page, &subs)})
+                        serde_json::json!({"items": items_json(page, &subs, qget("annotations").as_deref() == Some("1"))})
                     } else {
                         let refs: Vec<_> = page
                             .iter()

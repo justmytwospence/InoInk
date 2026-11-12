@@ -22,6 +22,10 @@ pub struct SyncConfig {
     /// Automatic cycles do not refresh or reconcile more often than this.
     pub min_interval_secs: i64,
     pub cache_per_cycle: usize,
+    /// Pages of 100 articles read from the Annotated stream per refresh.
+    pub annotated_pages: usize,
+    /// Automatic cycles refresh annotations no more often than this.
+    pub annotations_interval_secs: i64,
 }
 
 impl Default for SyncConfig {
@@ -33,6 +37,8 @@ impl Default for SyncConfig {
             unread_fetch_pages: 3,
             min_interval_secs: 900,
             cache_per_cycle: 20,
+            annotated_pages: 2,
+            annotations_interval_secs: 21600,
         }
     }
 }
@@ -572,6 +578,54 @@ impl SyncEngine {
         Ok(remaining.len())
     }
 
+    /// Reads the Annotated stream so annotations made elsewhere replace the stored ones. Removed
+    /// annotations are only dropped after the listing was read to its end.
+    fn refresh_annotations(&mut self, reason: Reason, prio: Priority, rep: &mut CycleReport) -> Result<()> {
+        let now = self.clock.now();
+        if reason != Reason::Explicit {
+            let last = self.store.get_meta("annotations_refreshed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+            if now - last < self.cfg.annotations_interval_secs {
+                return Ok(());
+            }
+        }
+        let api = self.api.with_priority(prio);
+        let stream = StreamId::new(STATE_ANNOTATED);
+        let mut cont: Option<String> = None;
+        let mut seen: BTreeSet<ArticleId> = BTreeSet::new();
+        let mut complete = false;
+        for _ in 0..self.cfg.annotated_pages {
+            if self.cancelled() {
+                return Ok(());
+            }
+            let start_seq = self.store.seq()?;
+            let page = api.contents(
+                &stream,
+                &ContentsParams { count: 100, continuation: cont.clone(), annotations: true, summaries: true, ..Default::default() },
+            )?;
+            for mut rec in page.items {
+                self.strip_folder_labels(&mut rec)?;
+                seen.insert(ArticleId(rec.id));
+                self.store.upsert_article(&rec, start_seq)?;
+                rep.fetched += 1;
+            }
+            match page.continuation {
+                Some(c) => cont = Some(c),
+                None => {
+                    complete = true;
+                    break;
+                }
+            }
+        }
+        if complete {
+            self.store.clear_remote_annotations_except(&seen)?;
+        } else {
+            rep.incomplete.push("annotated");
+        }
+        self.store.set_meta("annotations_refreshed", &now.to_string())?;
+        rep.reconciled.push("annotated");
+        Ok(())
+    }
+
     /// Folder names inherited from the feed are not user tags; drop them from `categories`.
     fn strip_folder_labels(&self, rec: &mut crate::store::ArticleRecord) -> Result<()> {
         if let Some(sub) = self.store.subscription(&rec.origin_stream)? {
@@ -745,6 +799,9 @@ impl SyncEngine {
         if !unknown.is_empty() {
             rep.missing += self.fetch_wanted(prio, &StreamId::new(STATE_READING_LIST), true, &unknown, self.cfg.unread_fetch_pages, rep)?;
         }
-        self.cache_pending(rep)
+        // A failed annotation refresh must not stop downloads; its error is still reported.
+        let refreshed = self.refresh_annotations(reason, prio, rep);
+        self.cache_pending(rep)?;
+        refreshed
     }
 }

@@ -529,3 +529,19 @@ fn quota_falls_back_to_a_labelled_estimate_without_headers() {
     assert!(r.estimated);
     assert_eq!((r.limit, r.remaining), (100, 99));
 }
+
+#[test]
+fn parse_annotations_accepts_strings_and_numbers() {
+    use inoink::highlight::parse_annotations;
+    let v = json!({"annotations": [
+        {"id": "12", "start": "3", "end": 9, "text": "t", "note": "n", "added_on": "1700000000"},
+        {"start": 1, "end": 2, "text": "no id"},
+        {"id": 5}
+    ]});
+    let list = parse_annotations(&v).unwrap();
+    assert_eq!(list.len(), 2, "entries without an id are skipped");
+    assert_eq!((list[0].id, list[0].start, list[0].end, list[0].added_on), (12, 3, 9, 1_700_000_000));
+    assert_eq!((list[1].id, list[1].text.as_str(), list[1].note.as_str()), (5, "", ""));
+    assert!(parse_annotations(&json!({})).is_none());
+    assert!(parse_annotations(&json!({"annotations": "x"})).is_none());
+}
