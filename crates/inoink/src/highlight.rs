@@ -4,6 +4,7 @@
 //! by a position: feed text, extracted page text and Inoreader's own rendering all differ in
 //! markup, hyphenation and spacing, so positions never carry over between them.
 
+use crate::model::ArticleId;
 use markup5ever_rcdom::{Handle, NodeData};
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -184,4 +185,85 @@ pub fn rfc3339_utc(secs: i64) -> String {
     let (y, m, d) = crate::cache::civil(secs);
     let t = secs.rem_euclid(86400);
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", t / 3600, (t % 3600) / 60, t % 60)
+}
+
+/// A highlight made on this device. Deleted ones are kept (`deleted`) so a later sync can tell
+/// the other side; `modified` says what changed since then.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Highlight {
+    pub uid: String,
+    pub article: ArticleId,
+    pub quote: TextQuote,
+    pub note: String,
+    /// Content version the locations below belong to.
+    pub content_hash: String,
+    pub start_loc: i64,
+    pub end_loc: i64,
+    pub created: i64,
+    pub modified: i64,
+    pub deleted: bool,
+}
+
+/// A highlight with what a reading-notes service needs to know about its article.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct HighlightExport {
+    pub uid: String,
+    /// The article's long id (`tag:google.com,2005:reader/item/...`).
+    pub article: String,
+    pub text: String,
+    pub note: String,
+    pub title: String,
+    pub author: String,
+    pub source_url: String,
+    pub feed_title: String,
+    pub highlighted_at: i64,
+    pub modified: i64,
+}
+
+/// Highlights as Markdown, grouped by article in the order given.
+pub fn to_markdown(list: &[HighlightExport]) -> String {
+    let mut out = String::from("# InoInk highlights\n\n");
+    let mut current: Option<&str> = None;
+    for h in list {
+        if current != Some(h.article.as_str()) {
+            current = Some(h.article.as_str());
+            out.push_str(&format!("## {}\n\n{}", h.title, h.feed_title));
+            if !h.author.is_empty() {
+                out.push_str(&format!(" \u{b7} {}", h.author));
+            }
+            out.push_str(&format!("\n{}\n\n", h.source_url));
+        }
+        out.push_str(&format!("> {}\n\n", h.text));
+        if !h.note.is_empty() {
+            out.push_str(&format!("{}\n\n", h.note));
+        }
+    }
+    out
+}
+
+/// Highlights in the shape of Readwise's "create highlights" request. Nothing is sent.
+pub fn to_readwise_json(list: &[HighlightExport]) -> Value {
+    const LIMIT: usize = 8191;
+    let cut = |s: &str| s.chars().take(LIMIT).collect::<String>();
+    let items: Vec<Value> = list
+        .iter()
+        .map(|h| {
+            let mut o = serde_json::json!({
+                "text": cut(&h.text),
+                "title": h.title,
+                "source_url": h.source_url,
+                "source_type": "inoink",
+                "category": "articles",
+                "highlighted_at": rfc3339_utc(h.highlighted_at),
+            });
+            if !h.author.is_empty() {
+                o["author"] = Value::String(h.author.clone());
+            }
+            if !h.note.is_empty() {
+                o["note"] = Value::String(cut(&h.note));
+            }
+            o
+        })
+        .collect();
+    serde_json::json!({ "highlights": items })
 }

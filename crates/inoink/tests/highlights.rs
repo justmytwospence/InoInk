@@ -110,3 +110,48 @@ fn rfc3339_known_values() {
     assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339_utc(1_800_000_000), "2027-01-15T08:00:00Z");
 }
+
+fn export(uid: &str, article: &str, title: &str, author: &str, text: &str, note: &str) -> HighlightExport {
+    HighlightExport {
+        uid: uid.into(),
+        article: article.into(),
+        text: text.into(),
+        note: note.into(),
+        title: title.into(),
+        author: author.into(),
+        source_url: format!("https://blog.example/{article}"),
+        feed_title: "Blog".into(),
+        highlighted_at: 1_800_000_000,
+        modified: 1_800_000_000,
+    }
+}
+
+#[test]
+fn markdown_groups_by_article() {
+    let list = [
+        export("1", "a", "First article", "Ann", "one", ""),
+        export("2", "a", "First article", "Ann", "two", "a note"),
+        export("3", "b", "Second article", "", "three", ""),
+    ];
+    let md = to_markdown(&list);
+    assert_eq!(
+        md,
+        "# InoInk highlights\n\n## First article\n\nBlog \u{b7} Ann\nhttps://blog.example/a\n\n> one\n\n> two\n\na note\n\n\
+         ## Second article\n\nBlog\nhttps://blog.example/b\n\n> three\n\n"
+    );
+}
+
+#[test]
+fn readwise_json_fields_and_truncation() {
+    let long = "x".repeat(9000);
+    let list = [export("1", "a", "T", "Ann", &long, "n"), export("2", "b", "U", "", "short", "")];
+    let v = to_readwise_json(&list);
+    let h = &v["highlights"];
+    assert_eq!(h[0]["text"].as_str().unwrap().len(), 8191);
+    assert_eq!((h[0]["title"].as_str(), h[0]["author"].as_str(), h[0]["note"].as_str()), (Some("T"), Some("Ann"), Some("n")));
+    assert_eq!(h[0]["source_type"], "inoink");
+    assert_eq!(h[0]["category"], "articles");
+    assert_eq!(h[0]["highlighted_at"], "2027-01-15T08:00:00Z");
+    assert_eq!(h[0]["source_url"], "https://blog.example/a");
+    assert!(h[1].get("author").is_none() && h[1].get("note").is_none(), "empty author and note are omitted");
+}

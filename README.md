@@ -30,6 +30,8 @@ public API and does not try to match the Inoreader website feature for feature; 
 - Reading flows: at the end of an article a card offers Done (or Mark read) and the next article
   of the list, Keep, Comments, or Back to list; swiping or pressing forward again continues (a
   setting). A line under the article shows progress, time left and your place in the list.
+- Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
+  are shown underlined. `inoink-cli highlights` exports yours as Markdown or Readwise-style JSON.
 - Links: tap a link for a reading view of the page; hold it for Open in reading view, Show QR code
   (to open it on your phone), Send to Karakeep or Follow in Inoreader.
 - Offline first: text and colour images are cached; every change is saved on the Kobo first and

@@ -847,7 +847,7 @@ enum TourStep {
 /// A deterministic walk through the tabs, an article, its end card, the QR code, the light
 /// panel and the menu.
 fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
-    use plato_core::inoink::model::Collection;
+    use plato_core::inoink::model::{ArticleId, Collection};
     use plato_core::view::inoink::actions::FinishAction;
     use plato_core::view::inoink::state::Tab;
     let w = rect.width() as i32;
@@ -875,6 +875,21 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Tap(w / 2, row_y(0)));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("06-article"));
+    t.push_back(TourStep::Send(Event::OpenDetails(ArticleId(1000))));
+    t.push_back(TourStep::Wait(1200));
+    t.push_back(TourStep::Shot("06b-details"));
+    t.push_back(TourStep::Send(Event::Back));
+    t.push_back(TourStep::Wait(1000));
+    // Hold a word of paragraph 3 (a point on its first line at this geometry), lift the finger
+    // for the selection menu, then Highlight.
+    let word = pt!(370 * w / 1264, 1062 * rect.height() as i32 / 1680);
+    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::HoldFingerShort(word, 0))));
+    t.push_back(TourStep::Send(Event::Device(DeviceEvent::Finger { id: 0, time: 0.0, status: FingerStatus::Up, position: word })));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("06c-selection-menu"));
+    t.push_back(TourStep::Send(Event::Select(EntryId::HighlightSelection)));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("06d-highlight"));
     t.push_back(TourStep::Tap(w / 2, rect.height() as i32 / 2));
     t.push_back(TourStep::Wait(500));
     t.push_back(TourStep::Shot("07-article-bar-footer"));

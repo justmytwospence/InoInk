@@ -61,6 +61,17 @@ pub fn details_html(store: &Store, id: ArticleId, rec: &ArticleRecord) -> String
             h.push_str(&format!("<h3>{}</h3><p>{}</p>", esc(name), esc(&body.text)));
         }
     }
+    let mine = store.highlights(id).unwrap_or_default();
+    if !mine.is_empty() {
+        h.push_str("<h2>Your highlights</h2>");
+        for m in &mine {
+            h.push_str(&format!("<blockquote><p>{}</p></blockquote>", esc(&m.quote.exact)));
+            if !m.note.is_empty() {
+                h.push_str(&format!("<p><i>{}</i></p>", esc(&m.note)));
+            }
+        }
+        h.push_str("<p><small>Saved on this Kobo.</small></p>");
+    }
     let ann = store.remote_annotations(id).unwrap_or_default();
     if !ann.is_empty() {
         h.push_str("<h2>Inoreader annotations</h2>");
