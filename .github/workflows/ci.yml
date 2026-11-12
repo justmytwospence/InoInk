@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      device: ${{ steps.f.outputs.device }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "device=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '^(doc/|README\.md$|AGENTS\.md$|LICENSE|THIRD-PARTY-NOTICES$)'; then
+            echo "device=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "device=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt -p inoink -p inoink-cli -- --check
+      - run: cargo test --locked -p inoink -p inoink-cli
+      - run: cargo clippy --locked -p inoink -p inoink-cli --all-targets -- -D warnings
+      - run: sh tests/package.sh
+
+  core:
+    name: core
+    needs: changes
+    if: needs.changes.outputs.device == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/free-disk
+      - uses: ./.github/actions/dev-image
+      - run: scripts/container-run.sh cargo test --locked -p plato-core --tests
+
+  kobo:
+    name: kobo
+    needs: changes
+    if: needs.changes.outputs.device == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/free-disk
+      - uses: ./.github/actions/kobo-images
+      - run: scripts/build-inoink.sh --target kobo
+      - run: scripts/package-inoink.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kobo-package
+          path: dist/
+          retention-days: 7

@@ -15,6 +15,18 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
 - Hardware claims need hardware evidence. Emulator and automated results are reported separately
   (`doc/INOINK-ACCEPTANCE.md`); unperformed cases stay NOT RUN.
 
+## Workflow
+
+- Every change goes through a pull request from a short bare-slug branch. `main` is protected: the CI
+  checks `test`, `core` and `kobo` must pass, history is linear, merging is squash only and the PR
+  title is the conventional-commit message. Never push to `main` directly.
+- `gh` targets `justmytwospence/InoInk` (`gh repo set-default`). Never open a PR against
+  `baskerville/plato`.
+- Releases: (1) bump `version` in `crates/inoink/Cargo.toml` and `crates/inoink-cli/Cargo.toml` in a
+  PR; (2) after it merges, `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`; (3) the Release
+  workflow builds a draft release; (4) record device evidence in `doc/INOINK-ACCEPTANCE.md`, then
+  publish the draft.
+
 ## Layout
 
 - `crates/inoink`: renderer-independent library (model, SQLite store, Inoreader API client,

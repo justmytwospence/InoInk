@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  kobo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag matches version
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/inoink/Cargo.toml | head -1)
+          [ "${GITHUB_REF_NAME#v}" = "$v" ] || { echo "Tag $GITHUB_REF_NAME does not match crates/inoink version" >&2; exit 1; }
+      - uses: ./.github/actions/free-disk
+      - uses: ./.github/actions/kobo-images
+      - run: scripts/build-inoink.sh --target kobo
+      - run: scripts/package-inoink.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kobo
+          path: dist/inoink-*
+
+  cli:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: inoink-cli-linux-x86_64
+          - os: macos-14
+            asset: inoink-cli-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: cargo build --locked --release -p inoink-cli
+      - run: cp target/release/inoink-cli "${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: [kobo, cli]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/install-inoink.sh out/
+          chmod +x out/inoink-cli-*
+          (cd out && sha256sum * > SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" out/* --draft --verify-tag --title "InoInk ${GITHUB_REF_NAME#v}" --generate-notes
