@@ -124,6 +124,16 @@ check "reboot requested by the app is performed" grep -q "^reboot" "$WORK/calls.
 check "Nickel is not restarted when rebooting" test ! -e "$B/data/nickel.log"
 rm -f /tmp/reboot
 
+# MediaTek models reboot instead of restarting Nickel (kernel crash when Nickel reloads the
+# Wi-Fi drivers), unless explicitly overridden.
+rm -f "$B/data/nickel.log" "$WORK/calls.log"
+PLATFORM=mt8113t-ntx run_launcher; sleep 2
+check "MediaTek exit reboots cleanly" grep -q "^reboot" "$WORK/calls.log"
+check "MediaTek exit does not restart Nickel" test ! -e "$B/data/nickel.log"
+rm -f "$B/data/nickel.log" "$WORK/calls.log"
+PLATFORM=mt8113t-ntx INOINK_RESTART_NICKEL=1 run_launcher; sleep 2
+check "the override restarts Nickel instead" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
+
 # Termination by signal restores Nickel too.
 printf '#!/bin/sh\nsleep 30\n' > "$B/releases/1.2.0/inoink"
 rm -f "$B/data/nickel.log"

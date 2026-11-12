@@ -36,9 +36,19 @@ restore() {
 	[ "$ORIG_BPP" ] && ./bin/utils/fbdepth -q -d "$ORIG_BPP" 2>/dev/null
 	rm -rf "$LOCK"
 	if [ -e /tmp/reboot ] ; then
+		sync
 		reboot
 	elif [ -e /tmp/power_off ] ; then
+		sync
 		poweroff -f
+	elif [ "$PLATFORM" = "mt8113t-ntx" ] && [ -z "$INOINK_RESTART_NICKEL" ] ; then
+		# MediaTek Kobos (Libra Colour, Clara Colour/BW): restarting Nickel after another app
+		# has used the Wi-Fi or Bluetooth chip can crash the kernel while Nickel reloads the
+		# chip's drivers (koreader/koreader#12739). The device then reboots uncleanly and may
+		# come up in the setup screens. A clean reboot is the safe way back.
+		echo "--- $(date) rebooting into the Kobo interface (MediaTek)" >> "$INOINK_DATA/inoink.log"
+		sync
+		reboot
 	else
 		REL_DIR=$(pwd)
 		cd / && "$REL_DIR/nickel.sh" &

@@ -104,6 +104,9 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Light:** slide a finger up or down along the left edge of the screen.
 - **Wi-Fi:** the icon in the top bar shows the connection; tap it to switch Wi-Fi on or off.
 - **USB:** quit InoInk before connecting to a computer.
+- **Quitting:** on the Libra Colour, quitting restarts the Kobo (about half a minute). Restarting
+  only the Kobo interface can crash these MediaTek models; see
+  [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#quitting).
 
 ## Build from source
 

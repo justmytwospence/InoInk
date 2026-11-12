@@ -51,6 +51,15 @@ Security note: the client secret has to live on the Kobo because Inoreader's doc
 refresh needs it. The Kobo's storage is FAT with no file permissions, so anyone with the device
 can read it. Use a dedicated application registration you can revoke.
 
+## Quitting
+
+On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW), quitting InoInk **reboots** the Kobo
+instead of restarting its interface directly. Restarting the interface after another app has used
+the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the device then reboots uncleanly
+and may show its setup screens. A clean reboot takes about half a minute and avoids that. To
+restart the interface directly anyway, put `INOINK_RESTART_NICKEL=1` in
+`.adds/inoink/data/config.sh`.
+
 ## Update
 
 Run the install command again with the new package. Only `.adds/inoink/releases` and the small
