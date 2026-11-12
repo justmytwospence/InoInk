@@ -535,6 +535,19 @@ pub struct InoInkSettings {
     pub pinned_folders: Vec<String>,
     /// Opening an article never marks it read unless this is set.
     pub mark_read_on_open: bool,
+    /// What tapping a headline does in the Newsfeed and Categories.
+    pub headline_tap: HeadlineTap,
+    /// A forward swipe or press on the end-of-article card finishes the article and continues.
+    pub continue_on_swipe: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HeadlineTap {
+    /// Tap saves the article for later (stars it); hold opens it.
+    Star,
+    /// Tap opens it; hold shows the menu.
+    Open,
 }
 
 impl Default for InoInkSettings {
@@ -545,6 +558,8 @@ impl Default for InoInkSettings {
             recent_unread_days: 30,
             pinned_folders: Vec::new(),
             mark_read_on_open: false,
+            headline_tap: HeadlineTap::Star,
+            continue_on_swipe: true,
         }
     }
 }

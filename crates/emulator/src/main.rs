@@ -260,7 +260,7 @@ fn main() -> Result<(), Error> {
     let video_subsystem = sdl_context.video().unwrap();
     let (width, height) = CURRENT_DEVICE.dims;
     let window = video_subsystem
-                 .window("Plato Emulator", width, height)
+                 .window("InoInk Emulator", width, height)
                  .position_centered()
                  .build()
                  .unwrap();
@@ -622,7 +622,7 @@ fn main() -> Result<(), Error> {
                 Event::Select(EntryId::About) => {
                     let dialog = Dialog::new(ViewId::AboutDialog,
                                              None,
-                                             format!("Plato {}", env!("CARGO_PKG_VERSION")),
+                                             format!("InoInk {}", plato_core::inoink::VERSION),
                                              &mut context);
                     rq.add(RenderData::new(dialog.id(), *dialog.rect(), UpdateMode::Gui));
                     view.children_mut().push(Box::new(dialog) as Box<dyn View>);

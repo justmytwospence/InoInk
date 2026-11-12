@@ -11,4 +11,7 @@ pub mod store;
 pub mod sync;
 pub mod util;
 
+/// The InoInk version shown in About and Status.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use error::{Error, Result};

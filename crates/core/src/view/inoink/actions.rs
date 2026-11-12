@@ -4,6 +4,7 @@
 use crate::context::Context;
 use inoink::content::relocate;
 use inoink::model::*;
+use crate::settings::HeadlineTap;
 use inoink::runtime::Command;
 use std::path::PathBuf;
 
@@ -60,6 +61,8 @@ pub enum InoInkEntry {
     MarkListRead,
     ConfirmMarkListRead,
     OpenDetails(ArticleId),
+    SetHeadlineTap(HeadlineTap),
+    SetContinueOnSwipe(bool),
 }
 
 #[derive(Debug, Default)]

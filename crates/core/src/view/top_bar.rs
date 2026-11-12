@@ -10,6 +10,17 @@ use crate::geom::{Rectangle};
 use crate::font::Fonts;
 use crate::context::Context;
 
+/// The Wi-Fi icon for the current state: online, switched on but not connected yet, or off.
+pub fn wifi_icon_name(context: &Context) -> &'static str {
+    if context.online {
+        "wifi"
+    } else if context.settings.wifi {
+        "wifi-connecting"
+    } else {
+        "wifi-off"
+    }
+}
+
 #[derive(Debug)]
 pub struct TopBar {
     id: Id,
@@ -65,7 +76,7 @@ impl TopBar {
         children.push(Box::new(menu_icon) as Box<dyn View>);
 
         // Wi-Fi state, after the menu so the other children keep their indexes.
-        let wifi_icon = Icon::new(if context.online { "wifi" } else { "wifi-off" },
+        let wifi_icon = Icon::new(wifi_icon_name(context),
                                   rect![rect.max - pt!(4*side, side),
                                         rect.max - pt!(3*side, 0)],
                                   Event::Select(EntryId::ToggleWifi));
@@ -99,7 +110,7 @@ impl TopBar {
     }
 
     pub fn update_wifi_icon(&mut self, rq: &mut RenderQueue, context: &mut Context) {
-        let name = if context.online { "wifi" } else { "wifi-off" };
+        let name = wifi_icon_name(context);
         if let Some(icon) = self.children.get_mut(6).and_then(|c| c.downcast_mut::<Icon>()) {
             if icon.name != name {
                 icon.name = name.to_string();
@@ -146,8 +157,8 @@ impl View for TopBar {
         let side = rect.height() as i32;
         self.children[0].resize(rect![rect.min, rect.min+side], hub, rq, context);
         let clock_width = self.children[2].rect().width() as i32;
-        let clock_rect = rect![rect.max - pt!(3*side + clock_width, side),
-                               rect.max - pt!(3*side, 0)];
+        let clock_rect = rect![rect.max - pt!(4*side + clock_width, side),
+                               rect.max - pt!(4*side, 0)];
         self.children[1].resize(rect![rect.min.x + side,
                                       rect.min.y,
                                       clock_rect.min.x,
@@ -162,6 +173,11 @@ impl View for TopBar {
                                 hub, rq, context);
         self.children[5].resize(rect![rect.max-side, rect.max],
                                 hub, rq, context);
+        if let Some(wifi) = self.children.get_mut(6) {
+            wifi.resize(rect![rect.max - pt!(4*side, side),
+                              rect.max - pt!(3*side, 0)],
+                        hub, rq, context);
+        }
         self.rect = rect;
     }
 

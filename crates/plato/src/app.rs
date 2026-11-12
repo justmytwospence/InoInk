@@ -237,6 +237,7 @@ fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
     }
     context.settings.wifi = enable;
     if context.settings.wifi {
+        tx.send(Event::NetworkChanged).ok();
         Command::new("scripts/wifi-enable.sh")
                 .status()
                 .ok();
@@ -928,7 +929,7 @@ pub fn run() -> Result<(), Error> {
             Event::Select(EntryId::About) => {
                 let dialog = Dialog::new(ViewId::AboutDialog,
                                          None,
-                                         format!("Plato {}", env!("CARGO_PKG_VERSION")),
+                                         format!("InoInk {}", plato_core::inoink::VERSION),
                                          &mut context);
                 rq.add(RenderData::new(dialog.id(), *dialog.rect(), UpdateMode::Gui));
                 view.children_mut().push(Box::new(dialog) as Box<dyn View>);

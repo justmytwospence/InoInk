@@ -2,6 +2,8 @@
 //! Everything ordinary stays out of the way: these live in secondary menus only.
 
 use crate::context::Context;
+use crate::device::CURRENT_DEVICE;
+use crate::settings::{ButtonScheme, HeadlineTap, RotationLock};
 use crate::view::inoink::actions::{InoInkEntry, SAVE_FAILED};
 use crate::view::{EntryId, EntryKind};
 use inoink::model::*;
@@ -144,17 +146,92 @@ pub fn manage_entries(context: &Context) -> Vec<EntryKind> {
         }
         entries.push(EntryKind::SubMenu("Monitoring".into(), paged(mon)));
     }
+    entries
+}
+
+/// The main menu: status and the everyday actions first, then Settings, Manage and Status.
+pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
+    let mut entries = Vec::new();
+    if let Some(e) = context.inoink.provision_error.clone() {
+        entries.push(EntryKind::Message(format!("Provisioning failed: {e}"), None));
+    }
+    entries.push(EntryKind::Message(context.inoink.status_text(), None));
+    entries.push(cmd("Sync now", InoInkEntry::SyncNow));
+    entries.push(cmd("Mark this list read...", InoInkEntry::MarkListRead));
+    entries.push(cmd("Follow a feed...", InoInkEntry::Subscribe));
     entries.push(EntryKind::Separator);
-    let budget = context.settings.inoink.cache_budget_mb;
+    entries.push(EntryKind::SubMenu("Settings".into(), settings_entries(context)));
+    entries.push(EntryKind::SubMenu("Manage".into(), manage_entries(context)));
+    entries.push(EntryKind::SubMenu("Status".into(), status_entries(context)));
+    entries.push(EntryKind::Separator);
+    entries.push(EntryKind::Command("About InoInk".into(), EntryId::About));
+    let quit = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Quit (the Kobo restarts)" } else { "Quit" };
+    entries.push(EntryKind::Command(quit.into(), EntryId::Quit));
+    entries
+}
+
+fn settings_entries(context: &Context) -> Vec<EntryKind> {
+    let s = &context.settings.inoink;
+    let radio = |label: &str, e: InoInkEntry, on: bool| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(e), on);
+    let mut entries = vec![
+        EntryKind::SubMenu(
+            "Tapping a headline".into(),
+            vec![radio("Saves it for later", InoInkEntry::SetHeadlineTap(HeadlineTap::Star), s.headline_tap == HeadlineTap::Star), radio("Opens it", InoInkEntry::SetHeadlineTap(HeadlineTap::Open), s.headline_tap == HeadlineTap::Open)],
+        ),
+        EntryKind::SubMenu(
+            "At the end of an article".into(),
+            vec![radio("Swipe again to continue", InoInkEntry::SetContinueOnSwipe(true), s.continue_on_swipe), radio("Wait for a tap", InoInkEntry::SetContinueOnSwipe(false), !s.continue_on_swipe)],
+        ),
+    ];
     entries.push(EntryKind::SubMenu(
         "Offline storage".into(),
-        [256u64, 512, 1024, 2048].iter().map(|b| EntryKind::RadioButton(format!("{b} MB"), EntryId::InoInk(InoInkEntry::CacheBudget(*b)), budget == *b)).collect(),
+        [256u64, 512, 1024, 2048].iter().map(|b| EntryKind::RadioButton(format!("{b} MB"), EntryId::InoInk(InoInkEntry::CacheBudget(*b)), s.cache_budget_mb == *b)).collect(),
     ));
-    let days = context.settings.inoink.recent_unread_days;
     entries.push(EntryKind::SubMenu(
         "Keep unread for".into(),
-        [7i64, 30, 90].iter().map(|d| EntryKind::RadioButton(format!("{d} days"), EntryId::InoInk(InoInkEntry::UnreadDays(*d)), days == *d)).collect(),
+        [7i64, 30, 90].iter().map(|d| EntryKind::RadioButton(format!("{d} days"), EntryId::InoInk(InoInkEntry::UnreadDays(*d)), s.recent_unread_days == *d)).collect(),
     ));
+    if CURRENT_DEVICE.has_page_turn_buttons() {
+        let b = context.settings.button_scheme;
+        entries.push(EntryKind::SubMenu(
+            "Page-turn buttons".into(),
+            vec![
+                EntryKind::RadioButton(ButtonScheme::Natural.to_string(), EntryId::SetButtonScheme(ButtonScheme::Natural), b == ButtonScheme::Natural),
+                EntryKind::RadioButton(ButtonScheme::Inverted.to_string(), EntryId::SetButtonScheme(ButtonScheme::Inverted), b == ButtonScheme::Inverted),
+            ],
+        ));
+    }
+    if CURRENT_DEVICE.has_gyroscope() {
+        let lock = context.settings.rotation_lock;
+        entries.push(EntryKind::SubMenu(
+            "Rotation".into(),
+            vec![
+                EntryKind::RadioButton("Auto".into(), EntryId::SetRotationLock(None), lock.is_none()),
+                EntryKind::Separator,
+                EntryKind::RadioButton("Portrait".into(), EntryId::SetRotationLock(Some(RotationLock::Portrait)), lock == Some(RotationLock::Portrait)),
+                EntryKind::RadioButton("Landscape".into(), EntryId::SetRotationLock(Some(RotationLock::Landscape)), lock == Some(RotationLock::Landscape)),
+                EntryKind::RadioButton("Ignore".into(), EntryId::SetRotationLock(Some(RotationLock::Current)), lock == Some(RotationLock::Current)),
+            ],
+        ));
+    }
+    entries.push(EntryKind::CheckBox("Invert colors".into(), EntryId::ToggleInverted, context.fb.inverted()));
+    entries
+}
+
+fn status_entries(context: &Context) -> Vec<EntryKind> {
+    let mut entries = vec![
+        EntryKind::Message(context.inoink.status_text(), None),
+        EntryKind::Message(format!("Changes waiting to send: {}", context.inoink.pending()), None),
+    ];
+    if let Some(q) = context.inoink.store().and_then(|s| s.get_meta("quota").ok().flatten()) {
+        let q = inoink::api::Quota::from_json(&q);
+        let r1 = q.remaining(inoink::api::Zone::One);
+        let r2 = q.remaining(inoink::api::Zone::Two);
+        let est = if r1.estimated { " (estimated)" } else { "" };
+        entries.push(EntryKind::Message(format!("Inoreader today: {} of {} reads, {} of {} writes left{est}", r1.remaining, r1.limit, r2.remaining, r2.limit), None));
+    }
+    entries.push(EntryKind::Message("Karakeep: not set up".into(), None));
+    entries.push(EntryKind::Message(format!("Version {}", inoink::VERSION), None));
     entries
 }
 

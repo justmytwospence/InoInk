@@ -9,7 +9,7 @@ use crate::geom::{divide, halves, CycleDir, Dir, Rectangle};
 use crate::gesture::GestureEvent;
 use crate::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use crate::unit::scale_by_dpi;
-use crate::view::common::{locate, locate_by_id, toggle_main_menu_with};
+use crate::view::common::{locate, locate_by_id};
 use crate::view::dialog::Dialog;
 use crate::view::filler::Filler;
 use crate::view::icon::Icon;
@@ -593,6 +593,15 @@ impl InoInkHome {
             InoInkEntry::OpenDetails(id) => {
                 hub.send(Event::OpenDetails(*id)).ok();
             }
+            InoInkEntry::SetHeadlineTap(h) => {
+                context.settings.inoink.headline_tap = *h;
+                context.inoink.settings.headline_tap = *h;
+                self.reset(hub, rq, context);
+            }
+            InoInkEntry::SetContinueOnSwipe(b) => {
+                context.settings.inoink.continue_on_swipe = *b;
+                context.inoink.settings.continue_on_swipe = *b;
+            }
             other => match manage::apply(context, other, None) {
                 Ok(m) => {
                     if let Some(m) = m {
@@ -678,17 +687,8 @@ impl View for InoInkHome {
                 true
             }
             Event::ToggleNear(ViewId::MainMenu, rect) => {
-                let mut extra = vec![
-                    EntryKind::Message(context.inoink.status_text(), None),
-                    EntryKind::Command("Sync now".to_string(), EntryId::InoInk(InoInkEntry::SyncNow)),
-                    EntryKind::Command("Mark list read...".to_string(), EntryId::InoInk(InoInkEntry::MarkListRead)),
-                    EntryKind::SubMenu("Manage".to_string(), manage::manage_entries(context)),
-                    EntryKind::Separator,
-                ];
-                if let Some(e) = context.inoink.provision_error.clone() {
-                    extra.insert(0, EntryKind::Message(format!("Provisioning failed: {e}"), None));
-                }
-                toggle_main_menu_with(self, rect, None, extra, rq, context);
+                let entries = manage::main_menu_entries(context);
+                self.toggle_menu(ViewId::MainMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::BatteryMenu, rect) => {
