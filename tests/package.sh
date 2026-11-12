@@ -44,19 +44,35 @@ make_pkg 1.2.0
 check_not "refuses a directory that is not a Kobo" sh scripts/install-inoink.sh "$WORK/pkg-1.0.0.tar.gz" "$WORK"
 check "installs 1.0.0 with the launcher entry" sh scripts/install-inoink.sh "$WORK/pkg-1.0.0.tar.gz" "$KOBO" --menu
 B="$KOBO/.adds/inoink"
-check "active release is 1.0.0" test "$(cat "$B/active-release")" = 1.0.0
+apply_update() { INOINK_UPDATE_ONLY=1 sh "$B/current/inoink.sh" > /dev/null 2>&1 < /dev/null; }
+check "the computer copies only the package, its checksum and the entry point" test -f "$B/INSTALL.TGZ" -a -f "$B/INSTALL.SUM" -a ! -d "$B/releases/1.0.0"
+apply_update
+check "the Kobo installs it: active release is 1.0.0" test "$(cat "$B/active-release")" = 1.0.0
+check "the package is removed once installed" test ! -e "$B/INSTALL.TGZ" -a ! -e "$B/INSTALL.SUM"
 check "launcher menu entry written" test -f "$KOBO/.adds/nm/inoink"
 check "unrelated launcher entries and apps untouched" test "$(cat "$KOBO/.adds/other/file")" = keep
 
 # User data survives an update, the previous release is kept, older ones are pruned.
 echo "my data" > "$B/data/inoink.db"
 check "updates to 1.1.0" sh scripts/install-inoink.sh "$WORK/pkg-1.1.0.tar.gz" "$KOBO"
+apply_update
 check "data preserved across update" test "$(cat "$B/data/inoink.db")" = "my data"
 check "previous release recorded" test "$(cat "$B/previous-release")" = 1.0.0
+mkdir -p "$B/releases/FSCK0000.000"
 check "updates to 1.2.0" sh scripts/install-inoink.sh "$WORK/pkg-1.2.0.tar.gz" "$KOBO"
+apply_update
+check "disk-check leftovers among releases are removed" test ! -e "$B/releases/FSCK0000.000"
 check "release two versions back is pruned" test ! -d "$B/releases/1.0.0"
 check "previous release (1.1.0) kept for rollback" test -d "$B/releases/1.1.0"
-check "no staging directories left behind" test -z "$(ls -A "$B/releases" | grep '^\.stage' || true)"
+check "no staging directories left behind" test -z "$(ls -A "$B/releases" | grep '^\.' || true)"
+
+# An unfinished or damaged copy is never installed.
+cp "$WORK/pkg-1.0.0.tar.gz" "$B/INSTALL.TGZ"
+apply_update
+check "a package without its checksum waits" test -f "$B/INSTALL.TGZ" -a "$(cat "$B/active-release")" = 1.2.0
+echo "0 0" > "$B/INSTALL.SUM"
+apply_update
+check "a package with a wrong checksum is discarded" test ! -e "$B/INSTALL.TGZ" -a "$(cat "$B/active-release")" = 1.2.0
 
 # --- package safety ----------------------------------------------------------------------------
 EVIL="$WORK/evil"
@@ -65,6 +81,9 @@ echo "../../escape" > "$EVIL/inoink/VERSION"
 tar -czf "$WORK/evil.tar.gz" -C "$EVIL" inoink
 check_not "rejects a package with a traversal version name" sh scripts/install-inoink.sh "$WORK/evil.tar.gz" "$KOBO"
 check "nothing escaped the install directory" test ! -e "$KOBO/.adds/escape"
+cp "$WORK/evil.tar.gz" "$B/INSTALL.TGZ"; cksum < "$WORK/evil.tar.gz" > "$B/INSTALL.SUM"
+apply_update
+check "the Kobo also refuses a traversal version name" test ! -e "$KOBO/.adds/escape" -a "$(cat "$B/active-release")" = 1.2.0 -a ! -e "$B/INSTALL.TGZ"
 
 # --- dispatcher ----------------------------------------------------------------------------------
 export FAKE=1

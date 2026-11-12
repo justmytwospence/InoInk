@@ -2,7 +2,8 @@
 # Installs or updates InoInk on a mounted Kobo.
 #   install-inoink.sh <package.tar.gz> <mount-point-of-KOBOeReader> [--menu]
 # Only .adds/inoink is touched (plus .adds/nm/inoink with --menu when NickelMenu is installed).
-# User data (.adds/inoink/data) is never modified; the previous release is kept for rollback.
+# User data (.adds/inoink/data) is never modified. The Kobo installs the release when InoInk next
+# starts and keeps the previous one for rollback.
 set -eu
 PKG=${1:?package}
 MNT=${2:?mount point}
@@ -29,40 +30,19 @@ VERSION=$(cat "$TMP/inoink/VERSION")
 case "$VERSION" in ''|.*|*[!A-Za-z0-9._-]*) echo "error: bad version in package" >&2; exit 1 ;; esac
 
 BASE="$MNT/.adds/inoink"
-mkdir -p "$BASE/releases" "$BASE/current" "$BASE/data"
-STAGE="$BASE/releases/.stage-$VERSION"
-rm -rf "$STAGE"
-cp -R "$TMP/inoink/release" "$STAGE"
-chmod +x "$STAGE/inoink" "$STAGE/inoink-run.sh"
+mkdir -p "$BASE/current" "$BASE/data"
+# The computer only copies two files with plain 8.3 names; the Kobo unpacks the release itself the
+# next time InoInk starts (see contrib/inoink/inoink-dispatch.sh). Folders and long names created
+# from macOS were renamed to FSCK0000.000 by the Kobo's disk check, which broke updates.
+rm -f "$BASE/INSTALL.SUM"
+cp "$PKG" "$BASE/INSTALL.TGZ"
 sync
-# Verify every copied file before activating the release.
-( cd "$TMP/inoink/release" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do
-	a=$(cksum < "$f"); b=$(cksum < "$STAGE/$f" 2>/dev/null || echo missing)
-	[ "$a" = "$b" ] || { echo "error: $f did not copy correctly" >&2; exit 1; }
-done ) || { rm -rf "$STAGE"; echo "error: the copy to the Kobo is damaged; nothing was activated" >&2; exit 1; }
-[ "$(cd "$TMP/inoink/release" && find . -type f | wc -l)" = "$(cd "$STAGE" && find . -type f | wc -l)" ] || { rm -rf "$STAGE"; echo "error: unexpected files in the copy; nothing was activated" >&2; exit 1; }
-rm -rf "$BASE/releases/$VERSION"
-mv "$STAGE" "$BASE/releases/$VERSION"
+[ "$(cksum < "$PKG")" = "$(cksum < "$BASE/INSTALL.TGZ")" ] || { rm -f "$BASE/INSTALL.TGZ"; echo "error: the copy to the Kobo is damaged; nothing was changed" >&2; exit 1; }
+cp "$TMP/inoink/dispatch/inoink.sh" "$BASE/current/inoink.sh"
+chmod +x "$BASE/current/inoink.sh" 2>/dev/null || true
+# The checksum goes last: the Kobo ignores a package without one.
+cksum < "$PKG" > "$BASE/INSTALL.SUM"
 sync
-
-# Keep the previous release for rollback, then activate by replacing the small manifest.
-if [ -f "$BASE/active-release" ]; then
-	PREV=$(tr -d '\r\n ' < "$BASE/active-release")
-	[ "$PREV" != "$VERSION" ] && printf '%s\n' "$PREV" > "$BASE/previous-release"
-fi
-cp "$TMP/inoink/dispatch/inoink.sh" "$BASE/current/inoink.sh.new"
-chmod +x "$BASE/current/inoink.sh.new"
-mv "$BASE/current/inoink.sh.new" "$BASE/current/inoink.sh"
-printf '%s\n' "$VERSION" > "$BASE/active-release.new"
-mv "$BASE/active-release.new" "$BASE/active-release"
-sync
-
-# Drop releases older than the previous one.
-KEEP="$VERSION $(cat "$BASE/previous-release" 2>/dev/null | tr -d '\r\n ' || true)"
-for d in "$BASE"/releases/*; do
-	n=$(basename "$d")
-	case " $KEEP " in *" $n "*) ;; *) rm -rf "$d" ;; esac
-done
 
 if [ "$MENU" = 1 ]; then
 	if [ -d "$MNT/.adds/nm" ]; then
@@ -73,8 +53,8 @@ if [ "$MENU" = 1 ]; then
 fi
 sync
 if [ "${INOINK_NO_EJECT:-}" != 1 ] && command -v diskutil >/dev/null 2>&1; then
-	diskutil eject "$MNT" >/dev/null && echo "InoInk $VERSION installed and the Kobo ejected; you can unplug it." && exit 0
-	echo "InoInk $VERSION installed, but the Kobo could not be ejected; eject it before unplugging." >&2
+	diskutil eject "$MNT" >/dev/null && echo "InoInk $VERSION copied and the Kobo ejected; it installs when you next open InoInk." && exit 0
+	echo "InoInk $VERSION copied, but the Kobo could not be ejected; eject it before unplugging." >&2
 	exit 0
 fi
-echo "InoInk $VERSION installed. Eject the Kobo before unplugging it."
+echo "InoInk $VERSION copied; it installs when you next open InoInk. Eject the Kobo before unplugging it."

@@ -32,7 +32,11 @@ replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`
 1. Connect the Kobo by USB and open its storage.
 2. Install: `scripts/install-inoink.sh dist/inoink-<version>-kobo.tar.gz /path/to/KOBOeReader --menu`
    (`--menu` adds the NickelMenu entry when NickelMenu is installed).
-3. Eject the Kobo, open the NickelMenu entry "InoInk". The first launch creates the device key.
+3. Eject the Kobo, open the NickelMenu entry "InoInk". The computer only copies the package
+   (`.adds/inoink/INSTALL.TGZ` and its checksum); InoInk unpacks and activates it when it starts,
+   because folders and long file names created from macOS get renamed to `FSCK0000.000` by the
+   Kobo's disk check. `data/inoink.log` says "installed release <version>". The first launch also
+   creates the device key.
 4. Quit InoInk (main menu, Quit), reconnect the Kobo, then sign in **on the computer**:
 
 ```sh
