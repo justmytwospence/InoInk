@@ -179,9 +179,12 @@ fn categories_list_folders_in_inoreader_order() {
     }
     e.context.inoink.set_tab(Tab::Categories);
     let mut rq = RenderQueue::new();
-    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     let labels = home.category_labels();
     assert_eq!(&labels[..3], &["Folders".to_string(), "Beta".to_string(), "Alpha".to_string()]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::CategorySort(CategorySort::Name))));
+    assert_eq!(&home.category_labels()[..3], &["Folders".to_string(), "Alpha".to_string(), "Beta".to_string()]);
+    assert_eq!(e.context.inoink.category_sort(), CategorySort::Name, "the choice is remembered");
 }
 
 #[test]

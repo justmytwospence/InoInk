@@ -99,8 +99,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   later** (it gets a bookmark and a bar at the left edge). Main menu > Settings > Headlines swaps
   these. In Read later, holding a headline shows its menu.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
-  search, mark this list read (double check mark; shows a count first), sync, Wi-Fi, light, menu.
-  Swiping down on a list also syncs.
+  search, mark this list read (circled check mark; shows a count first), sync, Wi-Fi, light, menu.
+  The sync icon turns dotted while a sync runs; the main menu shows the sync status.
 - Swiping back on the first page of an article opens the previous article of the list at its
   beginning.
 - A thin line along the bottom of an article shows how far through it you are.
@@ -111,7 +111,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
-- The footer shows sync status (tap it to sync now). Swipe or use the page buttons to move between
+  On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
+- Swipe or use the page buttons to move between
   pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:

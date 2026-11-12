@@ -106,11 +106,6 @@ impl View for List {
                         bus.push_back(Event::Page(CycleDir::Previous));
                         return true;
                     }
-                    Dir::South => {
-                        // Pull down to refresh.
-                        bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
-                        return true;
-                    }
                     _ => {}
                 }
             }
@@ -234,6 +229,7 @@ impl InoInkHome {
             end_count: 0,
         };
         home.load_page(hub, rq, context);
+        home.update_sync_icon(rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
@@ -568,9 +564,14 @@ impl InoInkHome {
         } else {
             (self.page > 0, self.next.is_some() || self.next_is_end, self.page + 1)
         };
-        let status = context.inoink.status_text();
         let opts = Self::effective_options(context);
-        let view_text = if self.showing_cats || self.search.is_some() { String::new() } else { format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short()) };
+        let view_text = if self.search.is_some() {
+            String::new()
+        } else if self.showing_cats {
+            format!("{} \u{25be}", context.inoink.category_sort().short())
+        } else {
+            format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short())
+        };
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
         let rect = footer.rect;
         let side = rect.height() as i32;
@@ -581,20 +582,20 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
+        // The view choice sits in the middle of the bar, the page number to its right; the
+        // equal space on its left keeps it centered.
         let inner = rect.width() as i32 - 2 * side;
-        let view_w = inner * 37 / 100;
-        let page_w = inner / 6;
-        let status_w = inner - view_w - page_w;
+        let side_w = inner / 4;
         let x0 = rect.min.x + side;
-        let view_rect = rect![x0, rect.min.y, x0 + view_w, rect.max.y];
+        let x1 = rect.max.x - side;
+        footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
+        let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
         if view_text.is_empty() {
             footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
         } else {
             footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
         }
-        let sx = x0 + view_w;
-        footer.children.push(Box::new(Label::new(rect![sx, rect.min.y, sx + status_w, rect.max.y], status, Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))))));
-        footer.children.push(Box::new(Label::new(rect![sx + status_w, rect.min.y, rect.max.x - side, rect.max.y], format!("Page {page}"), Align::Center)));
+        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], format!("Page {page}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
         if next {
             footer.children.push(Box::new(Icon::new("arrow-right", next_rect, Event::Page(CycleDir::Next))));
@@ -662,6 +663,18 @@ impl InoInkHome {
         self.end_only = false;
         self.next_is_end = false;
         self.load_page(hub, rq, context);
+    }
+
+    /// The sync button turns into a "syncing" icon while a sync runs.
+    fn update_sync_icon(&mut self, rq: &mut RenderQueue, context: &Context) {
+        let name = if matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing) { "syncing" } else { "sync" };
+        let Some(top) = self.children[TOP].downcast_mut::<TopBar>() else { return };
+        for icon in top.children_mut().iter_mut().filter_map(|c| c.downcast_mut::<Icon>()) {
+            if matches!(icon.name.as_str(), "sync" | "syncing") && icon.name != name {
+                icon.name = name.to_string();
+                rq.add(RenderData::new(icon.id(), icon.rect, UpdateMode::Gui));
+            }
+        }
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -860,10 +873,14 @@ impl InoInkHome {
                 context.inoink.set_view_options(v);
                 self.reset(hub, rq, context);
             }
+            InoInkEntry::CategorySort(s) => {
+                context.inoink.set_category_sort(*s);
+                self.reset(hub, rq, context);
+            }
             InoInkEntry::SyncNow => {
                 if context.inoink.handle.is_some() {
+                    // The sync button shows the progress.
                     context.inoink.submit(inoink::runtime::Command::SyncNow);
-                    self.notify("Syncing", hub, rq, context);
                 } else {
                     self.notify("Sign in to sync. See the setup guide.", hub, rq, context);
                 }
@@ -1002,6 +1019,17 @@ impl View for InoInkHome {
                 self.toggle_menu(ViewId::TitleMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
+            Event::ToggleNear(ViewId::SortMenu, rect) if self.showing_cats => {
+                let current = context.inoink.category_sort();
+                let mut entries = vec![EntryKind::Message("Sort by".to_string(), None)];
+                for s in CategorySort::ALL {
+                    entries.push(EntryKind::RadioButton(s.label().to_string(), EntryId::InoInk(InoInkEntry::CategorySort(s)), s == current));
+                }
+                // The menu opens upward from the footer and lists its entries bottom to top.
+                entries.reverse();
+                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                true
+            }
             Event::ToggleNear(ViewId::SortMenu, rect) => {
                 let stored = context.inoink.view_options();
                 let mut entries = vec![
@@ -1130,9 +1158,8 @@ impl View for InoInkHome {
                 }
                 if refresh {
                     self.load_page(hub, rq, context);
-                } else {
-                    self.rebuild_footer(rq, context);
                 }
+                self.update_sync_icon(rq, context);
                 true
             }
             Event::Reseed => {
@@ -1140,6 +1167,7 @@ impl View for InoInkHome {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
                 }
+                self.update_sync_icon(rq, context);
                 // Coming back from the reader (or a menu): repaint everything.
                 rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 true

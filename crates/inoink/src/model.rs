@@ -294,6 +294,36 @@ impl ArticleSort {
     }
 }
 
+/// The order of folders (and tags) in the Categories tab.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CategorySort {
+    /// Inoreader's own order (folders), tags A-Z.
+    #[default]
+    Inoreader,
+    Name,
+    MostUnread,
+}
+
+impl CategorySort {
+    pub const ALL: [CategorySort; 3] = [CategorySort::Inoreader, CategorySort::Name, CategorySort::MostUnread];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CategorySort::Inoreader => "Inoreader order",
+            CategorySort::Name => "Name A\u{2013}Z",
+            CategorySort::MostUnread => "Most unread first",
+        }
+    }
+
+    pub fn short(self) -> &'static str {
+        match self {
+            CategorySort::Inoreader => "Inoreader order",
+            CategorySort::Name => "A\u{2013}Z",
+            CategorySort::MostUnread => "Most unread",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArticleGroup {
     #[default]

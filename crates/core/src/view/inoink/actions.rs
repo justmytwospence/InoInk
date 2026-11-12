@@ -45,6 +45,7 @@ pub enum InoInkEntry {
     UnreadOnly(bool),
     ViewGroup(ArticleGroup),
     ViewSort(ArticleSort),
+    CategorySort(CategorySort),
     SyncNow,
     Article(ArticleAction),
     UndoDone,
