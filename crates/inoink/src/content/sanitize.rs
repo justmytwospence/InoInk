@@ -467,6 +467,21 @@ pub fn sanitize_fragment(raw: &str, base_url: Option<&str>) -> (String, String) 
     (cx.out, cx.text)
 }
 
+/// A complete XHTML document: the title as heading, a meta line, then already sanitized `body`.
+pub fn document(title: &str, meta: &str, body: &str) -> String {
+    let mut html = String::with_capacity(body.len() + 512);
+    html.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>");
+    esc(title, &mut html);
+    html.push_str("</title></head><body><h1>");
+    esc(title, &mut html);
+    html.push_str("</h1><p class=\"inoink-meta\">");
+    esc(meta, &mut html);
+    html.push_str("</p><hr/>");
+    html.push_str(body);
+    html.push_str("</body></html>\n");
+    html
+}
+
 /// Sanitizes `raw` and wraps it in a complete XHTML document. `assets` says which images are
 /// already downloaded; the rest become retryable placeholders.
 pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, assets: &AssetMap) -> PreparedArticle {
@@ -479,28 +494,20 @@ pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, as
         Ctx { base, assets, out: String::new(), text: String::new(), refs: Vec::new(), placeholders: 0, in_pre: false, images: true };
     cx.children(&root, 0);
 
-    let mut html = String::with_capacity(cx.out.len() + 512);
-    html.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>");
-    esc(&meta.title, &mut html);
-    html.push_str("</title></head><body><h1>");
-    esc(&meta.title, &mut html);
-    html.push_str("</h1><p class=\"inoink-meta\">");
     let mut parts: Vec<&str> = Vec::new();
     for p in [meta.source.as_str(), meta.author.as_str(), meta.date.as_str()] {
         if !p.trim().is_empty() {
             parts.push(p.trim());
         }
     }
-    esc(&parts.join(" \u{b7} "), &mut html);
-    html.push_str("</p><hr/>");
-    html.push_str(&cx.out);
+    let mut body = cx.out;
     if let Some(label) = &meta.discussion {
-        html.push_str("<p class=\"inoink-switch\"><a href=\"");
-        html.push_str(super::discussion::COMMENTS_SCHEME);
-        html.push_str("\">");
-        esc(label, &mut html);
-        html.push_str("</a></p>");
+        body.push_str("<p class=\"inoink-switch\"><a href=\"");
+        body.push_str(super::discussion::COMMENTS_SCHEME);
+        body.push_str("\">");
+        esc(label, &mut body);
+        body.push_str("</a></p>");
     }
-    html.push_str("</body></html>\n");
+    let html = document(&meta.title, &parts.join(" \u{b7} "), &body);
     PreparedArticle { html, text: cx.text.trim().to_string(), assets: cx.refs, placeholders: cx.placeholders }
 }

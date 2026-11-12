@@ -5,8 +5,9 @@
 //! reference a document can contain and nothing outside it can be reached.
 
 use crate::content::discussion::{self, Discussion, Site, Thread};
-use crate::content::extract::{extract_original, Extraction, MIN_TEXT_CHARS};
+use crate::content::extract::{extract_main, extract_original, page_title, Extraction, MIN_TEXT_CHARS};
 use crate::content::images::{download_image, fetch_following, DownloadError, Fetcher, ImageLimits};
+use crate::content::sanitize::{document, sanitize_fragment};
 use crate::content::{asset_name, prepare_article, ArticleMeta, AssetMap, AssetState};
 use crate::error::{Error, Result};
 use crate::model::*;
@@ -573,6 +574,59 @@ impl Cache {
         let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
         let raw_hash = format!("extract:{}", sha256_hex(html.as_bytes()));
         self.process(store, fetcher, id, &rec, html, Some(page_url), &raw_hash, ctl)
+    }
+
+    // ---- link pages -------------------------------------------------------------------------
+
+    /// Where the reading view of a linked page is kept.
+    pub fn web_path(&self, url: &str) -> PathBuf {
+        self.dir.join("web").join(format!("{}.html", &sha256_hex(url.as_bytes())[..16]))
+    }
+
+    /// Fetches a linked page (https only), extracts its main text and writes it as a document
+    /// without images. The inner result is the file, or a user-facing reason it cannot be shown.
+    pub fn web_page(&self, fetcher: &dyn Fetcher, url: &str, ctl: &Control) -> Result<std::result::Result<PathBuf, String>> {
+        let Ok(u) = url::Url::parse(url) else { return Ok(Err("this is not a web address".into())) };
+        if u.scheme() != "https" {
+            return Ok(Err("only https pages can be opened here".into()));
+        }
+        let fetched = match fetch_following(fetcher, &u, &self.cfg.limits, &ctl.cancel) {
+            Ok(f) => f,
+            Err(Error::InvalidRequest(m)) => return Ok(Err(format!("the page could not be loaded ({m})"))),
+            Err(e) => return Err(e),
+        };
+        if !fetched.content_type.as_deref().map(|c| c.to_ascii_lowercase().contains("html")).unwrap_or(false) {
+            return Ok(Err("the page is not HTML".into()));
+        }
+        let page = String::from_utf8_lossy(&fetched.body).into_owned();
+        let Some(main) = extract_main(&page) else { return Ok(Err("no article text was found on the page".into())) };
+        let (frag, text) = sanitize_fragment(&main, Some(url));
+        if text.chars().count() < 200 {
+            return Ok(Err("the page has too little text to show (it may need a login)".into()));
+        }
+        let host = u.host_str().unwrap_or("").to_string();
+        let title = page_title(&page).unwrap_or_else(|| host.clone());
+        let html = document(&title, &host, &frag);
+        let path = self.web_path(url);
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+            // Reading views are only kept for a week.
+            if let Ok(entries) = fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    let old = e
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.elapsed().ok())
+                        .is_some_and(|age| age > Duration::from_secs(7 * 86_400));
+                    if old {
+                        let _ = fs::remove_file(e.path());
+                    }
+                }
+            }
+        }
+        atomic_write(&path, html.as_bytes())?;
+        Ok(Ok(path))
     }
 
     // ---- policy ---------------------------------------------------------------------------

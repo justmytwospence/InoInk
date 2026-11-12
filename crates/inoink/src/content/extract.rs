@@ -87,6 +87,40 @@ fn collect(n: &Handle, depth: usize, out: &mut Vec<(Handle, String, usize)>) {
     }
 }
 
+/// The title of a page: its `og:title`, else its `<title>`, with whitespace collapsed.
+pub fn page_title(html: &str) -> Option<String> {
+    fn text_of(n: &Handle, out: &mut String) {
+        if let NodeData::Text { contents } = &n.data {
+            out.push_str(&contents.borrow());
+        }
+        for c in n.children.borrow().iter() {
+            text_of(c, out);
+        }
+    }
+    fn walk(n: &Handle, og: &mut Option<String>, title: &mut Option<String>) {
+        if let Some(nm) = name(n) {
+            if nm == "meta" && attr(n, "property").as_deref() == Some("og:title") && og.is_none() {
+                *og = attr(n, "content");
+            } else if nm == "title" && title.is_none() {
+                let mut t = String::new();
+                text_of(n, &mut t);
+                *title = Some(t);
+            }
+        }
+        for c in n.children.borrow().iter() {
+            walk(c, og, title);
+        }
+    }
+    let dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);
+    let (mut og, mut title) = (None, None);
+    walk(&dom.document, &mut og, &mut title);
+    let clean = |t: String| {
+        let t = t.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!t.is_empty()).then_some(t)
+    };
+    og.and_then(clean).or_else(|| title.and_then(clean))
+}
+
 /// Returns the inner HTML of the likely main content element, if there is one.
 pub fn extract_main(html: &str) -> Option<String> {
     let dom = parse_document(RcDom::default(), ParseOpts::default()).one(html);

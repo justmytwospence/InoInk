@@ -46,6 +46,8 @@ pub enum Command {
     RetryImage(ArticleId, String),
     ExtractOriginal(ArticleId),
     RefreshComments(ArticleId),
+    /// Fetch a linked page and prepare its reading view.
+    FetchPage(String),
     Lifecycle(Lifecycle),
     Quiesce(Sender<()>),
     Shutdown,
@@ -78,6 +80,8 @@ pub enum Update {
     CacheFailed(ArticleId, String),
     Extracted(ArticleId, std::result::Result<DownloadState, String>),
     CommentsRefreshed(ArticleId, std::result::Result<u32, String>),
+    /// A linked page is ready (the file) or cannot be shown (why).
+    PageReady(String, std::result::Result<std::path::PathBuf, String>),
     /// The worker stopped touching the database (USB) or the network (suspend).
     Quiesced,
 }
@@ -267,6 +271,12 @@ impl Worker {
                 if !self.usb {
                     let r = self.engine.refresh_comments(id).map_err(|e| e.to_string());
                     self.send(Update::CommentsRefreshed(id, r));
+                }
+            }
+            Command::FetchPage(url) => {
+                if !self.usb {
+                    let r = self.engine.fetch_page(&url).unwrap_or_else(|e| Err(e.to_string()));
+                    self.send(Update::PageReady(url, r));
                 }
             }
             Command::Lifecycle(l) => self.lifecycle(l),

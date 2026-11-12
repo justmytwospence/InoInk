@@ -609,6 +609,12 @@ impl SyncEngine {
         }
     }
 
+    /// Fetches a linked page for the reading view.
+    pub fn fetch_page(&mut self, url: &str) -> Result<std::result::Result<std::path::PathBuf, String>> {
+        let ctl = self.control();
+        self.cache.web_page(self.fetcher.as_ref(), url, &ctl)
+    }
+
     /// Re-downloads the comments of a Hacker News or Lobsters link post.
     pub fn refresh_comments(&mut self, id: ArticleId) -> Result<u32> {
         let ctl = self.control();
