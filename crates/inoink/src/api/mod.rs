@@ -77,6 +77,8 @@ struct Inner {
     store: Arc<dyn TokenStore>,
     tokens: Mutex<Option<Tokens>>,
     quota: Mutex<Quota>,
+    /// API requests sent by this client (token refreshes excluded).
+    sent: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Clone)]
@@ -104,7 +106,15 @@ impl ApiClient {
     pub fn new(cfg: AppConfig, transport: Arc<dyn Transport>, clock: Arc<dyn Clock>, store: Arc<dyn TokenStore>) -> Result<ApiClient> {
         let tokens = store.load()?;
         Ok(ApiClient {
-            inner: Arc::new(Inner { cfg, transport, clock, store, tokens: Mutex::new(tokens), quota: Mutex::new(Quota::default()) }),
+            inner: Arc::new(Inner {
+                cfg,
+                transport,
+                clock,
+                store,
+                tokens: Mutex::new(tokens),
+                quota: Mutex::new(Quota::default()),
+                sent: Default::default(),
+            }),
             prio: Priority::Background,
         })
     }
@@ -124,6 +134,11 @@ impl ApiClient {
 
     pub fn quota(&self) -> Quota {
         self.inner.quota.lock().unwrap().clone()
+    }
+
+    /// How many API requests this client has sent so far.
+    pub fn requests_sent(&self) -> u64 {
+        self.inner.sent.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn has_tokens(&self) -> bool {
@@ -174,6 +189,7 @@ impl ApiClient {
             let access = self.access_token(false)?;
             let req = HttpRequest { method, url: self.url(path), headers: self.base_headers(&access), body: body.clone() };
             self.inner.quota.lock().unwrap().note_sent(zone);
+            self.inner.sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let resp = match self.inner.transport.send(&req) {
                 Ok(r) => r,
                 Err(Error::UnknownOutcome(m)) if method == Method::Get => return Err(Error::Retryable(m)),

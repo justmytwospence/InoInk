@@ -525,7 +525,61 @@ fn automatic_cycles_respect_the_minimum_interval_but_flush_writes() {
     r.clock.advance(901);
     let rep = r.engine.run_cycle(Reason::Wake);
     assert!(!rep.skipped_interval);
-    assert!(r.fake.count("items/ids") > 0);
+    assert_eq!(rep.unchanged, vec!["starred", "unread"], "the unread counts show nothing changed elsewhere");
+    assert_eq!(r.fake.count("items/ids"), 0);
+    assert_eq!(r.fake.count("/unread-count"), 1);
+    assert_eq!(r.fake.count("/subscription/list"), 0, "the organization is not due");
+    assert_eq!(rep.requests, 1, "a sync with nothing new costs one request");
+    // Read elsewhere: the count changes and the unread listing runs again.
+    r.fake.with(|s| s.arts.get_mut(&3).unwrap().read = true);
+    r.clock.advance(901);
+    let rep = r.engine.run_cycle(Reason::Wake);
+    assert_eq!(rep.reconciled, vec!["unread"]);
+    assert!(r.eff(3, Membership::Read));
+    assert_eq!(r.fake.count("items/ids"), 2, "listed, and the absence confirmed");
+}
+
+#[test]
+fn unchanged_counts_still_list_again_after_the_maximum_age() {
+    let mut r = rig();
+    seed(&r);
+    r.full();
+    r.fake.with(|s| s.arts.get_mut(&3).unwrap().read = true);
+    r.full();
+    // Read one article and mark another unread elsewhere: the count and the newest unread
+    // article stay the same.
+    r.fake.with(|s| {
+        s.arts.get_mut(&2).unwrap().read = true;
+        s.arts.get_mut(&3).unwrap().read = false;
+    });
+    let rep = r.full();
+    assert!(rep.unchanged.contains(&"unread"));
+    r.clock.advance(SyncConfig::default().reconcile_max_age_secs);
+    let rep = r.full();
+    assert!(rep.reconciled.contains(&"unread"));
+    assert!(r.eff(2, Membership::Read) && !r.eff(3, Membership::Read));
+}
+
+#[test]
+fn a_feed_followed_elsewhere_refreshes_the_organization() {
+    let mut r = rig();
+    seed(&r);
+    r.full();
+    r.fake.clear_log();
+    r.full();
+    assert_eq!(r.fake.count("/subscription/list"), 0);
+    r.fake.with(|s| {
+        s.subs.push(SSub {
+            id: "feed/https://other.example/rss".into(),
+            title: "Other".into(),
+            url: "https://other.example/rss".into(),
+            folders: vec![],
+            first_usec: 0,
+        })
+    });
+    let rep = r.full();
+    assert!(rep.refreshed_org);
+    assert!(r.engine.store.subscription("feed/https://other.example/rss").unwrap().is_some());
 }
 
 #[test]

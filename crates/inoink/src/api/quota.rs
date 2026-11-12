@@ -97,6 +97,17 @@ impl Quota {
         Remaining { remaining: limit.saturating_sub(used), limit, estimated: !s.observed }
     }
 
+    /// Requests counted against `z` in the current period (server-reported plus ours since).
+    pub fn used(&self, z: Zone) -> u32 {
+        let s = self.zone(z);
+        s.usage.unwrap_or(0) + s.sent_since
+    }
+
+    /// Unix time at which usage resets, when the server said so.
+    pub fn reset_at(&self) -> Option<i64> {
+        self.reset_at
+    }
+
     pub fn reserve(&self, z: Zone) -> u32 {
         let limit = self.remaining(z).limit;
         MIN_RESERVE.max(limit / 10)

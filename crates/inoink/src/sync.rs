@@ -26,6 +26,14 @@ pub struct SyncConfig {
     pub annotated_pages: usize,
     /// Automatic cycles refresh annotations no more often than this.
     pub annotations_interval_secs: i64,
+    /// Subscriptions, folders and their order are re-read at most this often, unless the unread
+    /// counts show a feed or folder that appeared or disappeared.
+    pub org_interval_secs: i64,
+    /// The same, for a sync the user asked for.
+    pub org_interval_explicit_secs: i64,
+    /// A membership whose unread count shows no change is not listed again, but never for
+    /// longer than this.
+    pub reconcile_max_age_secs: i64,
 }
 
 impl Default for SyncConfig {
@@ -39,6 +47,9 @@ impl Default for SyncConfig {
             cache_per_cycle: 20,
             annotated_pages: 2,
             annotations_interval_secs: 21600,
+            org_interval_secs: 21600,
+            org_interval_explicit_secs: 3600,
+            reconcile_max_age_secs: 21600,
         }
     }
 }
@@ -89,6 +100,10 @@ pub struct CycleReport {
     pub cached: usize,
     pub storage_paused: bool,
     pub skipped_interval: bool,
+    /// Memberships whose listing was skipped because the unread counts showed no change.
+    pub unchanged: Vec<&'static str>,
+    /// Inoreader API requests this pass sent.
+    pub requests: u64,
     /// Links sent (or refused) to other services during this pass.
     pub shares: Vec<ShareResult>,
     pub error: Option<SyncError>,
@@ -380,6 +395,7 @@ impl SyncEngine {
         let api = self.api.with_priority(prio);
         let ops = self.store.begin_org()?;
         let mut stop: Option<Error> = None;
+        let mut touched = false;
         for op in ops {
             if stop.is_some() || self.cancelled() {
                 self.store.set_org_state(op.id, "pending", "")?;
@@ -389,8 +405,12 @@ impl SyncEngine {
                 Ok(()) => {
                     self.store.finish_org(op.id)?;
                     rep.org_done += 1;
+                    touched = true;
                 }
-                Err(Error::InvalidRequest(m)) => self.store.set_org_state(op.id, "failed", &m)?,
+                Err(Error::InvalidRequest(m)) => {
+                    self.store.set_org_state(op.id, "failed", &m)?;
+                    touched = true;
+                }
                 Err(Error::UnknownOutcome(m)) => {
                     if Self::replay_safe(&op.kind) {
                         self.store.set_org_state(op.id, "pending", "")?;
@@ -408,6 +428,11 @@ impl SyncEngine {
                     stop = Some(e);
                 }
             }
+        }
+        if touched {
+            // Read the server's organization again at the next refresh: it confirms what was
+            // applied and restores what was rejected.
+            self.store.set_meta("org_refreshed", "0")?;
         }
         self.save_quota();
         match stop {
@@ -453,28 +478,108 @@ impl SyncEngine {
 
     // ---- refresh and reconciliation -----------------------------------------------------------
 
-    /// Refreshes subscriptions, folders/tags, unread counts and ordering. Skipped while local
-    /// organization changes are unacknowledged (they would be overwritten by older data).
-    pub fn refresh_organization(&mut self, prio: Priority) -> Result<bool> {
-        if self.store.org_pending()? {
-            return Ok(false);
-        }
+    /// Reads the unread counts (one request), then refreshes subscriptions, folders/tags and
+    /// ordering when they are due or the counts list a different set of feeds and folders.
+    /// The organization is not refreshed while local organization changes are unacknowledged
+    /// (they would be overwritten by older data). Returns the counts and whether the
+    /// organization was refreshed.
+    pub fn refresh_organization(&mut self, prio: Priority) -> Result<(crate::api::UnreadCounts, bool)> {
         let api = self.api.with_priority(prio);
-        let subs = api.subscriptions()?;
-        self.store.replace_subscriptions(&subs)?;
-        let tags = api.tags()?;
-        self.store.replace_tags(&tags)?;
         let counts = api.unread_counts()?;
         self.store.set_unread_counts(&counts.counts)?;
         if let Some(max) = counts.max {
             self.store.set_meta("unread_max", &max.to_string())?;
         }
+        if self.store.org_pending()? {
+            return Ok((counts, false));
+        }
+        let interval = if prio == Priority::Explicit { self.cfg.org_interval_explicit_secs } else { self.cfg.org_interval_secs };
+        let last = self.store.get_meta("org_refreshed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        if self.clock.now() - last < interval && !self.streams_changed(&counts)? {
+            return Ok((counts, false));
+        }
+        let subs = api.subscriptions()?;
+        self.store.replace_subscriptions(&subs)?;
+        let tags = api.tags()?;
+        self.store.replace_tags(&tags)?;
         let prefs = api.stream_preferences()?;
         for (stream, ordering) in prefs {
             self.store.set_stream_order(&stream, &ordering)?;
         }
         self.store.set_meta("org_refreshed", &self.clock.now().to_string())?;
-        Ok(true)
+        Ok((counts, true))
+    }
+
+    /// The unread counts list every feed and folder: a different set than the stored one means
+    /// something was followed, unfollowed, created, renamed or deleted elsewhere.
+    fn streams_changed(&self, counts: &crate::api::UnreadCounts) -> Result<bool> {
+        let relevant = |s: &str| s.starts_with("feed/") || s.starts_with("user/-/label/");
+        let server: BTreeSet<&str> = counts.counts.iter().map(|(s, ..)| s.as_str()).filter(|s| relevant(s)).collect();
+        let subs = self.store.subscriptions()?;
+        let tags = self.store.tags()?;
+        let local: BTreeSet<&str> =
+            subs.iter().map(|s| s.id.as_str()).chain(tags.iter().map(|t| t.id.as_str())).filter(|s| relevant(s)).collect();
+        Ok(server != local)
+    }
+
+    fn reconciled_key(m: &Membership) -> String {
+        format!("reconciled:{}", m.key())
+    }
+
+    /// Whether listing `m` again can be skipped: the server's count for `stream` equals the
+    /// articles stored with the listed value, its newest article is the one seen at the last
+    /// complete listing, and that listing is recent enough.
+    fn listing_unchanged(&self, m: &Membership, listed_value: bool, stream: &str, counts: &crate::api::UnreadCounts) -> Result<bool> {
+        let Some(&(_, n, newest)) = counts.counts.iter().find(|(s, ..)| s == stream) else { return Ok(false) };
+        // Capped counts say nothing.
+        if counts.max.is_some_and(|max| n >= max) || n as usize >= self.cfg.id_page_cap * 1000 {
+            return Ok(false);
+        }
+        let Some(last) = self.store.get_meta(&Self::reconciled_key(m))? else { return Ok(false) };
+        let mut parts = last.split(' ').map(|p| p.parse::<i64>().ok());
+        let (Some(Some(at)), Some(Some(seen_newest))) = (parts.next(), parts.next()) else { return Ok(false) };
+        if self.clock.now() - at >= self.cfg.reconcile_max_age_secs || seen_newest != newest {
+            return Ok(false);
+        }
+        Ok(self.store.articles_with(m, listed_value)?.len() as i64 == n)
+    }
+
+    /// Lists `m` on the server unless the unread counts show it unchanged, and fetches articles
+    /// listed but not stored.
+    #[allow(clippy::too_many_arguments)]
+    fn sync_membership(
+        &mut self,
+        prio: Priority,
+        name: &'static str,
+        m: &Membership,
+        listed_value: bool,
+        params: IdsParams,
+        fetch_exclude_read: bool,
+        fetch_pages: usize,
+        counts: &crate::api::UnreadCounts,
+        rep: &mut CycleReport,
+    ) -> Result<()> {
+        let stream = params.stream.clone();
+        if self.listing_unchanged(m, listed_value, stream.as_str(), counts)? {
+            rep.unchanged.push(name);
+            return Ok(());
+        }
+        let now = self.clock.now();
+        let (unknown, complete) = self.reconcile_membership(prio, m, listed_value, params)?;
+        rep.reconciled.push(name);
+        if !complete {
+            rep.incomplete.push(name);
+        }
+        let mut missing = 0;
+        if !unknown.is_empty() {
+            missing = self.fetch_wanted(prio, &stream, fetch_exclude_read, &unknown, fetch_pages, rep)?;
+            rep.missing += missing;
+        }
+        if complete && missing == 0 {
+            let newest = counts.counts.iter().find(|(s, ..)| *s == stream.as_str()).map(|c| c.2).unwrap_or(0);
+            self.store.set_meta(&Self::reconciled_key(m), &format!("{now} {newest}"))?;
+        }
+        Ok(())
     }
 
     fn list_ids(&mut self, api: &ApiClient, run: i64, params: IdsParams) -> Result<(Vec<ArticleId>, bool)> {
@@ -748,8 +853,13 @@ impl SyncEngine {
     pub fn run_cycle(&mut self, reason: Reason) -> CycleReport {
         let mut rep = CycleReport::default();
         let prio = if reason == Reason::Explicit { Priority::Explicit } else { Priority::Background };
+        let before = self.api.requests_sent();
         if let Err(e) = self.cycle_inner(reason, prio, &mut rep) {
             rep.error = Some(SyncError::from(&e));
+        }
+        rep.requests = self.api.requests_sent() - before;
+        if reason != Reason::Local && !rep.skipped_interval {
+            let _ = self.store.set_meta("last_sync_requests", &rep.requests.to_string());
         }
         self.save_quota();
         rep
@@ -773,32 +883,21 @@ impl SyncEngine {
             return Ok(());
         }
         self.store.set_meta("last_cycle", &self.clock.now().to_string())?;
-        rep.refreshed_org = self.refresh_organization(prio)?;
+        let (counts, refreshed) = self.refresh_organization(prio)?;
+        rep.refreshed_org = refreshed;
 
         // Starred first: it must include old articles regardless of publication time.
         let mut starred = IdsParams::new(StreamId::new(STATE_STARRED));
         starred.only_starred = true;
         starred.direct_ids = false;
-        let (unknown, complete) = self.reconcile_membership(prio, &Membership::Starred, true, starred)?;
-        rep.reconciled.push("starred");
-        if !complete {
-            rep.incomplete.push("starred");
-        }
-        if !unknown.is_empty() {
-            rep.missing += self.fetch_wanted(prio, &StreamId::new(STATE_STARRED), false, &unknown, self.cfg.starred_fetch_pages, rep)?;
-        }
+        let pages = self.cfg.starred_fetch_pages;
+        self.sync_membership(prio, "starred", &Membership::Starred, true, starred, false, pages, &counts, rep)?;
 
         // Unread: ids not marked read.
         let mut unread = IdsParams::new(StreamId::new(STATE_READING_LIST));
         unread.exclude_read = true;
-        let (unknown, complete) = self.reconcile_membership(prio, &Membership::Read, false, unread)?;
-        rep.reconciled.push("unread");
-        if !complete {
-            rep.incomplete.push("unread");
-        }
-        if !unknown.is_empty() {
-            rep.missing += self.fetch_wanted(prio, &StreamId::new(STATE_READING_LIST), true, &unknown, self.cfg.unread_fetch_pages, rep)?;
-        }
+        let pages = self.cfg.unread_fetch_pages;
+        self.sync_membership(prio, "unread", &Membership::Read, false, unread, true, pages, &counts, rep)?;
         // A failed annotation refresh must not stop downloads; its error is still reported.
         let refreshed = self.refresh_annotations(reason, prio, rep);
         self.cache_pending(rep)?;
