@@ -23,7 +23,7 @@ make_pkg() { # version -> $WORK/pkg-<version>.tar.gz
 	p="$WORK/stage-$v"
 	mkdir -p "$p/inoink/release/scripts" "$p/inoink/dispatch"
 	printf '%s\n' "$v" > "$p/inoink/VERSION"
-	printf '#!/bin/sh\necho "inoink %s ran" >> "$INOINK_DATA/ran.log"\n[ -n "${FAKE_EXIT:-}" ] && exit "$FAKE_EXIT"\nexit 0\n' "$v" > "$p/inoink/release/inoink"
+	printf '#!/bin/sh\necho "inoink %s ran fl=$INOINK_FL_WHITE wifi=$INOINK_WIFI" >> "$INOINK_DATA/ran.log"\n[ -n "${FAKE_EXIT:-}" ] && exit "$FAKE_EXIT"\nexit 0\n' "$v" > "$p/inoink/release/inoink"
 	cp contrib/inoink/inoink-run.sh "$p/inoink/release/inoink-run.sh"
 	printf '#!/bin/sh\necho restored >> "$INOINK_DATA/nickel.log"\n' > "$p/inoink/release/nickel.sh"
 	cp contrib/inoink/inoink-dispatch.sh "$p/inoink/dispatch/inoink.sh"
@@ -143,6 +143,28 @@ sleep 1; kill -TERM $LPID; wait $LPID 2>/dev/null; sleep 1
 check "SIGTERM restores Nickel once" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
 pkill -f "sleep 30" 2>/dev/null
 rm -rf /tmp/inoink.lock
+
+# --- launcher: starts with the Kobo's own light and Wi-Fi state ------------------------------------
+SYS="$WORK/sys"
+printf '#!/bin/sh\necho "inoink 1.2.0 ran fl=$INOINK_FL_WHITE wifi=$INOINK_WIFI" >> "$INOINK_DATA/ran.log"\nexit 0\n' > "$B/releases/1.2.0/inoink"
+mkdir -p "$SYS/sys/class/backlight/mxc_msp430.0" "$SYS/sys/class/net/wlan0"
+printf '[PowerOptions]\nFrontLightLevel=48\n' > "$WORK/conf"
+run_state() { rm -f "$B/data/ran.log" /tmp/reboot; rm -rf /tmp/inoink.lock; PATH="$STUBS:$PATH" INOINK_SYSROOT="$SYS" INOINK_KOBO_CONF="$WORK/conf" INTERFACE=wlan0 INOINK_DATA="$B/data" sh "$B/releases/1.2.0/inoink-run.sh" > /dev/null 2>&1 < /dev/null; sleep 2; }
+stubs_pidof_none() { printf '#!/bin/sh\nexit 0\n' > "$STUBS/pidof"; chmod +x "$STUBS/pidof"; }
+stubs_pidof_none
+echo 0 > "$SYS/sys/class/backlight/mxc_msp430.0/brightness"; echo up > "$SYS/sys/class/net/wlan0/operstate"
+run_state
+check "zero sysfs light falls back to the Kobo setting, Wi-Fi up" grep -q "fl=48 wifi=1" "$B/data/ran.log"
+echo down > "$SYS/sys/class/net/wlan0/operstate"
+run_state
+check "Wi-Fi down is reported as off" grep -q "wifi=0" "$B/data/ran.log"
+echo 30 > "$SYS/sys/class/backlight/mxc_msp430.0/brightness"
+run_state
+check "a live sysfs reading wins" grep -q "fl=30" "$B/data/ran.log"
+echo 0 > "$SYS/sys/class/backlight/mxc_msp430.0/brightness"; printf 'FrontLightState=false\nFrontLightLevel=48\n' > "$WORK/conf"
+run_state
+check "light known to be off stays off" grep -q "fl=0 " "$B/data/ran.log"
+check "launch line is logged" grep -q "^launch: light sys=0" "$B/data/inoink.log"
 
 # --- removal ---------------------------------------------------------------------------------------
 check "removal succeeds" sh scripts/remove-inoink.sh "$KOBO"

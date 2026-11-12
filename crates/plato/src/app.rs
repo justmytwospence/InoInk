@@ -348,9 +348,10 @@ pub fn run() -> Result<(), Error> {
 
     context.fb.set_inverted(context.settings.inverted);
 
-    // InoInk needs the network to sync: always start with Wi-Fi on, using the networks the
-    // Kobo already knows. It can still be switched off from the main menu for the session.
-    context.settings.wifi = true;
+    // Start with the Wi-Fi state the Kobo had (the launcher reads it); the top-bar icon toggles it.
+    let wifi = env::var("INOINK_WIFI").ok().map(|v| v.trim() == "1").unwrap_or(context.settings.wifi);
+    eprintln!("wifi: starting {}", if wifi { "on" } else { "off" });
+    context.settings.wifi = wifi;
     if context.settings.wifi {
         Command::new("scripts/wifi-enable.sh").status().ok();
         watch_network(&tx);

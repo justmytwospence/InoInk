@@ -63,14 +63,39 @@ INOINK_SET_FRAMEBUFFER_DEPTH=1
 
 # shellcheck disable=SC2046
 export $(grep -sE '^(INTERFACE|WIFI_MODULE|DBUS_SESSION_BUS_ADDRESS|NICKEL_HOME|LANG)=' /proc/"$(pidof -s nickel)"/environ)
-# Start with the light the Kobo was using (read before Nickel stops).
-INOINK_FL_WHITE=$(cat /sys/class/backlight/mxc_msp430.0/brightness 2>/dev/null)
-[ -n "$INOINK_FL_WHITE" ] || INOINK_FL_WHITE=$(sed -n 's/^FrontLightLevel=//p' "/mnt/onboard/.kobo/Kobo/Kobo eReader.conf" 2>/dev/null | head -n 1)
+# Start with the light and Wi-Fi state the Kobo was using (read before Nickel stops).
+# INOINK_SYSROOT and INOINK_KOBO_CONF exist so the tests can stand in for the device.
+SYSROOT=${INOINK_SYSROOT:-}
+KOBO_CONF=${INOINK_KOBO_CONF:-/mnt/onboard/.kobo/Kobo/Kobo eReader.conf}
+sys_white=
+for f in actual_brightness brightness; do
+	v=$(cat "$SYSROOT/sys/class/backlight/mxc_msp430.0/$f" 2>/dev/null)
+	case "$v" in ''|*[!0-9]*) ;; *) sys_white=$v; break ;; esac
+done
+conf_level=$(sed -n 's/^FrontLightLevel=//p' "$KOBO_CONF" 2>/dev/null | head -n 1)
+conf_state=$(sed -n 's/^FrontLightState=//p' "$KOBO_CONF" 2>/dev/null | head -n 1)
+INOINK_FL_WHITE=
+case "$sys_white" in
+	''|0) ;;
+	*) INOINK_FL_WHITE=$sys_white ;;
+esac
+if [ -z "$INOINK_FL_WHITE" ]; then
+	if [ "$conf_state" = false ]; then
+		INOINK_FL_WHITE=0
+	else
+		case "$conf_level" in ''|*[!0-9]*) ;; *) INOINK_FL_WHITE=$conf_level ;; esac
+	fi
+fi
 INOINK_FL_COLOR=
 for f in /sys/class/leds/aw99703-bl_FL1/color /sys/class/backlight/lm3630a_led/color /sys/class/backlight/tlc5947_bl/color; do
-	if [ -r "$f" ]; then INOINK_FL_COLOR=$(cat "$f" 2>/dev/null); break; fi
+	if [ -r "$SYSROOT$f" ]; then INOINK_FL_COLOR=$(cat "$SYSROOT$f" 2>/dev/null); break; fi
 done
-export INOINK_FL_WHITE INOINK_FL_COLOR
+INOINK_WIFI=0
+if [ -d "$SYSROOT/sys/class/net/${INTERFACE:-wlan0}" ]; then
+	if [ "$(cat "$SYSROOT/sys/class/net/${INTERFACE:-wlan0}/operstate" 2>/dev/null)" = up ] || [ -n "$(pidof wpa_supplicant 2>/dev/null)" ]; then INOINK_WIFI=1; fi
+fi
+LAUNCH_NOTE="light sys=$sys_white conf=$conf_level state=$conf_state -> $INOINK_FL_WHITE color=$INOINK_FL_COLOR wifi=$INOINK_WIFI"
+export INOINK_FL_WHITE INOINK_FL_COLOR INOINK_WIFI
 sync
 killall -TERM nickel hindenburg sickel fickel adobehost foxitpdf iink dhcpcd-dbus dhcpcd fmon > /dev/null 2>&1
 
@@ -150,6 +175,7 @@ fi
 [ "$ORIG_BPP" ] && ./bin/utils/fbdepth -q -d 8
 
 echo "--- $(date) starting in $(pwd)" >> "$LOG"
+echo "launch: $LAUNCH_NOTE" >> "$LOG"
 # The Kobo's disk check renames files it rejects to FSCK*.000: record any in this release.
 find . -iname 'FSCK*' -exec echo "warning: disk check leftover {}" \; >> "$LOG" 2>&1
 LIBC_FATAL_STDERR_=1 ./inoink >> "$LOG" 2>&1
