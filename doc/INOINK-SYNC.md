@@ -64,3 +64,14 @@ recovered after interruption. Starred articles and pinned folders are always kep
 The content is what the feed provides: Inoreader's API exposes no flag saying whether it is an
 excerpt, so InoInk says "Feed content" and offers **Load original page**, a best-effort extraction
 from the public page that cannot recover paywalled or login-only text.
+
+## Shares
+
+Links sent to other services (Karakeep) wait in a local outbox, separate from Inoreader state.
+Queuing one is saved before the interface says "Sending"; the same link queued twice while it still
+waits is kept once. Each sync pass sends the outbox first, up to 20 links, using the other
+service's own credentials, so Inoreader's quota or sign-in problems never hold shares back and
+shares never use Inoreader's quota. A transient failure (offline, server error) stops the pass and
+keeps everything for the next one; a refusal (a bad key, a rejected link) marks that link failed and
+is shown once. Sent links are deleted from the outbox. Main menu > Status shows how many are
+waiting or failed.

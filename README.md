@@ -12,8 +12,13 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Features
 
-- Starts on your Starred articles (then the last collection you used). Unread/All filter,
-  search over downloaded articles, and a drawer with folders, feeds and tags.
+- Three tabs, named as Inoreader names them: **Newsfeed** (unread by default), **Categories**
+  (folders in your Inoreader order, then tags and the other streams) and **Read later** (your
+  starred articles, the reading queue). Each view remembers its own filter, grouping and sort.
+  Search covers every downloaded article.
+- Tap a headline in the Newsfeed or a category to save it for later (star it); hold it to read it
+  now. This is a setting. At the end of an unread list a card offers **Mark N read** for what you
+  saw and did not save.
 - A compact list: bold for unread, the source, a relative date ("3 h ago") and the reading
   time ("6 min read") on one line.
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
@@ -23,16 +28,22 @@ public API and does not try to match the Inoreader website feature for feature; 
   tap away (an Article | comments switch in the bar). Both are cached for offline reading.
 - **Done** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
+- Reading flows: at the end of an article a card offers Done (or Mark read) and the next article
+  of the list, Keep, Comments, or Back to list; swiping or pressing forward again continues (a
+  setting). A line under the article shows progress, time left and your place in the list.
+- Links: tap a link for a reading view of the page; hold it for Open in reading view, Show QR code
+  (to open it on your phone), Send to Karakeep or Follow in Inoreader.
 - Offline first: text and colour images are cached; every change is saved on the Kobo first and
   sent to Inoreader when the network is available.
-- Kobo conveniences: starts with the brightness and warmth the Kobo was using, slide along the
-  left edge to change brightness, page-turn buttons, and a Wi-Fi indicator in the top bar.
+- Kobo conveniences: starts with the light and the Wi-Fi state the Kobo was using, a light panel
+  (bulb icon) and a slide along the left edge for brightness, page-turn buttons, and a Wi-Fi icon
+  in the top bar that is also the Wi-Fi switch.
 - Tags, likes, broadcast, feed and folder management, and monitoring searches, as far as the
   public API allows.
 
 ## Status
 
-Early and unofficial (version 0.1.0). It is developed and tested on one Kobo Libra Colour on
+Early and unofficial (version 0.2.0). It is developed and tested on one Kobo Libra Colour on
 firmware 4.46.23852. Other Kobo models that Plato supports may work, but nobody has tested them.
 [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how.
 
@@ -66,7 +77,7 @@ Then:
 2. Install, with the menu entry:
 
    ```sh
-   sh install-inoink.sh inoink-0.1.0-kobo.tar.gz /Volumes/KOBOeReader --menu
+   sh install-inoink.sh inoink-0.2.0-kobo.tar.gz /Volumes/KOBOeReader --menu
    ```
 
    Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,
@@ -95,14 +106,19 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 
 ## Using it
 
-- **List:** tap an article to read it. Tap the title for collections, use the footer for
-  Unread/All, the group and sort menu (per view: Starred puts unread first, folders group by
-  source; sort by newest, oldest, shortest, longest, title or source) and sync status, and long-press a row for Star, Mark read, Done and Details.
-- **Article:** tap the middle of the page for the bar: Back, **Aa** (text settings), Star, Done
-  and More (Mark read, Tags, Like, Broadcast, Details, Load original page). Tap an image to
-  enlarge it.
-- **Light:** slide a finger up or down along the left edge of the screen.
-- **Wi-Fi:** the icon in the top bar shows the connection; tap it to switch Wi-Fi on or off.
+- **Tabs:** Newsfeed, Categories and Read later sit under the top bar. In the Newsfeed tapping a
+  headline saves it for later and holding opens it (Settings can swap them). The footer menu
+  ("Unread - Newest") chooses unread or all, grouping and sort; long-press a row (Read later) for
+  Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
+  folder and its feeds.
+- **Article:** tap the middle of the page for the bar (Back, Aa, Star, Done, More) and the progress
+  line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
+  Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.
+- **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
+  also changes brightness.
+- **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
+- **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
+  sets it up; see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
 - **USB:** quit InoInk before connecting to a computer.
 - **Quitting:** on the Libra Colour, quitting restarts the Kobo (about half a minute). Restarting
   only the Kobo interface can crash these MediaTek models; see

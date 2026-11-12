@@ -518,6 +518,7 @@ impl InoInkHome {
                 }
                 Slot::End => {
                     let r = rect![rect.min.x, y_min, rect.max.x, y_max];
+                    list.children.push(Box::new(Filler::new(r, WHITE)));
                     let half = r.height() as i32 / 2;
                     list.children.push(Box::new(Label::new(rect![r.min.x, r.min.y, r.max.x, r.min.y + half], "End of unread articles".to_string(), Align::Center)));
                     let w = r.width() as i32 / 3;
@@ -563,7 +564,7 @@ impl InoInkHome {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
         let inner = rect.width() as i32 - 2 * side;
-        let view_w = inner * 3 / 10;
+        let view_w = inner * 37 / 100;
         let page_w = inner / 6;
         let status_w = inner - view_w - page_w;
         let x0 = rect.min.x + side;
@@ -1050,6 +1051,15 @@ impl View for InoInkHome {
                                 if row.item.id == id {
                                     row.set_starred(starred, rq);
                                 }
+                            }
+                        }
+                        if self.layout.iter().any(|s| matches!(s, Slot::End)) {
+                            // The "Mark N read" card counts what saving just changed.
+                            self.end_count = self.count_unmarked(context);
+                            if self.end_count == 0 {
+                                self.load_page(hub, rq, context);
+                            } else {
+                                self.rebuild_list(rq, context);
                             }
                         }
                         self.update_chrome(rq, context);

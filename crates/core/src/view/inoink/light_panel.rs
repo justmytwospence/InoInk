@@ -4,14 +4,14 @@ use crate::color::{BLACK, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
 use crate::font::{font_from_style, Fonts, NORMAL_STYLE};
-use crate::framebuffer::{Framebuffer, UpdateMode};
+use crate::framebuffer::Framebuffer;
 use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
-use crate::input::{DeviceEvent, FingerStatus};
+use crate::input::DeviceEvent;
 use crate::unit::scale_by_dpi;
 use crate::view::label::Label;
 use crate::view::slider::Slider;
-use crate::view::{Align, Bus, Event, Hub, Id, RenderData, RenderQueue, SliderId, View, ViewId, ID_FEEDER, SMALL_BAR_HEIGHT, THICKNESS_MEDIUM};
+use crate::view::{Align, Bus, Event, Hub, Id, RenderQueue, SliderId, View, ViewId, ID_FEEDER, SMALL_BAR_HEIGHT, THICKNESS_MEDIUM};
 
 struct Stepper {
     rect: Rectangle,

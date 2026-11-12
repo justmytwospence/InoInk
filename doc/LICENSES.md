@@ -228,6 +228,7 @@ device's own C library.
 | proc-macro-error2 | 2.0.1 | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.105 | MIT OR Apache-2.0 |
 | pxfm | 0.1.30 | BSD-3-Clause OR Apache-2.0 |
+| qrcode | 0.14.1 | MIT OR Apache-2.0 |
 | quick-error | 2.0.1 | MIT/Apache-2.0 |
 | quote | 1.0.43 | MIT OR Apache-2.0 |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |

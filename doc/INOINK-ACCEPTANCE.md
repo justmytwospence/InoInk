@@ -19,7 +19,7 @@ document tests inside the build container, and the install/launcher tests).
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging | `crates/inoink/tests/sync_faults.rs` (28) | PASS |
 | Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction | `crates/inoink/tests/content_cache.rs` (21) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (7), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (13), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
@@ -38,11 +38,11 @@ document tests inside the build container, and the install/launcher tests).
 
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
-list opens on Starred; article opens at its first page; page turns; the bar (Back, Star, Done,
-More); the More menu; back to the list; a photo essay with colour images, captions and a retryable
-placeholder for an image that failed. Positions are saved between runs. Each run works on a fresh
-copy of the fixtures. Result: PASS. Not covered by the tour (tested headlessly instead): Done/Undo,
-search, prompts, the enlargement view. The SDL dummy driver renders the framebuffer in software:
+the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
+article with the bar and the progress line; the end card; the next article; a QR code; the light
+panel; the main menu; the Newsfeed after saving. Each run works on a fresh copy of the fixtures.
+Result: PASS (13 screenshots inspected on 2026-11-11). Not covered by the tour (tested headlessly
+instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
 ## Device (Kobo Libra Colour, firmware 4.46.23852)
@@ -77,6 +77,20 @@ Record date, binary SHA-256 (`dist/SHA256SUMS`), model and firmware beside each 
 | Page-turn latency with and without a running sync (same article) | NOT RUN |
 | Update preserves data (install a second build over the first) | NOT RUN |
 | Bulk "Mark list read" does not touch articles that arrive meanwhile | NOT RUN |
+| Light inherited from Nickel at launch (check the `launch:` line in `inoink.log`: sysfs value, Kobo setting, result) | NOT RUN |
+| Wi-Fi state inherited at launch, both on and off | NOT RUN |
+| Wi-Fi icon shows off, connecting and online; tapping it toggles Wi-Fi | NOT RUN |
+| Light panel: on/off, brightness and warmth steppers and sliders; the edge slide still works | NOT RUN |
+| Tabs and counts (Newsfeed, Categories, Read later) agree with the lists | NOT RUN |
+| Tap-to-save in the Newsfeed; hold opens; the setting swaps them | NOT RUN |
+| End of unread list: "Mark N read" marks only what was seen and not starred | NOT RUN |
+| Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
+| End card via forward swipe and via holding the forward button (no immediate double action) | NOT RUN |
+| Continue to the next article; Done in Read later archives it on inoreader.com | NOT RUN |
+| Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
+| QR code scans with a phone | NOT RUN |
+| Follow in Inoreader adds a feed from a held link | NOT RUN |
+| Karakeep: saved online, and queued offline then sent after reconnecting | NOT RUN |
 | Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
 
 ## Known gaps

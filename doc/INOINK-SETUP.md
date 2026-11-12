@@ -77,19 +77,38 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 
 ## Everyday use
 
-- The footer label next to Unread/All (for example "Newest ▾") opens the group and sort menu. Group:
-  none, unread first, or by source. Sort: newest, oldest, shortest, longest, title or source.
-  Each view remembers its own choice; defaults are unread first for Starred, by source for
-  folders, and newest first elsewhere. Loading older articles from Inoreader at the end of the
-  list only works with no grouping and newest first.
-- Tap the title for the collection drawer; the footer toggles Unread/All and shows sync status
-  (tap it to sync now). Swipe or use the page buttons to move between pages of the list.
-  Long-press a row for Star, Mark read, Done and Details.
-- In an article, tap the middle of the page for the bar: Back, Aa, Star, Done, More. Aa opens
-  the text panel (font, size, line spacing, margins, alignment); its settings apply to every
-  article. More holds
-  Mark read/unread, Tags, Like, Broadcast, Details (including summaries and
-  annotations returned by Inoreader) and Load original page.
+- Three tabs sit under the top bar. **Newsfeed** shows unread articles from everything you follow;
+  **Categories** lists your folders in Inoreader's order (with the unread count on the device),
+  then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
+  **Read later** is your starred articles. The numbers in the tabs are counts on the device.
+- In the Newsfeed and in categories, **tap a headline to save it for later** (it gets a star and a
+  bar at the left edge); **hold it to read it now**. Main menu > Settings > Tapping a headline
+  swaps these. In Read later, tapping opens the article.
+- On the last page of an unread list a card says "Mark N read": N is what you were shown in this
+  visit that is still unread and not starred. Nothing is marked read by turning pages.
+- The footer label ("Unread - Newest") opens a menu: unread only or all, group (none, unread
+  first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
+  remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
+  later, and everything with unread first for folders and feeds. Loading older articles from
+  Inoreader at the end of a list only works with all articles, no grouping and newest first.
+- The footer shows sync status (tap it to sync now). Swipe or use the page buttons to move between
+  pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
+  folder and its feeds; the arrow at the top left goes back to the list of categories.
+- In an article, tap the left or right third of the page to turn pages and the middle for the bar:
+  Back, Aa, Star, Done, More, with a line below showing progress, time left and your place in the
+  list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
+  to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
+  QR code, Details (including summaries and annotations returned by Inoreader) and Load original
+  page.
+- Passing the last page (or holding the forward button) shows the end card: **Done** (Read later:
+  mark read and remove the star) or **Mark read** (elsewhere), then the next article of the list;
+  **Keep** goes on without changing anything; **Comments** for link posts; **Back to list**. With
+  Settings > At the end of an article > Swipe again to continue, another forward swipe or press
+  does the main action; otherwise tap a button.
+- Links in an article: tap one for a reading view of the page (InoInk fetches it and extracts the
+  text, without images; https only, needs Wi-Fi). Hold one for a menu: Open in reading view, Show
+  QR code (scan it with a phone to open the page there), Send to Karakeep, Follow in Inoreader
+  (adds the site or feed to your subscriptions).
 - Items from Hacker News and Lobsters feeds are link posts: InoInk downloads the linked page and
   extracts its text itself (no credentials, not an Inoreader feature), and caches the thread from
   the site's public JSON. The bar shows an Article | N comments switch (also a link at the end
@@ -98,12 +117,33 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Sync now, Mark list read (shows a count first), Manage (follow feeds, rename or move feeds
-  between folders, rename or delete folders, keep a folder offline, monitoring searches, offline
-  storage).
-- Slide a finger up or down the left edge of the screen to change the brightness. InoInk starts
-  with the brightness and warmth the Kobo was using.
-- The Wi-Fi icon in the top bar shows the connection; tap it to switch Wi-Fi on or off. InoInk
-  uses the networks the Kobo already knows.
+- Main menu: Sync now, Mark this list read (shows a count first), Follow a feed, Settings (what a
+  tap does, the end-of-article behaviour, offline storage, page-turn buttons, rotation, invert
+  colors), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
+  folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,
+  Karakeep) and About.
+- The bulb icon opens the light panel: on or off, brightness and warmth. Sliding a finger up or
+  down the left edge also changes brightness. InoInk starts with the light and the Wi-Fi state
+  the Kobo had (the launcher writes what it found to `inoink.log`, on the line starting `launch:`).
+- The Wi-Fi icon in the top bar is the only Wi-Fi control: tap it to switch Wi-Fi on or off (a
+  dashed icon means switched on but not connected yet). InoInk uses the networks the Kobo
+  already knows.
 - Quit InoInk before connecting the Kobo to a computer. Suspend stops network work before the
   device sleeps.
+
+## Karakeep
+
+Links and articles can be sent to [Karakeep](https://karakeep.app) (More menu, or by holding a
+link). They wait in a local queue and are sent as soon as the network allows; Karakeep's address
+and API key are set up from the computer, the same way as the Inoreader sign-in:
+
+```sh
+inoink-cli karakeep --url https://karakeep.example.com --device /Volumes/KOBOeReader
+```
+
+The API key (create one in Karakeep under Settings > API Keys) is read from the
+`INOINK_KARAKEEP_KEY` environment variable or a hidden prompt, never from the command line. The
+helper checks it against your Karakeep, then writes it encrypted to the Kobo's own key; InoInk
+imports and deletes the transfer file at the next start. Like the Inoreader client secret, the key
+then lives on the Kobo's FAT storage, which has no file permissions: use a key you can revoke.
+Main menu > Status shows how many links are waiting or failed.

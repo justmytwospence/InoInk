@@ -40,18 +40,18 @@ impl EndCard {
     pub fn new(rect: Rectangle, info: EndCardInfo) -> EndCard {
         let dpi = CURRENT_DEVICE.dpi;
         let big = scale_by_dpi(BIG_BAR_HEIGHT, dpi) as i32;
-        let gap = big / 3;
+        let gap = big / 4;
         let mut children: Vec<Box<dyn View>> = Vec::new();
         let mut texts = Vec::new();
-        let mut y = rect.min.y + 2 * big;
+        let mut y = rect.min.y + big;
         children.push(Box::new(Label::new(rect![rect.min.x, y, rect.max.x, y + big], "End of article".to_string(), Align::Center)));
         y += big;
-        texts.push((info.title.clone(), y + big / 2, true));
-        y += big + gap;
+        texts.push((info.title.clone(), y + big / 4, true));
+        y += big / 2 + gap;
         let w = rect.width() as i32 * 8 / 10;
         let x0 = rect.min.x + (rect.width() as i32 - w) / 2;
-        let mut button = |label: String, action: FinishAction, y: &mut i32, children: &mut Vec<Box<dyn View>>| {
-            let h = big * 3 / 2;
+        let button = |label: String, action: FinishAction, y: &mut i32, children: &mut Vec<Box<dyn View>>| {
+            let h = big * 5 / 4;
             children.push(Box::new(Button::new(rect![x0, *y, x0 + w, *y + h], Event::Select(EntryId::InoInk(InoInkEntry::Finish(action))), label)));
             *y += h + gap;
         };
@@ -67,10 +67,10 @@ impl EndCard {
             Some(t) => format!("Next: {t}"),
             None => "This was the last article in the list".to_string(),
         };
-        texts.push((next, y + big / 2, true));
-        y += big;
+        texts.push((next, y + big / 4, true));
+        y += big / 2;
         if info.auto {
-            texts.push(("Swipe or press forward to finish and continue".to_string(), y + big / 2, true));
+            texts.push(("Swipe or press forward to finish and continue".to_string(), y + big / 4, true));
         }
         EndCard { id: ID_FEEDER.next(), rect, children, auto: info.auto, ignore_release: info.ignore_release, texts }
     }

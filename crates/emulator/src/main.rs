@@ -20,8 +20,6 @@ use plato_core::view::{View, Event, ViewId, EntryId, AppCmd, EntryKind, SliderId
 use plato_core::view::{process_render_queue, wait_for_all, handle_event, RenderQueue, RenderData};
 use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::actions::{open_article, open_document, InoInkEntry, OpenResult};
-use plato_core::inoink::model::{ArticleId, ArticleSort};
-use plato_core::view::inoink::actions::DocKind;
 use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
@@ -846,71 +844,66 @@ enum TourStep {
     Quit,
 }
 
-/// A deterministic walk through the list, an article, its menu, details and the image viewer.
+/// A deterministic walk through the tabs, an article, its end card, the QR code, the light
+/// panel and the menu.
 fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
-    use plato_core::geom::CycleDir;
+    use plato_core::inoink::model::Collection;
+    use plato_core::view::inoink::actions::FinishAction;
+    use plato_core::view::inoink::state::Tab;
     let w = rect.width() as i32;
-    let h = rect.height() as i32;
     let dpi = CURRENT_DEVICE.dpi as f32 / 300.0;
     let bar = (121.0 * dpi) as i32;
     let row = (163.0 * dpi) as i32;
-    // Starred opens grouped by read state: a half-row header sits above the first article.
-    let first_row_y = bar + row;
-    let inner = w - 2 * bar;
-    let sort_x = bar + inner / 6 + inner / 8;
+    // Top bar and tab bar, then rows of `row` pixels.
+    let row_y = |n: i32| 2 * bar + n * row + row / 2;
+    let select = |e: InoInkEntry| TourStep::Send(Event::Select(EntryId::InoInk(e)));
     let mut t = VecDeque::new();
     t.push_back(TourStep::Wait(1500));
-    t.push_back(TourStep::Shot("01-list-starred"));
-    t.push_back(TourStep::Tap(sort_x, h - bar / 2));
-    t.push_back(TourStep::Wait(500));
-    t.push_back(TourStep::Shot("01b-view-menu"));
-    t.push_back(TourStep::Tap(sort_x, h - bar / 2));
-    t.push_back(TourStep::Wait(300));
-    t.push_back(TourStep::Send(Event::Select(EntryId::InoInk(InoInkEntry::ViewSort(ArticleSort::Shortest)))));
+    t.push_back(TourStep::Shot("01-newsfeed"));
+    t.push_back(TourStep::Tap(w / 2, row_y(2)));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("02-starred-by-tap"));
+    t.push_back(select(InoInkEntry::Tab(Tab::Categories)));
     t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Shot("01c-shortest-first"));
-    t.push_back(TourStep::Send(Event::Select(EntryId::InoInk(InoInkEntry::ViewSort(ArticleSort::Newest)))));
+    t.push_back(TourStep::Shot("03-categories"));
+    t.push_back(select(InoInkEntry::OpenCategory(Collection::Folder("Reading".into()))));
     t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Tap(w / 2, first_row_y));
+    t.push_back(TourStep::Shot("04-folder"));
+    t.push_back(select(InoInkEntry::Tab(Tab::ReadLater)));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Shot("05-read-later"));
+    t.push_back(TourStep::Tap(w / 2, row_y(0)));
     t.push_back(TourStep::Wait(1500));
-    t.push_back(TourStep::Shot("02-article-first-page"));
-    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
-    t.push_back(TourStep::Shot("03-article-page-2"));
-    t.push_back(TourStep::Tap(w / 2, h / 2));
-    t.push_back(TourStep::Shot("04-article-bar"));
-    t.push_back(TourStep::Tap(w - 4 * bar + bar / 2, bar / 2));
+    t.push_back(TourStep::Shot("06-article"));
+    t.push_back(TourStep::Tap(w / 2, rect.height() as i32 / 2));
     t.push_back(TourStep::Wait(500));
-    t.push_back(TourStep::Shot("04b-text-panel"));
-    t.push_back(TourStep::Send(Event::Slider(SliderId::FontSize, 14.0, FingerStatus::Up)));
+    t.push_back(TourStep::Shot("07-article-bar-footer"));
+    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::HoldButtonShort(ButtonCode::Forward))));
     t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Shot("04c-text-larger"));
-    t.push_back(TourStep::Tap(w / 2, 3 * bar));
+    t.push_back(TourStep::Shot("08-end-card"));
+    t.push_back(select(InoInkEntry::Finish(FinishAction::Primary)));
+    t.push_back(TourStep::Wait(1500));
+    t.push_back(TourStep::Shot("09-next-article"));
+    t.push_back(select(InoInkEntry::ShowQr("https://news.example/issue/42".into())));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Shot("10-qr"));
+    t.push_back(TourStep::Send(Event::Close(ViewId::QrView)));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Send(Event::Show(ViewId::Frontlight)));
+    t.push_back(TourStep::Wait(800));
+    t.push_back(TourStep::Shot("11-light-panel"));
+    t.push_back(TourStep::Send(Event::Close(ViewId::Frontlight)));
     t.push_back(TourStep::Wait(500));
-    t.push_back(TourStep::Tap(w / 2, h / 2));
-    t.push_back(TourStep::Wait(500));
+    t.push_back(TourStep::Send(Event::Back));
+    t.push_back(TourStep::Wait(1000));
     t.push_back(TourStep::Tap(w - bar / 2, bar / 2));
-    t.push_back(TourStep::Shot("05-article-menu"));
-    t.push_back(TourStep::Send(Event::Back));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("12-main-menu"));
+    t.push_back(TourStep::Tap(w - bar / 2, bar / 2));
+    t.push_back(TourStep::Wait(400));
+    t.push_back(select(InoInkEntry::Tab(Tab::Newsfeed)));
     t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Shot("06-back-to-list"));
-    t.push_back(TourStep::Tap(w / 2, first_row_y + row));
-    t.push_back(TourStep::Wait(1500));
-    t.push_back(TourStep::Shot("07-photo-essay-p1"));
-    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
-    t.push_back(TourStep::Shot("08-photo-essay-p2"));
-    t.push_back(TourStep::Send(Event::Page(CycleDir::Next)));
-    t.push_back(TourStep::Shot("09-photo-essay-p3"));
-    t.push_back(TourStep::Send(Event::Back));
-    t.push_back(TourStep::Wait(800));
-    t.push_back(TourStep::Tap(w / 2, bar + 3 * row));
-    t.push_back(TourStep::Wait(1500));
-    t.push_back(TourStep::Shot("10-link-post-article"));
-    t.push_back(TourStep::Tap(w / 2, h / 2));
-    t.push_back(TourStep::Wait(500));
-    t.push_back(TourStep::Shot("11-link-post-bar"));
-    t.push_back(TourStep::Send(Event::ShowDocument(ArticleId(1005), DocKind::Comments)));
-    t.push_back(TourStep::Wait(1500));
-    t.push_back(TourStep::Shot("12-comments"));
+    t.push_back(TourStep::Shot("13-end-of-unread"));
     t.push_back(TourStep::Quit);
     t
 }
