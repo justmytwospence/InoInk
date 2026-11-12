@@ -44,7 +44,8 @@ article with the bar and the progress line; the end card; the next article; a QR
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
-tour does not turn to). Each run works on a fresh copy of the fixtures.
+tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
+and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
 Result: PASS (13 screenshots inspected on 2026-11-11). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
