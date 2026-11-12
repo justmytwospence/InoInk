@@ -18,6 +18,7 @@ use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleActio
 use crate::view::inoink::categories::{category_items, CategoryItem, CategoryRow};
 use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
+use crate::view::inoink::page_progress::PageProgress;
 use crate::view::inoink::row::{ArticleRow, RowMode};
 use crate::view::inoink::state::{ReadingQueue, Tab};
 use crate::view::inoink::tab_bar::TabBar;
@@ -80,6 +81,13 @@ pub struct InoInkHome {
     /// The last page of articles had no room for the card: Next shows it.
     next_is_end: bool,
     end_count: usize,
+    /// A spin tick is scheduled.
+    spinning: bool,
+    spin_frame: usize,
+    /// Pages the current list takes (at least 1).
+    total_pages: usize,
+    /// More may be loaded from Inoreader after the last stored page.
+    more_online: bool,
 }
 
 const TOP: usize = 0;
@@ -104,11 +112,6 @@ impl View for List {
                     }
                     Dir::East => {
                         bus.push_back(Event::Page(CycleDir::Previous));
-                        return true;
-                    }
-                    Dir::South => {
-                        // Pull down to refresh.
-                        bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
                         return true;
                     }
                     _ => {}
@@ -232,8 +235,13 @@ impl InoInkHome {
             end_only: false,
             next_is_end: false,
             end_count: 0,
+            spinning: false,
+            spin_frame: 0,
+            total_pages: 1,
+            more_online: false,
         };
         home.load_page(hub, rq, context);
+        home.update_sync_icon(hub, rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
@@ -308,6 +316,8 @@ impl InoInkHome {
         }
         self.cat_pages = pages;
         self.cat_page = self.cat_page.min(self.cat_pages.len() - 1);
+        self.total_pages = self.cat_pages.len().max(1);
+        self.more_online = false;
         let start = self.cat_pages[self.cat_page];
         let end = self.cat_pages.get(self.cat_page + 1).copied().unwrap_or(self.cat_items.len());
         self.layout = (start..end)
@@ -343,6 +353,7 @@ impl InoInkHome {
             self.items.clear();
             self.next = None;
             self.layout = vec![Slot::End];
+            self.set_page_totals(self.page + 1, context);
             self.rebuild_list(rq, context);
             self.rebuild_footer(rq, context);
             return true;
@@ -401,9 +412,71 @@ impl InoInkHome {
         self.layout = layout;
         self.items = items;
         self.next = next;
+        let last = self.next.is_none() && !self.next_is_end;
+        let total = if last { self.page + 1 } else { self.count_article_pages(context) };
+        self.set_page_totals(total, context);
         self.rebuild_list(rq, context);
         self.rebuild_footer(rq, context);
         true
+    }
+
+    fn set_page_totals(&mut self, total: usize, context: &Context) {
+        self.total_pages = total.max(self.page + 1);
+        self.more_online = self.search.is_none() && context.inoink.handle.is_some() && self.can_browse(context);
+    }
+
+    /// How many pages the whole current list takes, laid out as `load_articles` lays out one
+    /// page: a header costs one unit, an article two, a page has `2 * rows` units (two fewer
+    /// while the undo bar shows) and holds at most `rows` articles; an unread list ends with a
+    /// card that needs two units. Keep this in step with `load_articles`.
+    fn count_article_pages(&self, context: &Context) -> usize {
+        let Some(store) = context.inoink.store() else { return 1 };
+        let opts = Self::effective_options(context);
+        let units = (2 * self.rows).saturating_sub(if context.inoink.last_undo.is_some() { 2 } else { 0 });
+        let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
+        let n = store.count_articles(&q).unwrap_or(0);
+        let mut headers: Vec<Option<String>> = Vec::new();
+        if !(self.search.is_some() || opts.group == ArticleGroup::None) {
+            let mut scan = ArticleQuery { limit: 500, ..q.clone() };
+            while headers.len() < PAGE_SCAN_LIMIT {
+                let Ok(page) = store.query_articles(&scan) else { break };
+                headers.extend(page.items.iter().map(|i| opts.group.header(i)));
+                match page.next {
+                    Some(c) => scan.after = Some(c),
+                    None => break,
+                }
+            }
+        }
+        headers.resize(n.max(headers.len()), None);
+        let (mut pages, mut i, mut used_last) = (0usize, 0usize, 0usize);
+        while i < headers.len() {
+            pages += 1;
+            let (mut used, mut placed) = (0usize, 0usize);
+            let mut last: Option<String> = None;
+            while i < headers.len() && placed < self.rows {
+                let h = &headers[i];
+                let needs = h.is_some() && *h != last;
+                let cost = 2 + needs as usize;
+                if used + cost > units && placed > 0 {
+                    break;
+                }
+                used += cost;
+                placed += 1;
+                last = h.clone();
+                i += 1;
+            }
+            used_last = used;
+        }
+        if pages > 0 && self.end_card_applies(context) && used_last + 2 > units {
+            pages += 1;
+        }
+        pages.max(1)
+    }
+
+    /// (page shown from 1, pages in the list, more can be loaded online).
+    pub fn page_status(&self) -> (usize, usize, bool) {
+        let page = if self.showing_cats { self.cat_page + 1 } else { self.page + 1 };
+        (page, self.total_pages, self.more_online)
     }
 
     /// How many articles seen in this list are still unread and not saved.
@@ -568,9 +641,15 @@ impl InoInkHome {
         } else {
             (self.page > 0, self.next.is_some() || self.next_is_end, self.page + 1)
         };
-        let status = context.inoink.status_text();
+        let (total, plus) = (self.total_pages, if self.more_online { "+" } else { "" });
         let opts = Self::effective_options(context);
-        let view_text = if self.showing_cats || self.search.is_some() { String::new() } else { format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short()) };
+        let view_text = if self.search.is_some() {
+            String::new()
+        } else if self.showing_cats {
+            format!("{} \u{25be}", context.inoink.category_sort().short())
+        } else {
+            format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short())
+        };
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
         let rect = footer.rect;
         let side = rect.height() as i32;
@@ -581,25 +660,33 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
+        // The view choice sits in the middle of the bar, the page number to its right; the
+        // equal space on its left keeps it centered.
         let inner = rect.width() as i32 - 2 * side;
-        let view_w = inner * 37 / 100;
-        let page_w = inner / 6;
-        let status_w = inner - view_w - page_w;
+        let side_w = inner / 4;
         let x0 = rect.min.x + side;
-        let view_rect = rect![x0, rect.min.y, x0 + view_w, rect.max.y];
+        let x1 = rect.max.x - side;
+        footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
+        let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
         if view_text.is_empty() {
             footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
         } else {
             footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
         }
-        let sx = x0 + view_w;
-        footer.children.push(Box::new(Label::new(rect![sx, rect.min.y, sx + status_w, rect.max.y], status, Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))))));
-        footer.children.push(Box::new(Label::new(rect![sx + status_w, rect.min.y, rect.max.x - side, rect.max.y], format!("Page {page}"), Align::Center)));
+        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], format!("{page} / {total}{plus}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
         if next {
             footer.children.push(Box::new(Icon::new("arrow-right", next_rect, Event::Page(CycleDir::Next))));
         } else {
             footer.children.push(Box::new(Filler::new(next_rect, WHITE)));
+        }
+        // Pushed last so it draws over the labels' white backgrounds.
+        if total > 1 {
+            let dpi = CURRENT_DEVICE.dpi;
+            let pad = scale_by_dpi(12.0, dpi) as i32;
+            let bar_h = scale_by_dpi(24.0, dpi) as i32;
+            let bar_rect = rect![rect.min.x + side + pad, rect.min.y, rect.max.x - side - pad, rect.min.y + bar_h];
+            footer.children.push(Box::new(PageProgress::new(bar_rect, page - 1, total)));
         }
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
@@ -662,6 +749,32 @@ impl InoInkHome {
         self.end_only = false;
         self.next_is_end = false;
         self.load_page(hub, rq, context);
+    }
+
+    /// While a sync runs, the sync button gets a dot and turns: one frame every [`SPIN_FRAME`],
+    /// drawn with a fast black-and-white update. It stops upright, without the dot.
+    fn update_sync_icon(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &Context) {
+        let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
+        if syncing && !self.spinning {
+            self.spinning = true;
+            schedule_spin(hub);
+        }
+        if !syncing {
+            self.spin_frame = 0;
+        }
+        self.set_sync_frame(syncing, rq);
+    }
+
+    fn set_sync_frame(&mut self, syncing: bool, rq: &mut RenderQueue) {
+        let name = if syncing { SPIN_FRAMES[self.spin_frame % SPIN_FRAMES.len()] } else { "sync" };
+        let Some(top) = self.children[TOP].downcast_mut::<TopBar>() else { return };
+        for icon in top.children_mut().iter_mut().filter_map(|c| c.downcast_mut::<Icon>()) {
+            if (icon.name == "sync" || SPIN_FRAMES.contains(&icon.name.as_str())) && icon.name != name {
+                icon.name = name.to_string();
+                let mode = if name == "sync" { UpdateMode::Gui } else { UpdateMode::Fast };
+                rq.add(RenderData::new(icon.id(), icon.rect, mode));
+            }
+        }
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -860,10 +973,14 @@ impl InoInkHome {
                 context.inoink.set_view_options(v);
                 self.reset(hub, rq, context);
             }
+            InoInkEntry::CategorySort(s) => {
+                context.inoink.set_category_sort(*s);
+                self.reset(hub, rq, context);
+            }
             InoInkEntry::SyncNow => {
                 if context.inoink.handle.is_some() {
+                    // The sync button shows the progress.
                     context.inoink.submit(inoink::runtime::Command::SyncNow);
-                    self.notify("Syncing", hub, rq, context);
                 } else {
                     self.notify("Sign in to sync. See the setup guide.", hub, rq, context);
                 }
@@ -971,6 +1088,20 @@ impl InoInkHome {
     }
 }
 
+/// Grouped lists read at most this many summaries to count their pages.
+const PAGE_SCAN_LIMIT: usize = 3000;
+
+const SPIN_FRAMES: [&str; 4] = ["sync-0", "sync-1", "sync-2", "sync-3"];
+const SPIN_FRAME: std::time::Duration = std::time::Duration::from_millis(600);
+
+fn schedule_spin(hub: &Hub) {
+    let hub = hub.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(SPIN_FRAME);
+        hub.send(Event::SyncSpin).ok();
+    });
+}
+
 pub fn browse_key(c: &Collection) -> String {
     format!("browse:{}", serde_json::to_string(c).unwrap_or_default())
 }
@@ -1000,6 +1131,17 @@ impl View for InoInkHome {
             Event::ToggleNear(ViewId::TitleMenu, rect) => {
                 let entries = self.title_menu_entries(context);
                 self.toggle_menu(ViewId::TitleMenu, rect, MenuKind::DropDown, entries, rq, context);
+                true
+            }
+            Event::ToggleNear(ViewId::SortMenu, rect) if self.showing_cats => {
+                let current = context.inoink.category_sort();
+                let mut entries = vec![EntryKind::Message("Sort by".to_string(), None)];
+                for s in CategorySort::ALL {
+                    entries.push(EntryKind::RadioButton(s.label().to_string(), EntryId::InoInk(InoInkEntry::CategorySort(s)), s == current));
+                }
+                // The menu opens upward from the footer and lists its entries bottom to top.
+                entries.reverse();
+                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::SortMenu, rect) => {
@@ -1130,9 +1272,20 @@ impl View for InoInkHome {
                 }
                 if refresh {
                     self.load_page(hub, rq, context);
-                } else {
-                    self.rebuild_footer(rq, context);
                 }
+                self.update_sync_icon(hub, rq, context);
+                true
+            }
+            Event::SyncSpin => {
+                let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
+                if syncing {
+                    self.spin_frame = (self.spin_frame + 1) % SPIN_FRAMES.len();
+                    schedule_spin(hub);
+                } else {
+                    self.spinning = false;
+                    self.spin_frame = 0;
+                }
+                self.set_sync_frame(syncing, rq);
                 true
             }
             Event::Reseed => {
@@ -1140,6 +1293,9 @@ impl View for InoInkHome {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
                 }
+                // A tick may have been lost while another view was in front.
+                self.spinning = false;
+                self.update_sync_icon(hub, rq, context);
                 // Coming back from the reader (or a menu): repaint everything.
                 rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 true

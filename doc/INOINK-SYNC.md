@@ -27,6 +27,16 @@ second complete listing agrees**. A failed, partial, looping or page-capped list
 anything. Leaving Starred does not delete the article or remove it from All articles or a folder.
 A snapshot that began before one of your acknowledged writes cannot overwrite it.
 
+Each sync starts with one `unread-count` request, which lists every feed and folder with the
+reading list's unread count and newest article and the starred total. A listing is skipped when
+the server's count equals the articles stored with that state, the newest unread article is the
+one seen at the last complete listing, and that listing is less than 6 hours old; so a sync with
+nothing new costs one request. A change made elsewhere that keeps both the same (reading one
+article and marking another unread, or starring one and unstarring another) arrives within 6
+hours. Subscriptions, folders and their order are read again when the counts list a different set
+of feeds and folders, after an organization change was sent or refused, and otherwise at most
+every 6 hours (every hour for a sync you start).
+
 ## Annotations
 
 The Annotated stream (up to 200 articles) is read on every sync you start, and at most every 6
@@ -57,7 +67,9 @@ The server's `X-Reader-Zone{1,2}-{Limit,Usage}` and reset headers are tracked pe
 across restarts; until a header is seen a conservative estimate of 100 per zone is used and
 labelled as an estimate. Automatic syncs leave a reserve (at least 5, or 10%) for requests you
 make. On HTTP 429, all requests pause until the reset and the status line says so; pending work is
-kept. Automatic metadata refresh and reconciliation run at most every 15 minutes; writes are
+kept. Main menu > Settings > Inoreader API budget shows the server-reported usage and limit of
+each zone, when they reset and how many requests the last sync used. Automatic metadata refresh
+and reconciliation run at most every 15 minutes; writes are
 debounced two seconds (ten at most). There is no timer: sync starts on launch, a wake or network
 event, a committed change, or when you ask, so the device is never kept awake.
 

@@ -155,9 +155,15 @@ impl View for ArticleRow {
             let font = font_from_style(fonts, &LIST_META, dpi);
             (font.line_height(), font.ascender(), font.x_heights.0 as i32)
         };
-        let marker_w = 2 * padding;
-        let text_w = self.rect.width() as i32 - 2 * padding - marker_w;
-        let start_x = self.rect.min.x + padding + marker_w;
+        // The right column holds the saved mark (beside the title) above the offline mark (beside
+        // the meta line); the text starts at the left padding.
+        let r = (mxh / 2).max(4);
+        let (half_w, half_h) = ((mxh * 2 / 3).max(4), (mxh * 6 / 5).max(6));
+        let col_half = half_w.max(r);
+        let col_x = self.rect.max.x - padding - col_half;
+        let start_x = self.rect.min.x + padding;
+        let full_w = self.rect.width() as i32 - 2 * padding;
+        let text_w = full_w - 2 * col_half - padding / 2;
 
         // Title: one or two lines.
         let (plan, second) = {
@@ -185,17 +191,15 @@ impl View for ArticleRow {
             }
         }
 
-        // Saved for later: a bar down the left edge and a bookmark ribbon beside the title, like
-        // Inoreader's Read later mark.
+        // Saved for later: a bar down the left edge and a bookmark ribbon at the right of the
+        // title, above the offline mark, like Inoreader's Read later mark.
         if self.item.starred {
             let ink = if self.active { WHITE } else { BLACK };
             let paper = if self.active { BLACK } else { WHITE };
             let bar_w = scale_by_dpi(6.0, dpi) as i32;
             fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.min.x + bar_w, self.rect.max.y], ink);
-            let cx = self.rect.min.x + padding + marker_w / 3;
+            let cx = col_x;
             let cy = top + tlh / 2;
-            let half_w = (mxh * 2 / 3).max(4);
-            let half_h = (mxh * 6 / 5).max(6);
             let (x0, x1, y0, y1) = (cx - half_w, cx + half_w, cy - half_h, cy + half_h);
             fb.draw_rectangle(&rect![x0, y0, x1, y1], ink);
             fb.draw_triangle(&[Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w)], paper);
@@ -203,9 +207,8 @@ impl View for ArticleRow {
 
         // Meta line: source, relative date, reading time, offline mark.
         let mb = top + n * tlh + gap + masc;
-        let r = (mxh / 2).max(4);
         let has_mark = !matches!(self.item.download, DownloadState::Failed | DownloadState::NotDownloaded);
-        let ow = if has_mark { 2 * r + padding / 2 } else { 0 };
+        let ow = if has_mark { 2 * col_half + padding / 2 } else { 0 };
         let mut rest = String::new();
         for part in [relative_date(self.item.published, &Local::now()), inoink::content::format_read_time(self.item.words).unwrap_or_default()] {
             if !part.is_empty() {
@@ -216,7 +219,7 @@ impl View for ArticleRow {
         {
             let font = font_from_style(fonts, &LIST_META, dpi);
             let rest_plan = font.plan(&rest, None, None);
-            let src_w = (text_w - ow - rest_plan.width).max(text_w / 3);
+            let src_w = (full_w - ow - rest_plan.width).max(full_w / 3);
             let src_plan = font.plan(&self.item.source, Some(src_w), None);
             let sw = src_plan.width;
             font.render(fb, sub, &src_plan, Point::new(start_x, mb));
@@ -224,7 +227,7 @@ impl View for ArticleRow {
         }
         if has_mark {
             let thickness = scale_by_dpi(1.5, dpi) as i32;
-            let c = Point::new(self.rect.max.x - padding - r, mb - mxh / 2);
+            let c = Point::new(col_x, mb - mxh / 2);
             let ink = if self.active { WHITE } else { BLACK };
             let paper = if self.active { BLACK } else { WHITE };
             match self.item.download {

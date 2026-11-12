@@ -287,6 +287,12 @@ impl Document for HtmlDocument {
         self.size
     }
 
+    fn page_position(&mut self, offset: usize) -> Option<(usize, usize)> {
+        self.engine.load_fonts();
+        let index = self.page_index(offset)?;
+        Some((index, self.pages.len()))
+    }
+
     fn toc(&mut self) -> Option<Vec<TocEntry>> {
         None
     }

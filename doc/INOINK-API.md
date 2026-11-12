@@ -13,7 +13,7 @@ Module paths are in `crates/inoink/src`.
 | Subscription list | `GET /subscription/list` | drawer: Feeds; Manage | `ApiClient::subscriptions` | `api_contract` | not run | `firstitemmsec` is microseconds |
 | Add feed | `POST /subscription/quickadd` quickadd | Manage > Follow a feed | `ApiClient::quickadd` | `api_contract`, `sync_faults` | not run | numResults=1 also for existing subscription; not idempotent, reconciled via list |
 | Edit / unsubscribe | `POST /subscription/edit` ac=edit\| Manage > Feeds |subscribe\|unsubscribe, s, t, a, r | `ApiClient::edit_subscription` | `api_contract` | not run | |
-| Unread counts | `GET /unread-count` | drawer counts | `ApiClient::unread_counts` | `api_contract` | not run | Capped counts shown as `N+` |
+| Unread counts | `GET /unread-count` | first request of every sync: change signal for listings and the organization | `ApiClient::unread_counts` | `api_contract`, `sync_faults` | PASS (device data 2026-11-12: lists every feed and folder, reading list with newest timestamp, starred total) | Capped counts say nothing; equal counts can hide a swap (resolved by the 6-hour re-listing) |
 | Folder/tag list | `GET /tag/list` types, counts, team_assets | drawer: Folders, Tags, Monitoring | `ApiClient::tags` | `api_contract` | not run | No documented way to create an empty folder/tag |
 | Rename tag | `POST /rename-tag` s, dest | Manage > Folders | `ApiClient::rename_tag` | `api_contract` | not run | Not idempotent |
 | Delete tag | `POST /disable-tag` s | Manage > Folders | `ApiClient::disable_tag` | `api_contract` | not run | |
@@ -27,7 +27,7 @@ Module paths are in `crates/inoink/src`.
 | Active Search create | `POST /active_search/create` JSON term, filter_type, filter_id, article_ids, search_filters, search_match, search_feed_popularity | Manage > Monitoring | `ApiClient::create_active_search` | `api_contract` | not run | Validation failures can be HTTP 202; Pro limit 30; not idempotent |
 | Active Search delete | `GET /active_search/delete` id | Manage > Monitoring (confirmed) | `ApiClient::delete_active_search` | `api_contract` | not run | Destructive GET per docs; confirmed in UI, never retried blindly |
 | Saved web pages / annotated / like / broadcast streams | stream IDs `user/-/state/com.google/{saved-web-pages,annotated,like,broadcast}` | `Collection` | `api_contract` | not run | Saved-pages content equals what the API returns; not guaranteed identical to the website's views |
-| Rate limiting | headers `X-Reader-Zone{1,2}-{Limit,Usage}`, `X-Reader-Limits-Reset-After`; 429 | status line | `api::quota` | `sync_faults` | not run | Defaults 100/zone/day on Pro; fallback is labelled estimated |
+| Rate limiting | headers `X-Reader-Zone{1,2}-{Limit,Usage}`, `X-Reader-Limits-Reset-After`; 429 | Settings > Inoreader API budget; Main menu > Status | `api::quota` | `sync_faults` | PASS (2000 per zone reported live) | Limits depend on the plan; until a header is seen, 100 per zone is assumed and labelled estimated |
 
 ## Deliberately not called (no documented request contract)
 

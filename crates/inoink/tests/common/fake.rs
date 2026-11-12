@@ -420,8 +420,25 @@ impl Transport for Fake {
                     ok(serde_json::json!({"tags": tags}).to_string(), headers.clone())
                 }
                 "/unread-count" => {
-                    let n = st.arts.values().filter(|a| !a.read).count();
-                    ok(serde_json::json!({"max": 1000, "unreadcounts": [{"id": "user/42/state/com.google/reading-list", "count": n, "newestItemTimestampUsec": "0"}]}).to_string(), headers.clone())
+                    // As the real API: every feed and folder/tag (even at zero), the reading
+                    // list with its newest unread article, and the starred total.
+                    let unread: Vec<&SArt> = st.arts.values().filter(|a| !a.read).collect();
+                    let newest = unread.iter().map(|a| a.ts).max().unwrap_or(0);
+                    let entry = |id: String, n: usize, newest: i64| serde_json::json!({"id": id, "count": n, "newestItemTimestampUsec": newest.to_string()});
+                    let mut list = vec![
+                        entry("user/42/state/com.google/reading-list".into(), unread.len(), newest),
+                        entry("user/42/state/com.google/starred".into(), st.arts.values().filter(|a| a.starred).count(), 0),
+                    ];
+                    let mut labels = BTreeSet::new();
+                    for s in &st.subs {
+                        list.push(entry(s.id.clone(), unread.iter().filter(|a| a.feed == s.id).count(), 0));
+                        labels.extend(s.folders.iter().cloned());
+                    }
+                    labels.extend(st.tags.iter().map(|(id, _)| id.clone()));
+                    for l in labels {
+                        list.push(entry(format!("user/42/label/{l}"), 0, 0));
+                    }
+                    ok(serde_json::json!({"max": 1000, "unreadcounts": list}).to_string(), headers.clone())
                 }
                 "/preference/stream/list" => ok(r#"{"streamprefs":{}}"#.into(), headers.clone()),
                 "/subscription/edit" => {

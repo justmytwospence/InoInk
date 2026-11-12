@@ -15,13 +15,16 @@ public API and does not try to match the Inoreader website feature for feature; 
 ## Features
 
 - Three tabs, named as Inoreader names them: **Newsfeed** (unread by default), **Categories**
-  (folders in your Inoreader order, then tags and the other streams) and **Read later** (your
-  starred articles, the reading queue). Each view remembers its own filter, grouping and sort.
-  Search covers every downloaded article.
-- Tap a headline to read it; hold it to save it for later (star it). Settings can swap the two. At the end of an unread list a card offers **Mark N read** for what you
-  saw and did not save.
-- A compact list: bold for unread, the source, a relative date ("3 h ago") and the reading
-  time ("6 min read") on one line.
+  (folders in your Inoreader order, by name or by most unread, then tags and the other streams)
+  and **Read later** (your starred articles, the reading queue). Each view remembers its own
+  filter, grouping and sort. Search covers every downloaded article.
+- Tap a headline to read it; hold it to save it for later (star it). Settings can swap the two.
+  At the end of an unread list a card offers **Mark N read** for what you saw and did not save.
+- A compact list that uses the full width: bold for unread, the source, a relative date
+  ("3 h ago") and the reading time ("6 min read") on one line, with the saved mark and the
+  offline mark stacked at the right.
+- You always know how far there is to go: lists show "2 / 7" and articles a bar along the
+  bottom, split into one segment per page while they fit across the screen.
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
   to every article.
@@ -38,6 +41,8 @@ public API and does not try to match the Inoreader website feature for feature; 
   (to open it on your phone), Send to Karakeep or Follow in Inoreader.
 - Offline first: text and colour images are cached; every change is saved on the Kobo first and
   sent to Inoreader when the network is available.
+- Light on your Inoreader API budget: a sync with nothing new costs one request, and Settings >
+  Inoreader API budget shows today's usage against the limits Inoreader reports.
 - Kobo conveniences: starts with the light and the Wi-Fi state the Kobo was using, a light panel
   (bulb icon) and a slide along the left edge for brightness, page-turn buttons, and a Wi-Fi icon
   in the top bar that is also the Wi-Fi switch.
@@ -110,11 +115,18 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 ## Using it
 
 - **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
-  it and holding saves it for later (Settings can swap them); swipe down on a list or tap the
-  sync icon to sync. The footer menu
-  ("Unread - Newest") chooses unread or all, grouping and sort; long-press a row (Read later) for
+  it and holding saves it for later (Settings can swap them); long-press a row in Read later for
   Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
   folder and its feeds.
+- **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
+  sort, and on the Categories list the order of folders. On the right, the page and how many
+  there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above:
+  one segment per page while they fit across the screen, otherwise a line; either way only the
+  page shown is dark.
+- **Sync:** InoInk syncs on its own when it starts, wakes or gets a network connection, and sends
+  your changes a few seconds after you make them. Tap the sync icon to sync now; it shows a dot
+  and turns while a sync runs. Main menu > Status shows the last sync, and Settings > Inoreader
+  API budget today's requests.
 - **Article:** tap the middle of the page for the bar (Back, Aa, Star, Done, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
   Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.
@@ -141,9 +153,25 @@ cargo build --release -p inoink-cli      # target/release/inoink-cli
 scripts/test-inoink.sh                   # all automated checks
 ```
 
+Builds made this way are named as dev versions (`<last release>-dev.<commits>.<commit>`); only
+the Release workflow builds release versions.
+
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` runs a scripted tour in
 the desktop emulator and writes screenshots to `target/inoink-emulator-shots`. Create the sample
 data first with `cargo run -p inoink-cli -- fixtures --output target/inoink-fixtures`.
+
+## Contributing and releases
+
+Changes go through pull requests to `main`, and each one is tried on a real Kobo before it is
+merged. With the Kobo connected by USB, `scripts/kobo-dev.sh` builds your working tree and
+installs it (your data on the Kobo is kept); the pull request template asks which device,
+firmware and build you checked. Testing on other Kobo models is especially welcome.
+
+Merging is releasing: once CI passes on `main`, the Release workflow publishes the next version
+to everyone. The version follows the pull request title: `feat:` bumps the minor version, a
+breaking change (`feat!:`) the major, anything else the patch, and changes to docs, CI or tests
+alone release nothing. `scripts/version.sh next` shows what merging now would publish. Details:
+[doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#development-and-releases).
 
 ## Documentation
 

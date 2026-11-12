@@ -101,6 +101,12 @@ pub trait Document: Send+Sync {
     fn links(&mut self, loc: Location) -> Option<(Vec<BoundedText>, usize)>;
     fn images(&mut self, loc: Location) -> Option<(Vec<Boundary>, usize)>;
 
+    /// The 0-based page containing `offset` and how many pages there are, for documents laid out
+    /// in pages of their own (HTML). Others return None.
+    fn page_position(&mut self, _offset: usize) -> Option<(usize, usize)> {
+        None
+    }
+
     /// Images on the page with the path they were loaded from (relative to the document
     /// root), for enlargement. Only HTML documents provide it.
     fn image_sources(&mut self, _loc: Location) -> Option<(Vec<BoundedText>, usize)> {

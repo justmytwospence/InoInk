@@ -68,6 +68,11 @@ const EMBEDDED_ICONS: &[(&str, &[u8])] = &[
     ("archive", include_bytes!("../../../../icons/archive.svg")),
     ("more", include_bytes!("../../../../icons/more.svg")),
     ("sync", include_bytes!("../../../../icons/sync.svg")),
+    // Frames of the spinning sync icon, with a dot while active (the arrows repeat every half turn).
+    ("sync-0", include_bytes!("../../../../icons/sync-0.svg")),
+    ("sync-1", include_bytes!("../../../../icons/sync-1.svg")),
+    ("sync-2", include_bytes!("../../../../icons/sync-2.svg")),
+    ("sync-3", include_bytes!("../../../../icons/sync-3.svg")),
     ("mark-read", include_bytes!("../../../../icons/mark-read.svg")),
     ("tag", include_bytes!("../../../../icons/tag.svg")),
     ("wifi", include_bytes!("../../../../icons/wifi.svg")),

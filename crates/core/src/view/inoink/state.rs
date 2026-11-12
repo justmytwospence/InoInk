@@ -259,6 +259,21 @@ impl InoInk {
         self.persist_view();
     }
 
+    /// The order of the Categories tab.
+    pub fn category_sort(&self) -> CategorySort {
+        self.store
+            .as_ref()
+            .and_then(|s| s.get_meta("ui_category_sort").ok().flatten())
+            .and_then(|v| serde_json::from_str::<CategorySort>(&v).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn set_category_sort(&mut self, s: CategorySort) {
+        if let Some(store) = self.store.as_mut() {
+            let _ = store.set_meta("ui_category_sort", &serde_json::to_string(&s).unwrap_or_default());
+        }
+    }
+
     fn view_key(&self) -> String {
         format!("view2:{}", serde_json::to_string(&self.collection).unwrap_or_default())
     }

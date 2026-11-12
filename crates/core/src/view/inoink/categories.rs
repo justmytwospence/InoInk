@@ -18,16 +18,26 @@ pub enum CategoryItem {
     Entry { label: String, count: usize, target: Collection },
 }
 
-/// Everything the Categories tab lists, in order. Sections with nothing in them are left out.
+/// Everything the Categories tab lists, in the chosen order. Sections with nothing in them
+/// are left out; the fixed "More" section is never reordered.
 pub fn category_items(context: &Context) -> Vec<CategoryItem> {
     let mut items = Vec::new();
     let Some(store) = context.inoink.store() else { return items };
+    let sort = context.inoink.category_sort();
     let counts = store.unread_by_folder().unwrap_or_default();
-    let folders = store.folders_in_order().unwrap_or_default();
+    let mut folders: Vec<(String, usize)> = store.folders_in_order().unwrap_or_default().into_iter().map(|f| {
+        let n = counts.get(&f).copied().unwrap_or(0);
+        (f, n)
+    }).collect();
+    match sort {
+        CategorySort::Inoreader => {}
+        CategorySort::Name => folders.sort_by_key(|(f, _)| f.to_lowercase()),
+        // Stable: ties keep Inoreader's order.
+        CategorySort::MostUnread => folders.sort_by(|a, b| b.1.cmp(&a.1)),
+    }
     if !folders.is_empty() {
         items.push(CategoryItem::Header("Folders".into()));
-        for f in folders {
-            let count = counts.get(&f).copied().unwrap_or(0);
+        for (f, count) in folders {
             items.push(CategoryItem::Entry { label: f.clone(), count, target: Collection::Folder(f) });
         }
     }
@@ -97,7 +107,7 @@ impl View for CategoryRow {
         }
         let style = if self.count > 0 { &*LIST_TITLE } else { &*LIST_TITLE_READ };
         let font = font_from_style(fonts, style, dpi);
-        let x = self.rect.min.x + 3 * padding;
+        let x = self.rect.min.x + padding;
         let plan = font.plan(&self.label, Some((right - x).max(1)), None);
         let y = self.rect.min.y + (self.rect.height() as i32 + font.x_heights.0 as i32) / 2;
         font.render(fb, if self.active { scheme[1] } else { BLACK }, &plan, Point::new(x, y));

@@ -152,7 +152,46 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
         ));
     }
     entries.push(EntryKind::CheckBox("Invert colors".into(), EntryId::ToggleInverted, context.fb.inverted()));
+    entries.push(EntryKind::SubMenu("Inoreader API budget".into(), api_budget_entries(context)));
     entries
+}
+
+/// Today's Inoreader request budget, as the server last reported it in its response headers.
+pub fn api_budget_entries(context: &Context) -> Vec<EntryKind> {
+    use inoink::api::{Quota, Zone};
+    let msg = |s: String| EntryKind::Message(s, None);
+    let store = context.inoink.store();
+    let Some(json) = store.and_then(|s| s.get_meta("quota").ok().flatten()) else {
+        return vec![msg("Not known until the first sync".into())];
+    };
+    let mut q = Quota::from_json(&json);
+    let now = chrono::Local::now().timestamp();
+    q.tick(now);
+    let line = |name: &str, z: Zone| {
+        let r = q.remaining(z);
+        let used = q.used(z);
+        let pct = if r.limit > 0 { (used as u64 * 100 / r.limit as u64).min(100) } else { 0 };
+        format!("{name}: {used} of {} used ({pct}%)", r.limit)
+    };
+    let mut entries = vec![line("Reads", Zone::One), line("Writes", Zone::Two)].into_iter().map(msg).collect::<Vec<_>>();
+    if q.remaining(Zone::One).estimated {
+        entries.push(msg("Limits not reported yet: estimated".into()));
+    }
+    if let Some(until) = q.paused_until() {
+        entries.push(msg(format!("Paused by Inoreader until {}", clock(until))));
+    } else if let Some(t) = q.reset_at() {
+        entries.push(msg(format!("Resets at {}", clock(t))));
+    }
+    entries.push(msg(format!("Automatic sync keeps {} reads for you", q.reserve(Zone::One))));
+    if let Some(n) = store.and_then(|s| s.get_meta("last_sync_requests").ok().flatten()) {
+        entries.push(msg(format!("Last sync used {n} request{}", if n == "1" { "" } else { "s" })));
+    }
+    entries
+}
+
+fn clock(t: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local.timestamp_opt(t, 0).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default()
 }
 
 fn status_entries(context: &Context) -> Vec<EntryKind> {
@@ -161,7 +200,8 @@ fn status_entries(context: &Context) -> Vec<EntryKind> {
         EntryKind::Message(format!("Changes waiting to send: {}", context.inoink.pending()), None),
     ];
     if let Some(q) = context.inoink.store().and_then(|s| s.get_meta("quota").ok().flatten()) {
-        let q = inoink::api::Quota::from_json(&q);
+        let mut q = inoink::api::Quota::from_json(&q);
+        q.tick(chrono::Local::now().timestamp());
         let r1 = q.remaining(inoink::api::Zone::One);
         let r2 = q.remaining(inoink::api::Zone::Two);
         let est = if r1.estimated { " (estimated)" } else { "" };
