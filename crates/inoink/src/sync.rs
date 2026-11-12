@@ -609,6 +609,12 @@ impl SyncEngine {
         }
     }
 
+    /// Re-downloads the comments of a Hacker News or Lobsters link post.
+    pub fn refresh_comments(&mut self, id: ArticleId) -> Result<u32> {
+        let ctl = self.control();
+        self.cache.refresh_comments(&mut self.store, self.fetcher.as_ref(), id, &ctl)
+    }
+
     /// Fetches one article's content now (the user opened it online).
     pub fn cache_now(&mut self, id: ArticleId) -> Result<DownloadState> {
         let ctl = self.control();

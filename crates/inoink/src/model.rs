@@ -370,6 +370,22 @@ impl From<&ArticleSummary> for Cursor {
     }
 }
 
+/// A link post from a discussion site: its extracted article and cached comments.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DiscussionRow {
+    pub site: String,
+    pub ext_id: String,
+    pub url: String,
+    pub article_url: String,
+    pub article_html: Option<String>,
+    pub comment_count: u32,
+    pub fetched: i64,
+    pub comments_bytes: i64,
+    pub pos_hash: String,
+    pub pos_offset: u64,
+    pub pos_anchor: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ArticleQuery {
     pub collection: Option<Collection>,

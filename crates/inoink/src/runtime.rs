@@ -45,6 +45,7 @@ pub enum Command {
     CacheNow(ArticleId),
     RetryImage(ArticleId, String),
     ExtractOriginal(ArticleId),
+    RefreshComments(ArticleId),
     Lifecycle(Lifecycle),
     Quiesce(Sender<()>),
     Shutdown,
@@ -76,6 +77,7 @@ pub enum Update {
     Cached(ArticleId, DownloadState),
     CacheFailed(ArticleId, String),
     Extracted(ArticleId, std::result::Result<DownloadState, String>),
+    CommentsRefreshed(ArticleId, std::result::Result<u32, String>),
     /// The worker stopped touching the database (USB) or the network (suspend).
     Quiesced,
 }
@@ -259,6 +261,12 @@ impl Worker {
                         Ok(r) => self.send(Update::Extracted(id, r)),
                         Err(e) => self.send(Update::Extracted(id, Err(e.to_string()))),
                     }
+                }
+            }
+            Command::RefreshComments(id) => {
+                if !self.usb {
+                    let r = self.engine.refresh_comments(id).map_err(|e| e.to_string());
+                    self.send(Update::CommentsRefreshed(id, r));
                 }
             }
             Command::Lifecycle(l) => self.lifecycle(l),

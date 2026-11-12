@@ -11,8 +11,12 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const MIGRATIONS: &[&str] =
-    &[include_str!("../migrations/0001.sql"), include_str!("../migrations/0002.sql"), include_str!("../migrations/0003.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001.sql"),
+    include_str!("../migrations/0002.sql"),
+    include_str!("../migrations/0003.sql"),
+    include_str!("../migrations/0004.sql"),
+];
 
 /// Highest schema version this build understands.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -1465,6 +1469,67 @@ impl Store {
         Ok(())
     }
 
+    // ---- discussions ----------------------------------------------------------------------
+
+    pub fn discussion(&self, id: ArticleId) -> Result<Option<DiscussionRow>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT site,ext_id,url,article_url,article_html,comment_count,fetched,comments_bytes,pos_hash,pos_offset,pos_anchor \
+                 FROM discussions WHERE account=?1 AND article=?2",
+                params![self.account, id.to_db()],
+                |r| {
+                    Ok(DiscussionRow {
+                        site: r.get(0)?,
+                        ext_id: r.get(1)?,
+                        url: r.get(2)?,
+                        article_url: r.get(3)?,
+                        article_html: r.get(4)?,
+                        comment_count: r.get::<_, i64>(5)?.max(0) as u32,
+                        fetched: r.get(6)?,
+                        comments_bytes: r.get(7)?,
+                        pos_hash: r.get(8)?,
+                        pos_offset: r.get::<_, i64>(9)?.max(0) as u64,
+                        pos_anchor: r.get(10)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn insert_discussion(&mut self, id: ArticleId, site: &str, ext_id: &str, url: &str, article_url: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO discussions(account,article,site,ext_id,url,article_url) VALUES(?1,?2,?3,?4,?5,?6) \
+             ON CONFLICT(account,article) DO NOTHING",
+            params![self.account, id.to_db(), site, ext_id, url, article_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_discussion_article(&mut self, id: ArticleId, html: &str, article_url: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE discussions SET article_html=?3, article_url=?4 WHERE account=?1 AND article=?2",
+            params![self.account, id.to_db(), html, article_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_discussion_comments(&mut self, id: ArticleId, count: u32, fetched: i64, bytes: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE discussions SET comment_count=?3, fetched=?4, comments_bytes=?5 WHERE account=?1 AND article=?2",
+            params![self.account, id.to_db(), count as i64, fetched, bytes],
+        )?;
+        Ok(())
+    }
+
+    pub fn save_comments_position(&mut self, id: ArticleId, hash: &str, offset: u64, anchor: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE discussions SET pos_hash=?3, pos_offset=?4, pos_anchor=?5 WHERE account=?1 AND article=?2",
+            params![self.account, id.to_db(), hash, offset as i64, anchor],
+        )?;
+        Ok(())
+    }
+
     /// Drops all cached content bookkeeping for an article (eviction). The article row, its
     /// raw API object, positions and pending intents are kept.
     pub fn clear_content(&mut self, article: ArticleId) -> Result<()> {
@@ -1473,6 +1538,10 @@ impl Store {
         tx.execute("DELETE FROM content_versions WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM assets WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM article_fts WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
+        tx.execute(
+            "UPDATE discussions SET fetched=0, comments_bytes=0 WHERE account=?1 AND article=?2",
+            params![account, article.to_db()],
+        )?;
         tx.execute("UPDATE articles SET download_state='not_downloaded' WHERE account=?1 AND id=?2", params![account, article.to_db()])?;
         tx.commit()?;
         Ok(())
@@ -1531,7 +1600,8 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT a.id, a.timestamp_usec, a.pinned, \
              COALESCE((SELECT SUM(bytes) FROM content_versions v WHERE v.account=a.account AND v.article=a.id),0) + \
-             COALESCE((SELECT SUM(bytes) FROM assets s WHERE s.account=a.account AND s.article=a.id AND s.state='done'),0), \
+             COALESCE((SELECT SUM(bytes) FROM assets s WHERE s.account=a.account AND s.article=a.id AND s.state='done'),0) + \
+             COALESCE((SELECT comments_bytes FROM discussions d WHERE d.account=a.account AND d.article=a.id),0), \
              COALESCE((SELECT present FROM remote_state WHERE account=a.account AND article=a.id AND key='starred'),0), \
              COALESCE((SELECT 1 FROM intents WHERE account=a.account AND article=a.id LIMIT 1),0), \
              COALESCE((SELECT 1 FROM leases WHERE account=a.account AND article=a.id LIMIT 1),0), \

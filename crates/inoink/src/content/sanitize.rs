@@ -84,7 +84,7 @@ const INLINE_RENAME: &[(&str, &str)] = &[
     ("output", "span"),
 ];
 
-fn esc(s: &str, out: &mut String) {
+pub(crate) fn esc(s: &str, out: &mut String) {
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -219,6 +219,8 @@ struct Ctx<'a> {
     refs: Vec<AssetRef>,
     placeholders: usize,
     in_pre: bool,
+    /// False for comment fragments: images become their alt text.
+    images: bool,
 }
 
 impl Ctx<'_> {
@@ -238,7 +240,7 @@ impl Ctx<'_> {
 
     fn image(&mut self, node: &Handle) {
         let alt = attr(node, "alt").unwrap_or_default();
-        let Some(src) = image_source(node) else {
+        let Some(src) = image_source(node).filter(|_| self.images) else {
             // No usable source: keep the alt text so nothing is silently lost.
             if !alt.trim().is_empty() {
                 self.out.push_str("<em>");
@@ -444,6 +446,27 @@ fn parse(html: &str) -> RcDom {
     parse_fragment(RcDom::default(), ParseOpts::default(), ctx, vec![], false).one(html)
 }
 
+/// Sanitizes a fragment (a comment) without images. Returns (XHTML fragment, plain text).
+pub fn sanitize_fragment(raw: &str, base_url: Option<&str>) -> (String, String) {
+    let base = base_url.and_then(|b| Url::parse(b).ok());
+    let raw = if raw.len() > MAX_HTML { &raw[..raw.floor_char_boundary(MAX_HTML)] } else { raw };
+    let dom = parse(raw);
+    let root = dom.document.children.borrow().first().cloned().unwrap_or_else(|| dom.document.clone());
+    let assets = AssetMap::new();
+    let mut cx = Ctx {
+        base,
+        assets: &assets,
+        out: String::new(),
+        text: String::new(),
+        refs: Vec::new(),
+        placeholders: 0,
+        in_pre: false,
+        images: false,
+    };
+    cx.children(&root, 0);
+    (cx.out, cx.text)
+}
+
 /// Sanitizes `raw` and wraps it in a complete XHTML document. `assets` says which images are
 /// already downloaded; the rest become retryable placeholders.
 pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, assets: &AssetMap) -> PreparedArticle {
@@ -452,7 +475,8 @@ pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, as
     let dom = parse(raw);
     // The fragment parser wraps content in an <html> element under the document.
     let root = dom.document.children.borrow().first().cloned().unwrap_or_else(|| dom.document.clone());
-    let mut cx = Ctx { base, assets, out: String::new(), text: String::new(), refs: Vec::new(), placeholders: 0, in_pre: false };
+    let mut cx =
+        Ctx { base, assets, out: String::new(), text: String::new(), refs: Vec::new(), placeholders: 0, in_pre: false, images: true };
     cx.children(&root, 0);
 
     let mut html = String::with_capacity(cx.out.len() + 512);
@@ -470,6 +494,13 @@ pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, as
     esc(&parts.join(" \u{b7} "), &mut html);
     html.push_str("</p><hr/>");
     html.push_str(&cx.out);
+    if let Some(label) = &meta.discussion {
+        html.push_str("<p class=\"inoink-switch\"><a href=\"");
+        html.push_str(super::discussion::COMMENTS_SCHEME);
+        html.push_str("\">");
+        esc(label, &mut html);
+        html.push_str("</a></p>");
+    }
     html.push_str("</body></html>\n");
     PreparedArticle { html, text: cx.text.trim().to_string(), assets: cx.refs, placeholders: cx.placeholders }
 }

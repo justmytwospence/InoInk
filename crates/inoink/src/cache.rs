@@ -4,7 +4,9 @@
 //! The HTML engine is rooted at the article directory, so `assets/...` is the only kind of
 //! reference a document can contain and nothing outside it can be reached.
 
-use crate::content::images::{download_image, DownloadError, Fetcher, ImageLimits};
+use crate::content::discussion::{self, Discussion, Site, Thread};
+use crate::content::extract::{extract_original, Extraction, MIN_TEXT_CHARS};
+use crate::content::images::{download_image, fetch_following, DownloadError, Fetcher, ImageLimits};
 use crate::content::{asset_name, prepare_article, ArticleMeta, AssetMap, AssetState};
 use crate::error::{Error, Result};
 use crate::model::*;
@@ -258,9 +260,127 @@ impl Cache {
     pub fn cache_article(&self, store: &mut Store, fetcher: &dyn Fetcher, id: ArticleId, ctl: &Control) -> Result<DownloadState> {
         self.check_space(ctl)?;
         let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
+        if let Some(d) = discussion::detect(&rec.canonical_url, &rec.summary_html) {
+            return self.cache_link_post(store, fetcher, id, &rec, &d, ctl);
+        }
         let base = if rec.canonical_url.is_empty() { None } else { Some(rec.canonical_url.clone()) };
         let raw_hash = sha256_hex(rec.summary_html.as_bytes());
         self.process(store, fetcher, id, &rec, &rec.summary_html, base.as_deref(), &raw_hash, ctl)
+    }
+
+    pub fn comments_path(&self, id: ArticleId) -> PathBuf {
+        self.article_dir(id).join("comments.html")
+    }
+
+    fn fetch_thread(&self, fetcher: &dyn Fetcher, d: &Discussion, ctl: &Control) -> Result<Thread> {
+        let url = url::Url::parse(&d.api_url()).map_err(|_| Error::InvalidRequest("bad discussion address".into()))?;
+        let fetched = fetch_following(fetcher, &url, &self.cfg.limits, &ctl.cancel)?;
+        discussion::parse_thread(d.site, &fetched.body)
+    }
+
+    fn write_comments(&self, store: &mut Store, id: ArticleId, d: &Discussion, title: &str, thread: &Thread) -> Result<u32> {
+        let page = discussion::render_comments(thread, d, title);
+        fs::create_dir_all(self.article_dir(id))?;
+        atomic_write(&self.comments_path(id), page.html.as_bytes())?;
+        store.set_discussion_comments(id, thread.count, now_secs(), page.html.len() as i64)?;
+        Ok(thread.count)
+    }
+
+    /// Re-downloads the comments of a link post and rewrites the comments page.
+    pub fn refresh_comments(&self, store: &mut Store, fetcher: &dyn Fetcher, id: ArticleId, ctl: &Control) -> Result<u32> {
+        let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
+        let d =
+            discussion::detect(&rec.canonical_url, &rec.summary_html).ok_or_else(|| Error::InvalidRequest("not a discussion".into()))?;
+        let article_url = if !rec.canonical_url.is_empty() && !discussion::is_discussion_url(&rec.canonical_url) {
+            rec.canonical_url.as_str()
+        } else {
+            ""
+        };
+        store.insert_discussion(id, d.site.as_str(), &d.id, &d.url(), article_url)?;
+        let thread = self.fetch_thread(fetcher, &d, ctl)?;
+        self.write_comments(store, id, &d, &rec.title, &thread)
+    }
+
+    /// A Hacker News or Lobsters item: the full article (or post text) plus a comments page.
+    fn cache_link_post(
+        &self,
+        store: &mut Store,
+        fetcher: &dyn Fetcher,
+        id: ArticleId,
+        rec: &crate::store::ArticleRecord,
+        d: &Discussion,
+        ctl: &Control,
+    ) -> Result<DownloadState> {
+        let article_url0 = if !rec.canonical_url.is_empty() && !discussion::is_discussion_url(&rec.canonical_url) {
+            rec.canonical_url.as_str()
+        } else {
+            ""
+        };
+        store.insert_discussion(id, d.site.as_str(), &d.id, &d.url(), article_url0)?;
+        let row = store.discussion(id)?.unwrap_or_default();
+
+        let mut thread: Option<Thread> = None;
+        if !self.comments_path(id).is_file() || row.article_html.is_none() {
+            match self.fetch_thread(fetcher, d, ctl) {
+                Ok(t) => {
+                    self.write_comments(store, id, d, &rec.title, &t)?;
+                    thread = Some(t);
+                }
+                Err(Error::Storage(m)) => return Err(Error::Storage(m)),
+                Err(e) => eprintln!("discussion {}: {e}", d.url()),
+            }
+        }
+
+        let (html, base, raw_hash) = if let Some(h) = row.article_html.clone() {
+            let base = if row.article_url.is_empty() { d.url() } else { row.article_url.clone() };
+            let hash = format!("post:{}", sha256_hex(h.as_bytes()));
+            (h, base, hash)
+        } else {
+            let linked = thread
+                .as_ref()
+                .and_then(|t| t.article_url.clone())
+                .or_else(|| (!article_url0.is_empty()).then(|| article_url0.to_string()));
+            if let Some(u) = linked {
+                let feed_chars = prepare_article(&rec.summary_html, None, &ArticleMeta::default(), &AssetMap::new()).text.chars().count();
+                let outcome = match extract_original(fetcher, &u, feed_chars, &self.cfg.limits, &ctl.cancel) {
+                    Ok(o) => o,
+                    Err(Error::Storage(m)) => return Err(Error::Storage(m)),
+                    Err(_) => Extraction::Failed("the network is unavailable".into()),
+                };
+                match outcome {
+                    Extraction::Extracted { html, .. } => {
+                        store.set_discussion_article(id, &html, &u)?;
+                        let hash = format!("post:{}", sha256_hex(html.as_bytes()));
+                        (html, u, hash)
+                    }
+                    Extraction::Failed(why) => {
+                        let html = if feed_chars >= MIN_TEXT_CHARS {
+                            rec.summary_html.clone()
+                        } else {
+                            let mut e = String::new();
+                            crate::content::sanitize::esc(&u, &mut e);
+                            format!(
+                                "<p>The full article could not be downloaded ({why}).</p><p><a href=\"{e}\">{e}</a></p>{}",
+                                rec.summary_html
+                            )
+                        };
+                        let hash = format!("feed:{}", sha256_hex(html.as_bytes()));
+                        (html, u, hash)
+                    }
+                }
+            } else {
+                // A text post: the post itself is the article.
+                match thread.as_ref().and_then(|t| t.post_html.clone()) {
+                    Some(h) => {
+                        store.set_discussion_article(id, &h, "")?;
+                        let hash = format!("post:{}", sha256_hex(h.as_bytes()));
+                        (h, d.url(), hash)
+                    }
+                    None => (rec.summary_html.clone(), d.url(), sha256_hex(rec.summary_html.as_bytes())),
+                }
+            }
+        };
+        self.process(store, fetcher, id, rec, &html, Some(&base), &raw_hash, ctl)
     }
 
     /// Prepares `html` for `rec`, publishes it, downloads missing images and republishes.
@@ -282,6 +402,9 @@ impl Cache {
             author: rec.author.clone(),
             date: format_date(rec.published),
             url: rec.canonical_url.clone(),
+            discussion: store
+                .discussion(id)?
+                .map(|row| format!("Comments on {}", Site::from_name(&row.site).map(|s| s.label()).unwrap_or("the discussion"))),
         };
         let mut map = self.asset_map(store, id)?;
         let prepared = prepare_article(html, base, &meta, &map);

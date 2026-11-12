@@ -68,6 +68,12 @@ impl MockFetcher {
             .unwrap()
             .insert(url.into(), Ok(Fetched { status: 200, content_type: Some("image/png".into()), location: None, body }));
     }
+    fn ok_typed(&self, url: &str, content_type: &str, body: &str) {
+        self.routes.lock().unwrap().insert(
+            url.into(),
+            Ok(Fetched { status: 200, content_type: Some(content_type.into()), location: None, body: body.as_bytes().to_vec() }),
+        );
+    }
     fn redirect(&self, url: &str, to: &str) {
         self.routes
             .lock()
@@ -758,4 +764,118 @@ fn word_counts_and_read_time() {
     assert_eq!(format_read_time(231).unwrap(), "2 min read");
     assert_eq!(format_read_time(13800).unwrap(), "1 h read");
     assert_eq!(format_read_time(14030).unwrap(), "1 h 1 min read");
+}
+
+// ---- discussion link posts -------------------------------------------------------------------
+
+const HN_SUMMARY: &str = "<a href=\"https://news.ycombinator.com/item?id=4242\">Comments</a>";
+const HN_API: &str = "https://hn.algolia.com/api/v1/items/4242";
+const STORY_URL: &str = "https://blog.example/posts/story";
+
+fn hn_json(extra: usize) -> String {
+    let mut kids = vec![
+        r#"{"type":"comment","author":"ann","text":"<p>First</p>","created_at_i":1700000000,"children":[{"type":"comment","author":"bob","text":"<p>Reply</p>","created_at_i":1700000100,"children":[]}]}"#.to_string(),
+    ];
+    for i in 0..extra {
+        kids.push(format!(r#"{{"type":"comment","author":"u{i}","text":"<p>More {i}</p>","created_at_i":1700000200,"children":[]}}"#));
+    }
+    format!(r#"{{"type":"story","title":"A story","url":"{STORY_URL}","text":null,"children":[{}]}}"#, kids.join(","))
+}
+
+fn story_page() -> String {
+    let para = "This is a long paragraph with enough words to look like genuine article content for the extractor. ".repeat(6);
+    format!(
+        "<html><body><nav>{}</nav><article><h1>Story</h1><p>{para}</p><p>{para}</p><p>{para}</p></article></body></html>",
+        "menu ".repeat(20)
+    )
+}
+
+fn link_post_record(id: u64) -> ArticleRecord {
+    let mut r = rec(id, 10, HN_SUMMARY);
+    r.canonical_url = STORY_URL.into();
+    r.origin_title = "Hacker News".into();
+    r
+}
+
+#[test]
+fn hn_link_post_caches_full_article_and_comments() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&link_post_record(1), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok_typed(HN_API, "application/json", &hn_json(0));
+    f.ok_typed(STORY_URL, "text/html; charset=utf-8", &story_page());
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    let html = latest_html(&cache, &store, 1);
+    assert!(html.contains("genuine article content"), "{html}");
+    assert!(html.contains("inoink-comments:"));
+    assert!(cache.comments_path(ArticleId(1)).is_file());
+    let row = store.discussion(ArticleId(1)).unwrap().unwrap();
+    assert_eq!(row.comment_count, 2);
+    assert!(row.fetched > 0);
+    let words = store.query_articles(&ArticleQuery::default()).unwrap().items[0].words;
+    assert!(words > 200, "{words}");
+    // A second cache pass uses the stored article and comments: no new network calls.
+    let calls = f.calls().len();
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert_eq!(f.calls().len(), calls);
+}
+
+#[test]
+fn failed_extraction_falls_back_then_retries() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&link_post_record(1), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok_typed(HN_API, "application/json", &hn_json(0));
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    let html = latest_html(&cache, &store, 1);
+    assert!(html.contains("could not be downloaded") && html.contains(STORY_URL), "{html}");
+    assert!(cache.comments_path(ArticleId(1)).is_file());
+    // The failure was not stored: evict and try again with the page available.
+    store.clear_content(ArticleId(1)).unwrap();
+    f.ok_typed(STORY_URL, "text/html; charset=utf-8", &story_page());
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("genuine article content"));
+}
+
+#[test]
+fn thread_failure_still_caches_the_article() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&link_post_record(1), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok_typed(STORY_URL, "text/html; charset=utf-8", &story_page());
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("genuine article content"));
+    assert!(!cache.comments_path(ArticleId(1)).exists());
+    assert_eq!(store.discussion(ArticleId(1)).unwrap().unwrap().fetched, 0);
+}
+
+#[test]
+fn refresh_comments_updates_the_snapshot() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&link_post_record(1), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok_typed(HN_API, "application/json", &hn_json(0));
+    f.ok_typed(STORY_URL, "text/html; charset=utf-8", &story_page());
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    f.ok_typed(HN_API, "application/json", &hn_json(1));
+    let n = cache.refresh_comments(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    assert_eq!(n, 3);
+    assert_eq!(store.discussion(ArticleId(1)).unwrap().unwrap().comment_count, 3);
+}
+
+#[test]
+fn eviction_counts_and_clears_comments() {
+    let (_d, mut store, cache) = setup();
+    store.upsert_article(&link_post_record(1), 0).unwrap();
+    let f = MockFetcher::new();
+    f.ok_typed(HN_API, "application/json", &hn_json(0));
+    f.ok_typed(STORY_URL, "text/html; charset=utf-8", &story_page());
+    cache.cache_article(&mut store, &f, ArticleId(1), &ctl()).unwrap();
+    let row = store.discussion(ArticleId(1)).unwrap().unwrap();
+    assert!(row.comments_bytes > 0);
+    let usage = store.cache_usage().unwrap();
+    assert!(usage[0].bytes >= row.comments_bytes);
+    store.clear_content(ArticleId(1)).unwrap();
+    let row = store.discussion(ArticleId(1)).unwrap().unwrap();
+    assert_eq!((row.fetched, row.comments_bytes), (0, 0));
 }

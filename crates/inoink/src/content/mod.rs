@@ -1,6 +1,7 @@
 //! Content pipeline: sanitize API HTML into XHTML that Plato's engine renders, resolve and
 //! download images, and keep every file under a rooted cache directory.
 
+pub mod discussion;
 pub mod extract;
 pub mod images;
 pub mod sanitize;
@@ -95,6 +96,8 @@ pub struct ArticleMeta {
     /// Already formatted for display.
     pub date: String,
     pub url: String,
+    /// Link label to the cached comments page, for discussion link posts.
+    pub discussion: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
