@@ -90,6 +90,20 @@ pub struct Annotation {
     pub selection: [TextLocation; 2],
     #[serde(with = "datetime_format")]
     pub modified: NaiveDateTime,
+    /// Where the annotation comes from; not stored with the book.
+    #[serde(skip)]
+    pub source: AnnotationSource,
+}
+
+/// Origin of an annotation. InoInk articles keep theirs in its database, not in `Info`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AnnotationSource {
+    #[default]
+    Plato,
+    /// A highlight made on this device (its `uid` in the database).
+    Local(String),
+    /// An annotation made in Inoreader (read-only here).
+    Inoreader(i64),
 }
 
 impl Default for Annotation {
@@ -99,6 +113,7 @@ impl Default for Annotation {
             text: String::new(),
             selection: [TextLocation::Dynamic(0), TextLocation::Dynamic(1)],
             modified: Local::now().naive_local(),
+            source: AnnotationSource::Plato,
         }
     }
 }

@@ -51,7 +51,7 @@ use crate::gesture::GestureEvent;
 use crate::document::{Document, open, Location, TextLocation, BoundedText, Neighbors, BYTES_PER_PAGE};
 use crate::document::{TocEntry, SimpleTocEntry, TocLocation, toc_as_html, annotations_as_html, bookmarks_as_html};
 use crate::document::html::HtmlDocument;
-use crate::metadata::{Info, FileInfo, ReaderInfo, Annotation, TextAlign, ZoomMode, ScrollMode, PageScheme};
+use crate::metadata::{Info, FileInfo, ReaderInfo, Annotation, AnnotationSource, TextAlign, ZoomMode, ScrollMode, PageScheme};
 use crate::metadata::{Margin, CroppingMargins, make_query};
 use crate::metadata::{DEFAULT_CONTRAST_EXPONENT, DEFAULT_CONTRAST_GRAY};
 use crate::geom::{Point, Vec2, Rectangle, Boundary, CornerSpec, BorderSpec};
@@ -278,7 +278,67 @@ impl Reader {
         let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone(), kind: article.kind };
         let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
         reader.article = Some(binding);
+        reader.load_article_highlights(context);
         Some(reader)
+    }
+
+    /// Every word of the document with its location, in reading order.
+    fn document_words(&mut self) -> Vec<(String, usize)> {
+        let mut out: Vec<(String, usize)> = Vec::new();
+        let mut doc = self.doc.lock().unwrap();
+        let mut loc = doc.resolve_location(Location::Exact(0));
+        let mut pages = 0usize;
+        while let Some(o) = loc {
+            if let Some((words, _)) = doc.words(Location::Exact(o)) {
+                for w in words {
+                    if let TextLocation::Dynamic(d) = w.location {
+                        if out.last().map_or(true, |(_, last)| *last < d) {
+                            out.push((w.text, d));
+                        }
+                    }
+                }
+            }
+            pages += 1;
+            match doc.resolve_location(Location::Next(o)) {
+                Some(n) if n > o && pages < 100_000 => loc = Some(n),
+                _ => break,
+            }
+        }
+        out
+    }
+
+    /// Places Inoreader's annotations of this article in the text. One that cannot be found is
+    /// left out here (Details still lists it).
+    fn load_article_highlights(&mut self, context: &mut Context) {
+        let Some(binding) = self.article.clone() else { return };
+        if binding.kind != crate::view::inoink::actions::DocKind::Article {
+            return;
+        }
+        let Some(store) = context.inoink.store() else { return };
+        let remote = store.remote_annotations(binding.id).unwrap_or_default();
+        if remote.is_empty() {
+            return;
+        }
+        let summary = store.article_record(binding.id).ok().flatten().map(|r| r.summary_html).unwrap_or_default();
+        let words = self.document_words();
+        let refs: Vec<(&str, usize)> = words.iter().map(|(t, l)| (t.as_str(), *l)).collect();
+        let mut found = Vec::new();
+        for a in remote.iter().filter(|a| !a.text.trim().is_empty()) {
+            let quote = inoink::highlight::quote_from_inoreader(&summary, a);
+            if let Some((s, e)) = inoink::highlight::locate(&refs, &quote, None) {
+                found.push(Annotation {
+                    selection: [TextLocation::Dynamic(s), TextLocation::Dynamic(e)],
+                    note: a.note.clone(),
+                    text: quote.exact,
+                    modified: chrono::DateTime::from_timestamp(a.added_on, 0).map(|d| d.naive_utc()).unwrap_or_default(),
+                    source: AnnotationSource::Inoreader(a.id),
+                });
+            }
+        }
+        if let Some(r) = self.info.reader.as_mut() {
+            r.annotations.extend(found);
+        }
+        self.update_annotations();
     }
 
     /// Opens the reading view of a linked page. Nothing about it is saved.
@@ -1110,8 +1170,7 @@ impl Reader {
                 }
                 for annot in annotations {
                     let [start, end] = annot.selection;
-                    if (start >= words[0].location && start <= words[words.len()-1].location) ||
-                       (end >= words[0].location && end <= words[words.len()-1].location) {
+                    if start <= words[words.len()-1].location && end >= words[0].location {
                         self.annotations.entry(chunk.location)
                             .or_insert_with(Vec::new)
                             .push(annot.clone());
@@ -3232,6 +3291,9 @@ impl Reader {
                 if self.focus.is_some() {
                     return Some(true);
                 }
+                if self.state == State::AdjustSelection {
+                    return None;
+                }
                 if let Some(link) = self.link_at(c) {
                     self.follow_link(&link, hub);
                     return Some(true);
@@ -3257,10 +3319,17 @@ impl Reader {
                 if let Some(link) = self.link_at(c).filter(|l| l.text.starts_with("http:") || l.text.starts_with("https:")) {
                     let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
                     self.toggle_link_menu(link.text, Rectangle::from_disk(c, radius), rq, context);
-                } else if article {
+                    return Some(true);
+                }
+                if article {
                     if let Some(path) = self.image_at(c) {
                         hub.send(Event::OpenImage(path)).ok();
+                        return Some(true);
                     }
+                }
+                // In an article a hold on text selects it (Plato's handler) or opens an annotation.
+                if self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Article) {
+                    return None;
                 }
                 Some(true)
             }
@@ -4092,8 +4161,18 @@ impl View for Reader {
                     let anchor = nearest_word.location;
                     if let Some(annot) = self.annotations.values().flatten()
                                              .find(|annot| anchor >= annot.selection[0] && anchor <= annot.selection[1]).cloned() {
-                        let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
-                        self.toggle_annotation_menu(&annot, Rectangle::from_disk(center, radius), Some(true), rq, context);
+                        if matches!(annot.source, AnnotationSource::Inoreader(_)) {
+                            let msg = if annot.note.is_empty() {
+                                "Highlighted in Inoreader.".to_string()
+                            } else {
+                                format!("Note from Inoreader: {}", truncate_chars(&annot.note, 200))
+                            };
+                            let notif = Notification::new(msg, hub, rq, context);
+                            self.children.push(Box::new(notif) as Box<dyn View>);
+                        } else {
+                            let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
+                            self.toggle_annotation_menu(&annot, Rectangle::from_disk(center, radius), Some(true), rq, context);
+                        }
                     } else {
                         self.selection = Some(Selection {
                             start: anchor,
@@ -4189,6 +4268,7 @@ impl View for Reader {
                             note: note.to_string(),
                             text,
                             modified: Local::now().naive_local(),
+                            source: AnnotationSource::Plato,
                         });
                     }
                     if let Some(rect) = self.text_rect(sel) {
@@ -4513,6 +4593,7 @@ impl View for Reader {
                             note: String::new(),
                             text,
                             modified: Local::now().naive_local(),
+                            source: AnnotationSource::Plato,
                         });
                     }
                     if let Some(rect) = self.text_rect([sel.start, sel.end]) {
@@ -4591,7 +4672,7 @@ impl View for Reader {
             },
             Event::Select(EntryId::RemoveAnnotation(sel)) => {
                 if let Some(annotations) = self.info.reader.as_mut().map(|r| &mut r.annotations) {
-                    annotations.retain(|annot| annot.selection[0] != sel[0] || annot.selection[1] != sel[1]); 
+                    annotations.retain(|annot| matches!(annot.source, AnnotationSource::Inoreader(_)) || annot.selection[0] != sel[0] || annot.selection[1] != sel[1]);
                     self.update_annotations();
                 }
                 if let Some(rect) = self.text_rect(sel) {
@@ -4791,6 +4872,15 @@ impl View for Reader {
                             let mut last_rect: Option<Rectangle> = None;
                             for word in text.iter().filter(|w| w.location >= start && w.location <= end) {
                                 let rect = (word.rect * scale).to_rect() - chunk.frame.min + chunk.position;
+                                if matches!(annot.source, AnnotationSource::Inoreader(_)) {
+                                    // Inoreader's annotations are underlined: they cannot be edited here.
+                                    let t = scale_by_dpi(THICKNESS_MEDIUM, CURRENT_DEVICE.dpi).max(1.0) as i32;
+                                    let line = rect![rect.min.x, rect.max.y - t, rect.max.x, rect.max.y];
+                                    if let Some(ref r) = line.intersection(&region_rect) {
+                                        fb.draw_rectangle(r, BLACK);
+                                    }
+                                    continue;
+                                }
                                 if let Some(ref sel_rect) = rect.intersection(&region_rect) {
                                     fb.shift_region(sel_rect, drift);
                                 }
@@ -5026,4 +5116,13 @@ impl View for Reader {
     fn id(&self) -> Id {
         self.id
     }
+}
+
+/// At most `max` characters of `s`, with `...` when cut.
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max).collect();
+    format!("{}...", cut.trim_end())
 }
