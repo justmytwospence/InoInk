@@ -1,23 +1,64 @@
 name: Release
 
+# Every merge to main that changes what ships publishes a release, once CI passed on main. The version comes from the
+# conventional-commit titles since the last release (scripts/version.sh next); the tag is created
+# here. Testing on a Kobo happens before merging (scripts/kobo-dev.sh), so the release is
+# published, not drafted.
+
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time, in order: a queued run sees the tag the previous one created.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # The commit CI tested (workflow_run), or main's head when run by hand.
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
-  kobo:
+  version:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.SHA }}
           fetch-depth: 0
-      - name: Tag matches version
+      - id: v
         run: |
-          v=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/inoink/Cargo.toml | head -1)
-          [ "${GITHUB_REF_NAME#v}" = "$v" ] || { echo "Tag $GITHUB_REF_NAME does not match crates/inoink version" >&2; exit 1; }
+          v=$(scripts/version.sh next)
+          if [ -z "$v" ]; then
+            echo "Nothing that ships changed since the last release."
+          elif git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "v$v already exists" >&2
+            exit 1
+          else
+            echo "Releasing $v"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  kobo:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    env:
+      INOINK_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
       - uses: ./.github/actions/free-disk
       - uses: ./.github/actions/kobo-images
       - run: scripts/build-inoink.sh --target kobo
@@ -28,6 +69,8 @@ jobs:
           path: dist/inoink-*
 
   cli:
+    needs: version
+    if: needs.version.outputs.version != ''
     strategy:
       matrix:
         include:
@@ -36,8 +79,12 @@ jobs:
           - os: macos-14
             asset: inoink-cli-macos-arm64
     runs-on: ${{ matrix.os }}
+    env:
+      INOINK_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
       - run: rustup show
       - run: cargo build --locked --release -p inoink-cli
       - run: cp target/release/inoink-cli "${{ matrix.asset }}"
@@ -47,19 +94,23 @@ jobs:
           path: ${{ matrix.asset }}
 
   release:
-    needs: [kobo, cli]
+    needs: [version, kobo, cli]
     runs-on: ubuntu-latest
+    env:
+      V: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
-      - name: Draft release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp scripts/install-inoink.sh out/
           chmod +x out/inoink-cli-*
           (cd out && sha256sum * > SHA256SUMS)
-          gh release create "$GITHUB_REF_NAME" out/* --draft --verify-tag --title "InoInk ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release create "v$V" out/* --target "$SHA" --title "InoInk $V" --generate-notes --latest

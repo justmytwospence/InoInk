@@ -34,7 +34,9 @@ kobo_image() {
 kobo_run() {
 	kobo_image
 	mkdir -p target
-	docker run --rm -v "$PWD":/src -v inoink-cargo-kobo:/cargo-cache \
+	# The version shown in the app: a release sets it; otherwise this is a dev build.
+	: "${INOINK_VERSION:=$(scripts/version.sh dev)}"
+	docker run --rm -v "$PWD":/src -v inoink-cargo-kobo:/cargo-cache -e INOINK_VERSION="$INOINK_VERSION" \
 		-e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -w /src inoink-kobo-rust:local sh -c "$1"
 }
 

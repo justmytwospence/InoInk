@@ -7,12 +7,13 @@ cd "$(dirname "$0")/.."
 
 if [ -z "${INOINK_IN_CONTAINER:-}" ]; then
 	[ -x target/kobo/arm-unknown-linux-gnueabihf/release/inoink ] || { echo "error: run scripts/build-inoink.sh --target kobo first" >&2; exit 1; }
-	exec docker run --rm -v "$PWD":/src -e INOINK_IN_CONTAINER=1 \
+	: "${INOINK_VERSION:=$(scripts/version.sh dev)}"
+	exec docker run --rm -v "$PWD":/src -e INOINK_IN_CONTAINER=1 -e INOINK_VERSION="$INOINK_VERSION" \
 		-e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -w /src inoink-kobo-rust:local /src/scripts/package-inoink.sh
 fi
 
 git config --global --add safe.directory /src
-VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' crates/inoink/Cargo.toml | head -1)
+VERSION=${INOINK_VERSION:?INOINK_VERSION is not set}
 COMMIT=$(git rev-parse --short=12 HEAD)
 EPOCH=${SOURCE_DATE_EPOCH:-$(git log -1 --format=%ct)}
 OUT=dist
