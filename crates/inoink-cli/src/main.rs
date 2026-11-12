@@ -251,7 +251,12 @@ impl Fetcher for FixtureImages {
         if url.as_str() == "https://blog.example/posts/linked-story" {
             let body: String = (1..=8).map(paragraph).collect();
             let page = format!("<html><body><nav>Menu Menu Menu</nav><article><h1>The linked story</h1>{body}</article></body></html>");
-            return Ok(Fetched { status: 200, content_type: Some("text/html; charset=utf-8".into()), location: None, body: page.into_bytes() });
+            return Ok(Fetched {
+                status: 200,
+                content_type: Some("text/html; charset=utf-8".into()),
+                location: None,
+                body: page.into_bytes(),
+            });
         }
         if url.as_str() == "https://hn.algolia.com/api/v1/items/4242" {
             let json = r#"{"type":"story","title":"A linked story","url":"https://blog.example/posts/linked-story","text":null,"children":[
@@ -260,7 +265,12 @@ impl Fetcher for FixtureImages {
                   {"type":"comment","author":"alice","text":"<p>Fair. Solved enough for e-ink.</p>","created_at_i":1799991200,"children":[]}]}]},
               {"type":"comment","author":null,"text":null,"children":[
                 {"type":"comment","author":"carol","text":"<p>Replying under a deleted comment.</p>","created_at_i":1799992000,"children":[]}]}]}"#;
-            return Ok(Fetched { status: 200, content_type: Some("application/json".into()), location: None, body: json.as_bytes().to_vec() });
+            return Ok(Fetched {
+                status: 200,
+                content_type: Some("application/json".into()),
+                location: None,
+                body: json.as_bytes().to_vec(),
+            });
         }
         let name = url.path().rsplit('/').next().unwrap_or("");
         let seed = name.bytes().fold(7u8, |a, b| a.wrapping_mul(31).wrapping_add(b));
@@ -351,7 +361,11 @@ fn fixtures(args: &[String]) -> Result<()> {
             author: "Fixture Author".into(),
             origin_stream: if i == 5 { "feed/https://news.ycombinator.com/rss".into() } else { feed.into() },
             origin_title: if i == 5 { "Hacker News".into() } else { "Example Blog".into() },
-            canonical_url: if i == 5 { "https://blog.example/posts/linked-story".into() } else { format!("https://blog.example/posts/{id}") },
+            canonical_url: if i == 5 {
+                "https://blog.example/posts/linked-story".into()
+            } else {
+                format!("https://blog.example/posts/{id}")
+            },
             published: base_ts - i as i64 * 3600,
             timestamp_usec: (base_ts - i as i64 * 3600) * 1_000_000,
             summary_html: html,
