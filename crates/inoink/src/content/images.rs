@@ -268,7 +268,8 @@ impl Fetcher for UreqFetcher {
     fn get(&self, url: &Url, max_bytes: usize) -> Result<Fetched> {
         let mut resp = self.agent.get(url.as_str()).call().map_err(|e| match e {
             ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => Error::Offline,
-            ureq::Error::Timeout(_) | ureq::Error::Io(_) => Error::Retryable("timeout".into()),
+            ureq::Error::Timeout(_) => Error::Retryable("the site did not answer in time".into()),
+            ureq::Error::Io(e) => Error::Retryable(format!("network error ({})", e.kind())),
             other => Error::Retryable(other.to_string().chars().take(60).collect()),
         })?;
         let status = resp.status().as_u16();

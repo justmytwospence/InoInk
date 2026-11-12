@@ -137,6 +137,7 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
         Box::new(0u16) as Box<dyn LightSensor>
     };
 
+    plato_core::settings::migrate_time_format(&mut settings);
     inherit_frontlight(&mut settings);
     let levels = settings.frontlight_levels;
     let frontlight = match CURRENT_DEVICE.frontlight_kind() {

@@ -21,7 +21,9 @@ impl Clock {
         let time = Local::now();
         let format = context.settings.time_format.clone();
         let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, CURRENT_DEVICE.dpi);
-        let width = font.plan(&time.format(&format).to_string(), None, None).width + font.em() as i32;
+        // Wide enough for the widest time of day ("12:59 PM"), so the label never clips.
+        let widest = chrono::NaiveTime::from_hms_opt(12, 59, 0).map(|t| t.format(&format).to_string()).unwrap_or_default();
+        let width = font.plan(&time.format(&format).to_string(), None, None).width.max(font.plan(&widest, None, None).width) + font.em() as i32;
         rect.min.x = rect.max.x - width;
         Clock {
             id: ID_FEEDER.next(),

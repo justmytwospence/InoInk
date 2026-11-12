@@ -502,7 +502,7 @@ impl Default for Settings {
             button_scheme: ButtonScheme::Natural,
             auto_suspend: 30.0,
             auto_power_off: 3.0,
-            time_format: "%H:%M".to_string(),
+            time_format: TWELVE_HOUR.to_string(),
             date_format: "%A, %B %-d, %Y".to_string(),
             intermissions: Intermissions {
                 suspend: PathBuf::from(LOGO_SPECIAL_PATH),
@@ -520,6 +520,16 @@ impl Default for Settings {
     }
 }
 
+
+/// The clock as the Kobo shows it: "9:41 PM".
+pub const TWELVE_HOUR: &str = "%-I:%M %p";
+
+/// Plato's 24-hour default is replaced by the 12-hour clock in settings saved before 0.2.
+pub fn migrate_time_format(settings: &mut Settings) {
+    if settings.time_format == "%H:%M" {
+        settings.time_format = TWELVE_HOUR.to_string();
+    }
+}
 
 /// InoInk preferences. Credentials are never stored here.
 #[derive(Debug, Clone, Serialize, Deserialize)]

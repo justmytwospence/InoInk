@@ -645,7 +645,16 @@ impl SyncEngine {
         .chars()
         .count();
         let limits = self.cache.config().limits.clone();
-        match extract_original(self.fetcher.as_ref(), &rec.canonical_url, feed_text, &limits, &self.cancel)? {
+        let outcome = match extract_original(self.fetcher.as_ref(), &rec.canonical_url, feed_text, &limits, &self.cancel) {
+            Ok(o) => o,
+            Err(Error::Retryable(why)) => {
+                eprintln!("extract: {} failed: {why}", rec.canonical_url.split('/').nth(2).unwrap_or(""));
+                return Ok(Err(format!("{why}; try again")));
+            }
+            Err(Error::Offline) => return Ok(Err("no network connection".into())),
+            Err(e) => return Err(e),
+        };
+        match outcome {
             Extraction::Extracted { html, .. } => {
                 let ctl = self.control();
                 let st = self.cache.publish_extracted(&mut self.store, self.fetcher.as_ref(), id, &html, &rec.canonical_url, &ctl)?;
