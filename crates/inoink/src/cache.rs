@@ -133,11 +133,8 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
     }
 }
 
-/// `YYYY-MM-DD` (UTC) for a unix timestamp.
-pub fn format_date(secs: i64) -> String {
-    if secs <= 0 {
-        return String::new();
-    }
+/// Civil date (year, month, day) of a Unix time in UTC.
+pub(crate) fn civil(secs: i64) -> (i64, i64, i64) {
     let days = secs.div_euclid(86400) + 719468;
     let era = days.div_euclid(146097);
     let doe = days.rem_euclid(146097);
@@ -147,7 +144,15 @@ pub fn format_date(secs: i64) -> String {
     let mp = (5 * doy + 2) / 153;
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// `YYYY-MM-DD` (UTC) for a unix timestamp.
+pub fn format_date(secs: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let (y, m, d) = civil(secs);
     format!("{y:04}-{m:02}-{d:02}")
 }
 

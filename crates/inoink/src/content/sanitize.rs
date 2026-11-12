@@ -441,7 +441,7 @@ impl Ctx<'_> {
 }
 
 /// The DOM must outlive every handle into it (dropping it clears the tree).
-fn parse(html: &str) -> RcDom {
+pub(crate) fn parse(html: &str) -> RcDom {
     let ctx = QualName::new(None, ns!(html), local_name!("div"));
     parse_fragment(RcDom::default(), ParseOpts::default(), ctx, vec![], false).one(html)
 }
