@@ -43,7 +43,7 @@ use crate::view::keyboard::Keyboard;
 use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
 use crate::view::notification::Notification;
-use crate::settings::QueueTitles;
+use crate::settings::{ButtonScheme, QueueTitles};
 use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
 use crate::settings::{HYPHEN_PENALTY, STRETCH_TOLERANCE};
@@ -111,6 +111,8 @@ pub struct Reader {
     queue_titles_always: bool,
     /// When an article change was last requested, to ignore repeats while it opens.
     article_nav_at: Option<std::time::Instant>,
+    /// The bar was shown because the article opened mid-way; the first page turn hides it.
+    auto_bar: bool,
 }
 
 /// The article a reader is showing.
@@ -302,6 +304,14 @@ impl Reader {
             reader.queue_titles_always = context.settings.inoink.queue_titles == QueueTitles::Always;
         }
         reader.load_article_highlights(context);
+        let mut rq = RenderQueue::new();
+        let first = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
+        if reader.is_article() && Some(reader.current_page) != first {
+            reader.toggle_bars(Some(true), hub, &mut rq, context);
+            reader.auto_bar = true;
+        }
+        // Lay out the first page now so the first refresh shows the article, not a blank page.
+        reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
         Some(reader)
     }
 
@@ -618,6 +628,7 @@ impl Reader {
                 queue_titles: (None, None),
                 queue_titles_always: false,
                 article_nav_at: None,
+                auto_bar: false,
             })
         })
     }
@@ -692,6 +703,7 @@ impl Reader {
             queue_titles: (None, None),
             queue_titles_always: false,
             article_nav_at: None,
+            auto_bar: false,
         }
     }
 
@@ -1091,6 +1103,9 @@ impl Reader {
                 self.current_page = location;
                 self.selection = None;
                 self.state = State::Idle;
+                if std::mem::take(&mut self.auto_bar) {
+                    self.toggle_bars(Some(false), hub, rq, context);
+                }
                 self.update(None, hub, rq, context);
                 self.update_bottom_bar(rq);
 
@@ -3074,7 +3089,7 @@ impl Reader {
             let x_height = font.x_heights.0 as i32;
             if let Some(title) = self.queue_titles.0.as_ref() {
                 let mut x = self.rect.min.x + edge;
-                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-down") {
+                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-left-small") {
                     fb.draw_blended_pixmap(pixmap, pt!(x, bottom - pixmap.height as i32 / 2), BLACK);
                     x += pixmap.width as i32 + gap;
                 }
@@ -3083,7 +3098,7 @@ impl Reader {
             }
             if let Some(title) = self.queue_titles.1.as_ref() {
                 let mut x_end = self.rect.max.x - edge;
-                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-up") {
+                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-right-small") {
                     fb.draw_blended_pixmap(pixmap, pt!(x_end - pixmap.width as i32, bottom - pixmap.height as i32 / 2), BLACK);
                     x_end -= pixmap.width as i32 + gap;
                 }
@@ -3450,7 +3465,8 @@ impl Reader {
             Event::Gesture(GestureEvent::Swipe { dir: dir @ (Dir::North | Dir::South), start, end })
                 if self.rect.includes(start) && self.is_article() && self.view_port.zoom_mode == ZoomMode::FitToPage => {
                 if self.focus.is_none() && (start.y - end.y).abs() >= self.rect.height() as i32 / 4 {
-                    self.go_to_article(if dir == Dir::North { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
+                    let next = if context.settings.button_scheme == ButtonScheme::Inverted { Dir::South } else { Dir::North };
+                    self.go_to_article(if dir == next { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
                 }
                 Some(true)
             }

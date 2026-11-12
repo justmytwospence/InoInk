@@ -142,11 +142,12 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page.
 - Swipe left or right to turn pages. Swipe up, page past the last page or hold the forward button
-  for the next article of the list; swipe down or hold the back button for the previous one (it
-  reopens where you left it; paging back from the first page opens its last page). Changing
+  for the next article of the list; swipe down or hold the back button for the previous one (swipe directions follow Settings >
+  Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Done or Mark read. After the last article of the list you are
-  back at the list. With the bar showing, a row above the footer names the previous and next
-  articles; tap one to open it. Settings > Previous and next titles > Always also names them beside
+  back at the list. With the bar showing, a row above the footer names the previous (left) and next
+  (right) articles; tap one to open it. An article that opens part-way through shows the bar, with
+  its title and your place, until you turn a page. Settings > Previous and next titles > Always also names them beside
   the progress line on every page.
 - Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
   a highlight to add, edit or remove its note, or to remove it. They are saved on the Kobo and

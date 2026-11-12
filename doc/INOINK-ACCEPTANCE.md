@@ -20,7 +20,7 @@ document tests inside the build container, and the install/launcher tests).
 | Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (24) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (27), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (30), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
@@ -102,6 +102,9 @@ that was merged.
 | Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
 | Done (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
+| Switching articles shows no blank page before the new article | NOT RUN |
+| An article opened part-way shows the bar until the first page turn | NOT RUN |
+| Inverted page-turn buttons also swap the swipe directions | NOT RUN |
 | Titles row with the bar (tap opens); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
 | QR code scans with a phone | NOT RUN |

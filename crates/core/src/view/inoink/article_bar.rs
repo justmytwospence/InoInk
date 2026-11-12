@@ -259,7 +259,7 @@ impl View for ArticleFooter {
 }
 
 /// Above the footer while the bar is showing: the previous and next articles of the list.
-/// Tapping a side opens that article, as swiping down or up does.
+/// Tapping a side opens that article, as swiping does.
 pub struct QueueNav {
     id: Id,
     rect: Rectangle,
@@ -312,7 +312,7 @@ impl View for QueueNav {
         if let Some(title) = self.previous.as_ref() {
             let mut x = left.min.x + pad;
             let mut icon_w = 0;
-            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-down") {
+            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-left-small") {
                 icon_w = pixmap.width as i32;
                 let y = left.min.y + (left.height() as i32 - pixmap.height as i32) / 2;
                 fb.draw_blended_pixmap(pixmap, Point::new(x, y), BLACK);
@@ -324,7 +324,7 @@ impl View for QueueNav {
         if let Some(title) = self.next.as_ref() {
             let mut x_end = right.max.x - pad;
             let mut icon_w = 0;
-            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-up") {
+            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-right-small") {
                 icon_w = pixmap.width as i32;
                 let y = right.min.y + (right.height() as i32 - pixmap.height as i32) / 2;
                 fb.draw_blended_pixmap(pixmap, Point::new(x_end - icon_w, y), BLACK);

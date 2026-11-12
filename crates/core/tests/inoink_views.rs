@@ -16,7 +16,8 @@ use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::row::ArticleRow;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use plato_core::geom::{CycleDir, Dir};
-use plato_core::settings::QueueTitles;
+use plato_core::settings::{ButtonScheme, QueueTitles};
+use plato_core::view::inoink::article_bar::ArticleBar;
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
@@ -496,4 +497,44 @@ fn categories_show_their_page_count() {
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(home.page_status(), (1, 1, false));
+}
+
+fn add_long_article(e: &mut Env, id: u64) {
+    let mut r = rec(id, 900_000_000 + id as i64, false);
+    r.summary_html = "<p>Paragraph of a long article for paging tests.</p>".repeat(300);
+    let ino = &mut e.context.inoink;
+    let store = ino.store.as_mut().unwrap();
+    store.upsert_article(&r, 0).unwrap();
+    ino.cache.cache_article(store, &NoNet, ArticleId(id), &Control::new(Arc::new(AtomicBool::new(false)))).unwrap();
+}
+
+fn has_bar(reader: &Reader) -> bool {
+    reader.children().iter().any(|c| c.downcast_ref::<ArticleBar>().is_some())
+}
+
+#[test]
+fn an_article_opened_mid_way_shows_the_bar_until_the_first_page_turn() {
+    let mut e = env();
+    add_long_article(&mut e, 9);
+    e.context.inoink.open_at_end = true;
+    let mut reader = open(&mut e, &[9], false, 9);
+    assert!(has_bar(&reader));
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
+    assert!(!has_bar(&reader));
+}
+
+#[test]
+fn an_article_opened_at_its_start_shows_no_bar() {
+    let mut e = env();
+    let reader = open(&mut e, &[4, 3], false, 4);
+    assert!(!has_bar(&reader));
+}
+
+#[test]
+fn with_inverted_buttons_swiping_down_opens_the_next_article() {
+    let mut e = env();
+    e.context.settings.button_scheme = ButtonScheme::Inverted;
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_v(600, 1400));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
 }
