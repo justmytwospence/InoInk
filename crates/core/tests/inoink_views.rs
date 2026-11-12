@@ -15,6 +15,7 @@ use plato_core::view::inoink::actions::*;
 use plato_core::view::inoink::home::InoInkHome;
 use plato_core::view::inoink::row::ArticleRow;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
+use plato_core::geom::CycleDir;
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
@@ -347,4 +348,58 @@ fn swiping_back_on_the_first_page_opens_the_previous_article_at_its_start() {
     assert_eq!(requested_next(&e), Some(ArticleId(4)), "the previous article of the list");
     assert!(e.context.inoink.open_at_start);
     assert!(!reader.children().iter().any(|c| c.downcast_ref::<plato_core::view::notification::Notification>().is_some()), "no popup");
+}
+
+/// Adds articles 100..140 (every third one read) and pages through the list: every page must
+/// report the same total, and the last page must be the total.
+fn pages_are_counted(group: Option<ArticleGroup>) {
+    let mut e = env();
+    {
+        let st = e.context.inoink.store_mut().unwrap();
+        for id in 100u64..140 {
+            st.upsert_article(&rec(id, id as i64 * 1_000_000, false), 0).unwrap();
+            if id % 3 == 0 {
+                st.apply_intent(ArticleId(id), &Membership::Read, true).unwrap();
+            }
+        }
+    }
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    if let Some(g) = group {
+        send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UnreadOnly(false))));
+        send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ViewGroup(g))));
+    }
+    let (first, total, _) = home.page_status();
+    assert_eq!(first, 1);
+    assert!(total > 1, "40 articles take several pages");
+    let mut seen = 1;
+    loop {
+        send(&mut home, &mut e, Event::Page(CycleDir::Next));
+        let (page, t, _) = home.page_status();
+        assert_eq!(t, total, "page {page}");
+        if page == seen {
+            break;
+        }
+        seen = page;
+    }
+    assert_eq!(seen, total, "the last page is the total");
+}
+
+#[test]
+fn list_pages_are_counted_exactly() {
+    pages_are_counted(None);
+}
+
+#[test]
+fn grouped_list_pages_are_counted_exactly() {
+    pages_are_counted(Some(ArticleGroup::Unread));
+}
+
+#[test]
+fn categories_show_their_page_count() {
+    let mut e = env();
+    e.context.inoink.set_tab(Tab::Categories);
+    let mut rq = RenderQueue::new();
+    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(home.page_status(), (1, 1, false));
 }

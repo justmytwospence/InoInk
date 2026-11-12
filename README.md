@@ -114,7 +114,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   and spins while syncing). The footer menu ("Unread - Newest") chooses unread or all, grouping and
   sort, and on the Categories list the order of folders; long-press a row (Read later) for
   Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
-  folder and its feeds.
+  folder and its feeds. The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above it: one segment per page while they fit across the screen, a line otherwise.
 - **Article:** tap the middle of the page for the bar (Back, Aa, Star, Done, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
   Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.

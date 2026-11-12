@@ -18,6 +18,7 @@ use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleActio
 use crate::view::inoink::categories::{category_items, CategoryItem, CategoryRow};
 use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
+use crate::view::inoink::page_progress::PageProgress;
 use crate::view::inoink::row::{ArticleRow, RowMode};
 use crate::view::inoink::state::{ReadingQueue, Tab};
 use crate::view::inoink::tab_bar::TabBar;
@@ -83,6 +84,10 @@ pub struct InoInkHome {
     /// A spin tick is scheduled.
     spinning: bool,
     spin_frame: usize,
+    /// Pages the current list takes (at least 1).
+    total_pages: usize,
+    /// More may be loaded from Inoreader after the last stored page.
+    more_online: bool,
 }
 
 const TOP: usize = 0;
@@ -232,6 +237,8 @@ impl InoInkHome {
             end_count: 0,
             spinning: false,
             spin_frame: 0,
+            total_pages: 1,
+            more_online: false,
         };
         home.load_page(hub, rq, context);
         home.update_sync_icon(hub, rq, context);
@@ -309,6 +316,8 @@ impl InoInkHome {
         }
         self.cat_pages = pages;
         self.cat_page = self.cat_page.min(self.cat_pages.len() - 1);
+        self.total_pages = self.cat_pages.len().max(1);
+        self.more_online = false;
         let start = self.cat_pages[self.cat_page];
         let end = self.cat_pages.get(self.cat_page + 1).copied().unwrap_or(self.cat_items.len());
         self.layout = (start..end)
@@ -344,6 +353,7 @@ impl InoInkHome {
             self.items.clear();
             self.next = None;
             self.layout = vec![Slot::End];
+            self.set_page_totals(self.page + 1, context);
             self.rebuild_list(rq, context);
             self.rebuild_footer(rq, context);
             return true;
@@ -402,9 +412,71 @@ impl InoInkHome {
         self.layout = layout;
         self.items = items;
         self.next = next;
+        let last = self.next.is_none() && !self.next_is_end;
+        let total = if last { self.page + 1 } else { self.count_article_pages(context) };
+        self.set_page_totals(total, context);
         self.rebuild_list(rq, context);
         self.rebuild_footer(rq, context);
         true
+    }
+
+    fn set_page_totals(&mut self, total: usize, context: &Context) {
+        self.total_pages = total.max(self.page + 1);
+        self.more_online = self.search.is_none() && context.inoink.handle.is_some() && self.can_browse(context);
+    }
+
+    /// How many pages the whole current list takes, laid out as `load_articles` lays out one
+    /// page: a header costs one unit, an article two, a page has `2 * rows` units (two fewer
+    /// while the undo bar shows) and holds at most `rows` articles; an unread list ends with a
+    /// card that needs two units. Keep this in step with `load_articles`.
+    fn count_article_pages(&self, context: &Context) -> usize {
+        let Some(store) = context.inoink.store() else { return 1 };
+        let opts = Self::effective_options(context);
+        let units = (2 * self.rows).saturating_sub(if context.inoink.last_undo.is_some() { 2 } else { 0 });
+        let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
+        let n = store.count_articles(&q).unwrap_or(0);
+        let mut headers: Vec<Option<String>> = Vec::new();
+        if !(self.search.is_some() || opts.group == ArticleGroup::None) {
+            let mut scan = ArticleQuery { limit: 500, ..q.clone() };
+            while headers.len() < PAGE_SCAN_LIMIT {
+                let Ok(page) = store.query_articles(&scan) else { break };
+                headers.extend(page.items.iter().map(|i| opts.group.header(i)));
+                match page.next {
+                    Some(c) => scan.after = Some(c),
+                    None => break,
+                }
+            }
+        }
+        headers.resize(n.max(headers.len()), None);
+        let (mut pages, mut i, mut used_last) = (0usize, 0usize, 0usize);
+        while i < headers.len() {
+            pages += 1;
+            let (mut used, mut placed) = (0usize, 0usize);
+            let mut last: Option<String> = None;
+            while i < headers.len() && placed < self.rows {
+                let h = &headers[i];
+                let needs = h.is_some() && *h != last;
+                let cost = 2 + needs as usize;
+                if used + cost > units && placed > 0 {
+                    break;
+                }
+                used += cost;
+                placed += 1;
+                last = h.clone();
+                i += 1;
+            }
+            used_last = used;
+        }
+        if pages > 0 && self.end_card_applies(context) && used_last + 2 > units {
+            pages += 1;
+        }
+        pages.max(1)
+    }
+
+    /// (page shown from 1, pages in the list, more can be loaded online).
+    pub fn page_status(&self) -> (usize, usize, bool) {
+        let page = if self.showing_cats { self.cat_page + 1 } else { self.page + 1 };
+        (page, self.total_pages, self.more_online)
     }
 
     /// How many articles seen in this list are still unread and not saved.
@@ -569,6 +641,7 @@ impl InoInkHome {
         } else {
             (self.page > 0, self.next.is_some() || self.next_is_end, self.page + 1)
         };
+        let (total, plus) = (self.total_pages, if self.more_online { "+" } else { "" });
         let opts = Self::effective_options(context);
         let view_text = if self.search.is_some() {
             String::new()
@@ -600,12 +673,20 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
         }
-        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], format!("Page {page}"), Align::Center)));
+        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], format!("{page} / {total}{plus}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
         if next {
             footer.children.push(Box::new(Icon::new("arrow-right", next_rect, Event::Page(CycleDir::Next))));
         } else {
             footer.children.push(Box::new(Filler::new(next_rect, WHITE)));
+        }
+        // Pushed last so it draws over the labels' white backgrounds.
+        if total > 1 {
+            let dpi = CURRENT_DEVICE.dpi;
+            let pad = scale_by_dpi(12.0, dpi) as i32;
+            let bar_h = scale_by_dpi(24.0, dpi) as i32;
+            let bar_rect = rect![rect.min.x + side + pad, rect.min.y, rect.max.x - side - pad, rect.min.y + bar_h];
+            footer.children.push(Box::new(PageProgress::new(bar_rect, page - 1, total)));
         }
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
@@ -1006,6 +1087,9 @@ impl InoInkHome {
         }
     }
 }
+
+/// Grouped lists read at most this many summaries to count their pages.
+const PAGE_SCAN_LIMIT: usize = 3000;
 
 const SPIN_FRAMES: [&str; 4] = ["sync-0", "sync-1", "sync-2", "sync-3"];
 const SPIN_FRAME: std::time::Duration = std::time::Duration::from_millis(600);

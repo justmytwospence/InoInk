@@ -100,6 +100,8 @@ pub struct Reader {
     web: Option<String>,
     /// How far through an InoInk article the end of the shown page is (0 to 1).
     progress: f32,
+    /// The article's page (0-based) and page count, when known.
+    page_pos: Option<(usize, usize)>,
     last_checkpoint: std::time::Instant,
     last_saved_page: usize,
 }
@@ -589,6 +591,7 @@ impl Reader {
                 article: None,
                 web: None,
                 progress: 0.0,
+            page_pos: None,
                 last_checkpoint: std::time::Instant::now(),
                 last_saved_page: 0,
             })
@@ -659,6 +662,7 @@ impl Reader {
             article: None,
             web: None,
             progress: 0.0,
+            page_pos: None,
             last_checkpoint: std::time::Instant::now(),
             last_saved_page: 0,
         }
@@ -1374,6 +1378,8 @@ impl Reader {
         if self.article.is_some() {
             let next = self.doc.lock().unwrap().resolve_location(Location::Next(last_location));
             self.progress = next.map(|n| n as f32 / self.pages_count.max(1) as f32).unwrap_or(1.0).clamp(0.0, 1.0);
+            let position = self.doc.lock().unwrap().page_position(self.current_page);
+            self.page_pos = position;
         }
 
         if self.view_port.zoom_mode == ZoomMode::FitToPage ||
@@ -3001,26 +3007,22 @@ impl Reader {
         }
     }
 
-    /// A thin progress line along the bottom edge of an article: a hairline track, the part read
-    /// in black, and a dot where you are.
+    /// A thin progress indicator along the bottom edge of an article: one segment per page while
+    /// they fit across the screen, otherwise a hairline track with the part read in black and a
+    /// dot where you are.
     fn render_progress(&self, fb: &mut dyn Framebuffer, clip: &Rectangle) {
         let dpi = CURRENT_DEVICE.dpi;
         let pad = self.rect.width() as i32 / 12;
         let bottom = self.rect.max.y - scale_by_dpi(24.0, dpi) as i32;
         let thick = scale_by_dpi(5.0, dpi).max(2.0) as i32;
-        let hair = scale_by_dpi(1.0, dpi).max(1.0) as i32;
         let x0 = self.rect.min.x + pad;
         let x1 = self.rect.max.x - pad;
         let area = rect![x0 - thick * 2, bottom - thick * 2, x1 + thick * 2, bottom + thick * 2];
         if !area.overlaps(clip) {
             return;
         }
-        fb.draw_rectangle(&rect![x0, bottom - hair / 2, x1, bottom - hair / 2 + hair], crate::color::GRAY10);
-        let xp = x0 + ((x1 - x0) as f32 * self.progress).round() as i32;
-        if xp > x0 {
-            fb.draw_rectangle(&rect![x0, bottom - thick / 2, xp, bottom - thick / 2 + thick], BLACK);
-        }
-        fb.draw_disk(pt!(xp, bottom), thick + hair, BLACK);
+        let (current, total) = self.page_pos.unwrap_or((0, 0));
+        crate::view::inoink::page_progress::draw(fb, x0, x1, bottom, current, total, self.progress, dpi);
     }
 
     /// "42% \u{b7} 4 min left \u{b7} Read later 3 of 12".

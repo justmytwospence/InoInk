@@ -11,6 +11,7 @@ pub mod home;
 pub mod image_view;
 pub mod light_panel;
 pub mod manage;
+pub mod page_progress;
 pub mod qr_view;
 pub mod row;
 pub mod state;
