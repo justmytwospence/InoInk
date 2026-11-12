@@ -119,8 +119,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   requests the last sync used.
 - Swiping back on the first page of an article opens the previous article of the list at its
   beginning.
-- A thin bar along the bottom of an article shows where you are: one segment per page while each
-  can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
+- A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the
+  page shown, while each can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
 - On the last page of an unread list a card says "Mark N read": N is what you were shown in this
   visit that is still unread and not starred. Nothing is marked read by turning pages.
 - The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, unread
@@ -130,7 +130,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
   On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
-  loaded from Inoreader), with a bar above it like the one under articles. Swipe or use the page
+  loaded from Inoreader), with a bar above it like the one under articles, except that only the page shown is dark. Swipe or use the page
   buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:

@@ -3022,7 +3022,7 @@ impl Reader {
             return;
         }
         let (current, total) = self.page_pos.unwrap_or((0, 0));
-        crate::view::inoink::page_progress::draw(fb, x0, x1, bottom, current, total, self.progress, dpi);
+        crate::view::inoink::page_progress::draw(fb, x0, x1, bottom, current, total, self.progress, true, dpi);
     }
 
     /// "42% \u{b7} 4 min left \u{b7} Read later 3 of 12".
