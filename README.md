@@ -6,6 +6,8 @@ your Inoreader account directly, keeps articles and their images for offline rea
 your changes back when it can. There is no server, browser extension or read-later service in
 between.
 
+Project page with screenshots: <https://justmytwospence.github.io/InoInk/>
+
 InoInk is **not affiliated with Inoreader or Rakuten Kobo**. It uses only Inoreader's documented
 public API and does not try to match the Inoreader website feature for feature; see
 [doc/INOINK-API.md](doc/INOINK-API.md).
