@@ -13,6 +13,8 @@ use crate::view::{Bus, Event, Hub, Id, RenderQueue, View, ID_FEEDER};
 pub const MIN_SEGMENT_MM: f32 = 6.0;
 pub const SEGMENT_GAP_MM: f32 = 1.5;
 pub const MAX_SEGMENTS: usize = 20;
+/// The narrowest the page shown can be drawn on a continuous list bar.
+pub const MIN_THUMB_MM: f32 = 3.0;
 
 /// Whether `total` pages can be drawn as separate segments across `width` pixels.
 pub fn fits_segments(total: usize, width: i32, dpi: u16) -> bool {
@@ -25,7 +27,8 @@ pub fn fits_segments(total: usize, width: i32, dpi: u16) -> bool {
 /// Draws the indicator centered on `y` from `x0` to `x1`. `current` is the 0-based page shown,
 /// `fraction` (0 to 1) is how far through the content the reader is, used for the continuous line.
 /// Segments are filled up to the current page when `cumulative` (articles: how much is read),
-/// otherwise only the current one (lists: where you are).
+/// otherwise only the current one (lists: where you are); likewise the continuous line is filled
+/// up to the position, or shows only the page shown as a dark stretch.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(fb: &mut dyn Framebuffer, x0: i32, x1: i32, y: i32, current: usize, total: usize, fraction: f32, cumulative: bool, dpi: u16) {
     let thick = scale_by_dpi(5.0, dpi).max(2.0) as i32;
@@ -45,6 +48,19 @@ pub fn draw(fb: &mut dyn Framebuffer, x0: i32, x1: i32, y: i32, current: usize, 
                 fb.draw_rectangle(&rect![sx + hair, top + hair, ex - hair, bottom - hair], WHITE);
             }
         }
+    } else if !cumulative && total > 0 {
+        // Too many pages to count: a hairline track with the page shown as a dark stretch,
+        // like a scrollbar thumb, at least 3 mm wide.
+        fb.draw_rectangle(&rect![x0, y - hair / 2, x1, y - hair / 2 + hair], GRAY10);
+        let w = x1 - x0;
+        let min_w = (mm_to_px(MIN_THUMB_MM, dpi).round() as i32).min(w);
+        let (mut sx, mut ex) = (x0 + (current as i32 * w) / total as i32, x0 + ((current as i32 + 1) * w) / total as i32);
+        if ex - sx < min_w {
+            let c = (sx + ex) / 2;
+            sx = (c - min_w / 2).clamp(x0, x1 - min_w);
+            ex = sx + min_w;
+        }
+        fb.draw_rectangle(&rect![sx, y - thick / 2, ex, y - thick / 2 + thick], BLACK);
     } else {
         fb.draw_rectangle(&rect![x0, y - hair / 2, x1, y - hair / 2 + hair], GRAY10);
         let xp = x0 + ((x1 - x0) as f32 * fraction.clamp(0.0, 1.0)).round() as i32;

@@ -121,8 +121,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
   sort, and on the Categories list the order of folders. On the right, the page and how many
   there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above:
-  one segment per page while they fit across the screen (the page shown is dark), a line
-  otherwise.
+  one segment per page while they fit across the screen, otherwise a line; either way only the
+  page shown is dark.
 - **Sync:** InoInk syncs on its own when it starts, wakes or gets a network connection, and sends
   your changes a few seconds after you make them. Tap the sync icon to sync now; it shows a dot
   and turns while a sync runs. Main menu > Status shows the last sync, and Settings > Inoreader

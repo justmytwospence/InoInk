@@ -130,7 +130,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
   On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
-  loaded from Inoreader), with a bar above it like the one under articles, except that only the page shown is dark. Swipe or use the page
+  loaded from Inoreader), with a bar above it like the one under articles, except that only the page shown is dark
+  (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
   buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
