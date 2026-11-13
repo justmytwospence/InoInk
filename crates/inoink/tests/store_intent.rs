@@ -198,6 +198,66 @@ fn bulk_selection_is_frozen_and_ignores_new_arrivals() {
 }
 
 #[test]
+fn seen_keeps_the_first_time_and_new_follows_the_visit() {
+    let mut s = store();
+    for n in 1..=3 {
+        s.upsert_article(&rec(n, n as i64, &[]), 0).unwrap();
+    }
+    s.mark_seen(&[id(1)], 100).unwrap();
+    s.mark_seen(&[id(1), id(2)], 200).unwrap();
+    assert_eq!(s.seen_at(id(1)).unwrap(), Some(100), "the first time is kept");
+    assert_eq!(s.seen_at(id(2)).unwrap(), Some(200));
+    assert_eq!(s.seen_at(id(3)).unwrap(), None);
+    let new_of = |s: &Store| -> Vec<(u64, bool)> {
+        let q = ArticleQuery { visit_start_usec: 150, ..Default::default() };
+        let mut v: Vec<(u64, bool)> = s.query_articles(&q).unwrap().items.iter().map(|i| (i.id.0, i.new)).collect();
+        v.sort();
+        v
+    };
+    // Seen before the visit: not new. Seen during it or never: new.
+    assert_eq!(new_of(&s), vec![(1, false), (2, true), (3, true)]);
+    s.apply_intent(id(3), &Membership::Read, true).unwrap();
+    assert_eq!(new_of(&s), vec![(1, false), (2, true), (3, false)], "read is never new");
+    let q = ArticleQuery { group: ArticleGroup::New, sort: ArticleSort::Newest, visit_start_usec: 150, ..Default::default() };
+    let order: Vec<u64> = s.query_articles(&q).unwrap().items.iter().map(|i| i.id.0).collect();
+    assert_eq!(order, vec![2, 3, 1]);
+}
+
+#[test]
+fn seen_unmarked_ids_are_seen_unread_and_unstarred() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 1, &[]), 0).unwrap();
+    s.upsert_article(&rec(2, 2, &[STARRED]), 0).unwrap();
+    s.upsert_article(&rec(3, 3, &[READ]), 0).unwrap();
+    s.upsert_article(&rec(4, 4, &[]), 0).unwrap();
+    s.mark_seen(&[id(1), id(2), id(3)], 10).unwrap();
+    assert_eq!(s.seen_unmarked_ids(&ArticleQuery::default(), 10).unwrap(), vec![id(1)]);
+    let other = ArticleQuery { collection: Some(Collection::Feed(StreamId::new("feed/other"))), ..Default::default() };
+    assert!(s.seen_unmarked_ids(&other, 10).unwrap().is_empty());
+}
+
+#[test]
+fn bulk_actions_can_be_undone_once() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 1, &[]), 0).unwrap();
+    s.upsert_article(&rec(2, 2, &[READ]), 0).unwrap();
+    s.upsert_article(&rec(3, 3, &[]), 0).unwrap();
+    let sel = s.freeze_ids(&[id(1), id(2), id(3)]).unwrap();
+    assert!(s.undo_bulk(sel.id).is_err(), "nothing applied yet");
+    assert_eq!(s.apply_bulk(&sel, BulkAction::MarkRead).unwrap(), 3);
+    s.undo_bulk(sel.id).unwrap();
+    assert!(!s.effective(id(1), &Membership::Read).unwrap());
+    assert!(s.effective(id(2), &Membership::Read).unwrap(), "it was read before");
+    assert!(!s.effective(id(3), &Membership::Read).unwrap());
+    assert!(s.undo_bulk(sel.id).is_err(), "only once");
+    let star = s.freeze_ids(&[id(1)]).unwrap();
+    s.apply_bulk(&star, BulkAction::Star).unwrap();
+    assert!(s.effective(id(1), &Membership::Starred).unwrap());
+    s.undo_bulk(star.id).unwrap();
+    assert!(!s.effective(id(1), &Membership::Starred).unwrap());
+}
+
+#[test]
 fn stale_snapshot_cannot_clobber_acknowledged_write() {
     let mut s = store();
     s.upsert_article(&rec(1, 10, &[STARRED]), 0).unwrap();
@@ -392,6 +452,9 @@ fn migration_backs_up_and_rejects_newer_schema() {
             "DROP TABLE tags",
             "DROP TABLE subscription_folders",
             "DROP TABLE subscriptions",
+            "DROP TABLE seen",
+            "DROP TABLE bulk_applied",
+            "DROP TABLE bulk_prev",
         ] {
             c.execute_batch(t).unwrap();
         }

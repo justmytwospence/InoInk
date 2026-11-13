@@ -243,6 +243,8 @@ pub struct ArticleSummary {
     pub starred: bool,
     pub download: DownloadState,
     pub words: u32,
+    /// Unread and not seen on this device before the current visit (see ArticleQuery::visit_start_usec).
+    pub new: bool,
 }
 
 impl ArticleSummary {
@@ -328,16 +330,19 @@ impl CategorySort {
 pub enum ArticleGroup {
     #[default]
     None,
+    /// New (unread and not seen before this visit) first.
+    New,
     Unread,
     Source,
 }
 
 impl ArticleGroup {
-    pub const ALL: [ArticleGroup; 3] = [ArticleGroup::None, ArticleGroup::Unread, ArticleGroup::Source];
+    pub const ALL: [ArticleGroup; 4] = [ArticleGroup::None, ArticleGroup::New, ArticleGroup::Unread, ArticleGroup::Source];
 
     pub fn label(self) -> &'static str {
         match self {
             ArticleGroup::None => "No grouping",
+            ArticleGroup::New => "New first",
             ArticleGroup::Unread => "Unread first",
             ArticleGroup::Source => "By source",
         }
@@ -347,6 +352,7 @@ impl ArticleGroup {
     pub fn header(self, item: &ArticleSummary) -> Option<String> {
         match self {
             ArticleGroup::None => None,
+            ArticleGroup::New => Some(if item.new { "New" } else { "Earlier" }.to_string()),
             ArticleGroup::Unread => Some(if item.read { "Read" } else { "Unread" }.to_string()),
             ArticleGroup::Source => Some(if item.source.is_empty() { "Unknown source".to_string() } else { item.source.clone() }),
         }
@@ -400,11 +406,12 @@ pub struct Cursor {
     pub time: i64,
     pub words: u32,
     pub id: ArticleId,
+    pub new: bool,
 }
 
 impl From<&ArticleSummary> for Cursor {
     fn from(a: &ArticleSummary) -> Cursor {
-        Cursor { read: a.read, source: a.source.clone(), title: a.title.clone(), time: a.sort_time(), words: a.words, id: a.id }
+        Cursor { read: a.read, source: a.source.clone(), title: a.title.clone(), time: a.sort_time(), words: a.words, id: a.id, new: a.new }
     }
 }
 
@@ -435,6 +442,9 @@ pub struct ArticleQuery {
     pub sort: ArticleSort,
     /// Keyset cursor: continue strictly after this item in the query's order.
     pub after: Option<Cursor>,
+    /// Start of the current visit to the list: an unread article counts as new unless it was
+    /// seen before this time. 0 makes every unread article new.
+    pub visit_start_usec: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -552,8 +562,10 @@ mod view_option_tests {
             starred: false,
             download: DownloadState::NotDownloaded,
             words: 0,
+            new: false,
         };
         assert_eq!(ArticleGroup::Source.header(&a).as_deref(), Some("Unknown source"));
+        assert_eq!(ArticleGroup::New.header(&a).as_deref(), Some("Earlier"));
         assert_eq!(ArticleGroup::Unread.header(&a).as_deref(), Some("Unread"));
     }
 }

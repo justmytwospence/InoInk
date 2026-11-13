@@ -14,6 +14,11 @@ pub fn now_secs() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
+/// Microseconds since the epoch.
+pub fn now_usec() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0)
+}
+
 fn named_entities() -> &'static std::collections::HashMap<&'static str, &'static str> {
     static TABLE: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static str>> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| entities::ENTITIES.iter().map(|e| (e.entity, e.characters)).collect())
