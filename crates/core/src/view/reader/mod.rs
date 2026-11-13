@@ -288,6 +288,10 @@ impl Reader {
     pub fn new_article(rect: Rectangle, article: &crate::view::inoink::actions::OpenArticle, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let mut doc = HtmlDocument::new(&article.path).map_err(|e| eprintln!("{}: {:#}.", article.path.display(), e)).ok()?;
         doc.set_viewer_stylesheet("css/inoink.css");
+        if article.kind == crate::view::inoink::actions::DocKind::Article {
+            // Room for the title in the top margin, clear of the text.
+            doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
+        }
         let mut info = Info {
             file: FileInfo { path: article.path.clone(), kind: "html".to_string(), size: 0 },
             .. Default::default()

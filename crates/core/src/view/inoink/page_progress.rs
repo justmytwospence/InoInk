@@ -31,7 +31,13 @@ pub fn fits_segments(total: usize, width: i32, dpi: u16) -> bool {
 /// up to the position, or shows only the page shown as a dark stretch.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(fb: &mut dyn Framebuffer, x0: i32, x1: i32, y: i32, current: usize, total: usize, fraction: f32, cumulative: bool, dpi: u16) {
-    let thick = scale_by_dpi(5.0, dpi).max(2.0) as i32;
+    draw_sized(fb, x0, x1, y, current, total, fraction, cumulative, dpi, 5.0);
+}
+
+/// [`draw`] with the bar `thickness` (in pixels at 300 dpi).
+#[allow(clippy::too_many_arguments)]
+pub fn draw_sized(fb: &mut dyn Framebuffer, x0: i32, x1: i32, y: i32, current: usize, total: usize, fraction: f32, cumulative: bool, dpi: u16, thickness: f32) {
+    let thick = scale_by_dpi(thickness, dpi).max(2.0) as i32;
     let hair = scale_by_dpi(1.0, dpi).max(1.0) as i32;
     if fits_segments(total, x1 - x0, dpi) {
         let g = mm_to_px(SEGMENT_GAP_MM, dpi).round() as i32;
@@ -96,7 +102,8 @@ impl View for PageProgress {
         fb.draw_rectangle(&self.rect, WHITE);
         let y = (self.rect.min.y + self.rect.max.y) / 2;
         // Only the page shown is dark: a list is not read in order the way an article is.
-        draw(fb, self.rect.min.x, self.rect.max.x, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi);
+        // The list's indicator is also the line above the footer: drawn heavier than an article's.
+        draw_sized(fb, self.rect.min.x, self.rect.max.x, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 10.0);
     }
 
     fn rect(&self) -> &Rectangle {

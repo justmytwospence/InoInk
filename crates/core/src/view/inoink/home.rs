@@ -649,7 +649,7 @@ impl InoInkHome {
         let dpi = CURRENT_DEVICE.dpi;
         // With several pages, the line above the footer is the page indicator (one segment per
         // page while they fit, the page shown dark); it reaches a little into the footer.
-        let edge = scale_by_dpi(10.0, dpi) as i32;
+        let edge = scale_by_dpi(18.0, dpi) as i32;
         let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
         let frect = self.children[FOOTER].rect().to_owned();
         let sep_rect = rect![frect.min.x, frect.min.y - thickness, frect.max.x, frect.min.y];

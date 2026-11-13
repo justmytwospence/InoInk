@@ -39,6 +39,8 @@ pub struct HtmlDocument {
     viewer_stylesheet: PathBuf,
     user_stylesheet: PathBuf,
     ignore_document_css: bool,
+    /// Extra space above the text on every page, kept across margin changes (the running header).
+    top_reserve: i32,
 }
 
 impl ResourceFetcher for PathBuf {
@@ -80,6 +82,7 @@ impl HtmlDocument {
             content,
             engine: Engine::new(),
             pages: Vec::new(),
+            top_reserve: 0,
             parent: parent.to_path_buf(),
             size,
             viewer_stylesheet: PathBuf::from(VIEWER_STYLESHEET),
@@ -98,6 +101,7 @@ impl HtmlDocument {
             content,
             engine: Engine::new(),
             pages: Vec::new(),
+            top_reserve: 0,
             parent: PathBuf::default(),
             size,
             viewer_stylesheet: PathBuf::from(VIEWER_STYLESHEET),
@@ -111,6 +115,16 @@ impl HtmlDocument {
         self.content = XmlParser::new(text).parse();
         self.content.wrap_lost_inlines();
         self.text = text.to_string();
+        self.pages.clear();
+    }
+
+    /// Keeps `px` more space above the text on every page than the margin gives, also after the
+    /// margin changes.
+    pub fn set_top_reserve(&mut self, px: i32) {
+        let mut m = self.engine.margin;
+        m.top += px - self.top_reserve;
+        self.top_reserve = px;
+        self.engine.set_margin(&m);
         self.pages.clear();
     }
 
@@ -434,6 +448,11 @@ impl Document for HtmlDocument {
 
     fn set_margin_width(&mut self, width: i32) {
         self.engine.set_margin_width(width);
+        if self.top_reserve != 0 {
+            let mut m = self.engine.margin;
+            m.top += self.top_reserve;
+            self.engine.set_margin(&m);
+        }
         self.pages.clear();
     }
 
