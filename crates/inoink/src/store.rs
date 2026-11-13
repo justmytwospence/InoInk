@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004.sql"),
     include_str!("../migrations/0005.sql"),
     include_str!("../migrations/0006.sql"),
+    include_str!("../migrations/0007.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -315,7 +316,50 @@ impl Store {
         if upgraded_from > 0 && upgraded_from < 3 {
             self.backfill_words()?;
         }
+        if upgraded_from > 0 && upgraded_from < 7 {
+            self.backfill_titles()?;
+        }
         Ok(())
+    }
+
+    /// Decodes HTML entities in the stored titles, authors and feed names (older builds kept
+    /// them as Inoreader sent them).
+    pub fn backfill_titles(&mut self) -> Result<usize> {
+        use crate::util::decode_entities;
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let mut changed = 0;
+        let rows: Vec<(i64, String, String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, title, author, origin_title FROM articles WHERE account=?1 AND (title LIKE '%&%' OR author LIKE '%&%' OR origin_title LIKE '%&%')")?;
+            let r =
+                stmt.query_map([&account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<std::result::Result<_, _>>()?;
+            r
+        };
+        for (id, title, author, origin) in &rows {
+            let (t, a, o) = (decode_entities(title), decode_entities(author), decode_entities(origin));
+            if &t != title || &a != author || &o != origin {
+                tx.execute(
+                    "UPDATE articles SET title=?3, author=?4, origin_title=?5 WHERE account=?1 AND id=?2",
+                    params![account, id, t, a, o],
+                )?;
+                tx.execute("UPDATE article_fts SET title=?3 WHERE account=?1 AND article=?2", params![account, id, t])?;
+                changed += 1;
+            }
+        }
+        let feeds: Vec<(String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, title FROM subscriptions WHERE account=?1 AND title LIKE '%&%'")?;
+            let r = stmt.query_map([&account], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+            r
+        };
+        for (id, title) in &feeds {
+            let t = decode_entities(title);
+            if &t != title {
+                tx.execute("UPDATE subscriptions SET title=?3 WHERE account=?1 AND id=?2", params![account, id, t])?;
+                changed += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Recomputes every article's word count from the best text held (document text when

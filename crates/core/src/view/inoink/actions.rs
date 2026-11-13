@@ -292,7 +292,7 @@ pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
     match rep.shares.len() {
         0 => None,
         1 => {
-            let t: String = rep.shares[0].title.chars().take(40).collect();
+            let t = inoink::util::shorten(&rep.shares[0].title, 40);
             Some(format!("Saved to Karakeep: {}", if t.is_empty() { "link" } else { &t }))
         }
         n => Some(format!("Saved {n} links to Karakeep")),

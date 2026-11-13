@@ -15,6 +15,7 @@ url = "2.5.8"
 sha2 = "0.11.1"
 percent-encoding = "2.3.2"
 html5ever = "0.40.1"
+entities = "1.0.1"
 markup5ever_rcdom = "0.40.1"
 ureq = { version = "3.5.1", default-features = false, features = ["rustls", "gzip"] }
 age = { version = "0.11", default-features = false }

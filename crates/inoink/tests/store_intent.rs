@@ -635,6 +635,25 @@ fn migration_copies_annotations() {
     assert_eq!((list[0].id, list[0].start, list[0].end, list[0].text.as_str(), list[0].note.as_str()), (7, 3, 8, "hello", "n"));
 }
 
+#[test]
+fn migration_decodes_entities_in_titles() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    {
+        let mut s = Store::open(&path, "acct").unwrap();
+        s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    }
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute("UPDATE articles SET title='Fine&mdash;Eventually.', origin_title='A &amp; B' WHERE id=1", []).unwrap();
+        c.pragma_update(None, "user_version", 6).unwrap();
+    }
+    let s = Store::open(&path, "acct").unwrap();
+    let r = s.article_record(id(1)).unwrap().unwrap();
+    assert_eq!(r.title, "Fine\u{2014}Eventually.");
+    assert_eq!(r.origin_title, "A & B");
+}
+
 fn hl(uid: &str, article: u64, exact: &str, start: i64) -> inoink::highlight::Highlight {
     inoink::highlight::Highlight {
         uid: uid.into(),

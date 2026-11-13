@@ -1893,6 +1893,7 @@ name = "inoink"
 version = "0.0.0"
 dependencies = [
  "age",
+ "entities",
  "html5ever",
  "image",
  "libc",

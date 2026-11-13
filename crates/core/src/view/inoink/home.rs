@@ -568,7 +568,7 @@ impl InoInkHome {
                 // The undo bar takes the first row until superseded.
                 let h = span(0, 2);
                 let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
-                let label = format!("Done: {}", title.chars().take(40).collect::<String>());
+                let label = format!("Done: {}", inoink::util::shorten(title, 40));
                 let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
                 list.children.push(Box::new(lbl));
                 list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
