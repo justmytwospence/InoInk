@@ -13,9 +13,14 @@
   it. Requests are limited per day in two zones (reads and writes); the limits depend on your
   plan. InoInk reads the real limits from the server's response headers and shows them in
   Settings > Inoreader API budget.
-- A registered Inoreader application (https://www.inoreader.com/developers/register-app) with a
-  redirect URI such as `http://localhost:8080/callback` and the `read write` scope. Its client
-  id and secret are yours: **no secret is shipped in InoInk**.
+- A registered Inoreader application. In Inoreader, open Preferences > Developer API
+  (https://www.inoreader.com/preferences/other), click **New application**, and set Name
+  `InoInk`, Platform Other, Redirect URI `http://localhost:8080/callback` and OAuth scope
+  Read and write. Save; the App ID (client id) and App key (secret) it shows are yours: **no
+  secret is shipped in InoInk**. If New application is greyed out, the account already has an
+  application: use it (InoInk then shares its daily budget) and pass its redirect URI to
+  `authorize`. When that URI is not a `localhost` address, paste the address the browser ends
+  on after approving into the terminal.
 
 ## Build
 
@@ -63,6 +68,8 @@ replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`
 
 ```sh
 # inoink-cli from the release, or: cargo build --release -p inoink-cli
+# macOS, for a downloaded binary: it is not signed by Apple, so clear the quarantine flag first
+xattr -d com.apple.quarantine inoink-cli-macos-arm64
 inoink-cli authorize \
     --client-id YOUR_ID --redirect-uri http://localhost:8080/callback \
     --device /path/to/KOBOeReader
