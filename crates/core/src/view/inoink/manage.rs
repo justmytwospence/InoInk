@@ -3,7 +3,8 @@
 
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::settings::{ButtonScheme, HeadlineTap, RotationLock};
+use inoink::store::FullText;
+use crate::settings::{ButtonScheme, HeadlineTap, QueueTitles, RotationLock};
 use crate::view::inoink::actions::{InoInkEntry, SAVE_FAILED};
 use crate::view::{EntryId, EntryKind};
 use inoink::model::*;
@@ -38,10 +39,16 @@ fn feed_menu(context: &Context, s: &inoink::store::Subscription, folders: &[Stri
     }
     move_entries.push(EntryKind::Separator);
     move_entries.push(cmd("New folder...", InoInkEntry::PromptNewFolderForFeed(s.id.clone())));
-    let _ = context;
+    let mode = context.inoink.store().and_then(|st| st.feed_full_text(&s.id).ok()).map_or(FullText::Auto, |f| f.mode);
+    let choice = |label: &str, m: FullText| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(InoInkEntry::SetFullText(s.id.clone(), m)), mode == m);
     EntryKind::SubMenu(
         s.title.clone(),
-        vec![cmd("Rename...", InoInkEntry::PromptRenameFeed(s.id.clone())), EntryKind::SubMenu("Folders".into(), paged(move_entries)), cmd("Unfollow", InoInkEntry::Unsubscribe(s.id.clone()))],
+        vec![
+            cmd("Rename...", InoInkEntry::PromptRenameFeed(s.id.clone())),
+            EntryKind::SubMenu("Folders".into(), paged(move_entries)),
+            EntryKind::SubMenu("Full text".into(), vec![choice("Automatic", FullText::Auto), choice("Always", FullText::Always), choice("Never", FullText::Never)]),
+            cmd("Unfollow", InoInkEntry::Unsubscribe(s.id.clone())),
+        ],
     )
 }
 
@@ -116,8 +123,11 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
             ],
         ),
         EntryKind::SubMenu(
-            "At the end of an article".into(),
-            vec![radio("Swipe again to continue", InoInkEntry::SetContinueOnSwipe(true), s.continue_on_swipe), radio("Wait for a tap", InoInkEntry::SetContinueOnSwipe(false), !s.continue_on_swipe)],
+            "Previous and next titles".into(),
+            vec![
+                radio("With the bar", InoInkEntry::SetQueueTitles(QueueTitles::WithBar), s.queue_titles == QueueTitles::WithBar),
+                radio("Always", InoInkEntry::SetQueueTitles(QueueTitles::Always), s.queue_titles == QueueTitles::Always),
+            ],
         ),
     ];
     entries.push(EntryKind::SubMenu(
@@ -298,6 +308,18 @@ pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&st
         InoInkEntry::UnreadDays(d) => {
             context.settings.inoink.recent_unread_days = *d;
             Ok(None)
+        }
+        InoInkEntry::SetFullText(feed, mode) => {
+            let store = context.inoink.store().ok_or(SAVE_FAILED)?;
+            store.set_full_text_mode(feed, *mode).map_err(|_| SAVE_FAILED.to_string())?;
+            Ok(Some(
+                match mode {
+                    FullText::Auto => "Full text: automatic",
+                    FullText::Always => "Full text: always",
+                    FullText::Never => "Full text: never",
+                }
+                .to_string(),
+            ))
         }
         _ => Ok(None),
     }

@@ -46,7 +46,7 @@ pub fn parse_subscriptions(v: &Value) -> Result<Vec<Subscription>> {
         }
         out.push(Subscription {
             id: id.to_string(),
-            title: s["title"].as_str().unwrap_or("").to_string(),
+            title: crate::util::decode_entities(s["title"].as_str().unwrap_or("")),
             url: s["url"].as_str().unwrap_or("").to_string(),
             html_url: s["htmlUrl"].as_str().unwrap_or("").to_string(),
             sort_id: s["sortid"].as_str().unwrap_or("").to_string(),
@@ -118,10 +118,10 @@ pub fn parse_item(item: &Value) -> Result<ArticleRecord> {
     };
     Ok(ArticleRecord {
         id: id.0,
-        title: item["title"].as_str().unwrap_or("").to_string(),
-        author: item["author"].as_str().unwrap_or("").to_string(),
+        title: crate::util::decode_entities(item["title"].as_str().unwrap_or("")),
+        author: crate::util::decode_entities(item["author"].as_str().unwrap_or("")),
         origin_stream: normalize_user(item["origin"]["streamId"].as_str().unwrap_or("")),
-        origin_title: item["origin"]["title"].as_str().unwrap_or("").to_string(),
+        origin_title: crate::util::decode_entities(item["origin"]["title"].as_str().unwrap_or("")),
         canonical_url: url,
         published: num_i64(&item["published"]),
         timestamp_usec: usec,
@@ -300,4 +300,16 @@ pub struct ActiveSearchSpec {
 pub struct ActiveSearchCreated {
     pub id: String,
     pub title: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn titles_are_decoded_from_html_entities() {
+        let item = serde_json::json!({"id": "1", "title": "X&mdash;Y", "author": "A &amp; B", "origin": {"title": "C &amp; D"}});
+        let r = parse_item(&item).unwrap();
+        assert_eq!((r.title.as_str(), r.author.as_str(), r.origin_title.as_str()), ("X\u{2014}Y", "A & B", "C & D"));
+    }
 }

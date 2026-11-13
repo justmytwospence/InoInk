@@ -360,7 +360,6 @@ pub enum Event {
     Finished,
     ClockTick,
     /// Turns the sync icon one frame while a sync runs.
-    SyncSpin,
     BatteryTick,
     ToggleFrontlight,
     /// The light panel changed the light.
@@ -462,10 +461,10 @@ pub enum ViewId {
     PromptInput,
     ConfirmDialog,
     ImageViewer,
-    EndCard,
     LinkMenu,
     QrView,
     ArticleFooter,
+    QueueNav,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

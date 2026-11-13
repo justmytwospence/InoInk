@@ -93,10 +93,14 @@ pub struct InoInk {
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.
     pub opening: Option<(ArticleId, OpenMode)>,
+    /// When `opening` was set.
+    pub opening_at: Option<std::time::Instant>,
+    /// Neighbours already queued for download this session.
+    pub prefetched: std::collections::HashSet<ArticleId>,
     /// A linked page being fetched for the reading view.
     pub opening_page: Option<String>,
-    /// The next article opened starts at its beginning rather than where it was left.
-    pub open_at_start: bool,
+    /// The next article opened starts on its last page (paging back from the first page of the following one).
+    pub open_at_end: bool,
     /// Services links can be sent to (Karakeep).
     pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
@@ -106,7 +110,7 @@ pub struct InoInk {
 }
 
 fn cache_config(s: &InoInkSettings) -> CacheConfig {
-    CacheConfig { budget_bytes: s.cache_budget_mb * 1024 * 1024, recent_unread_days: s.recent_unread_days, pinned_folders: s.pinned_folders.clone(), ..Default::default() }
+    CacheConfig { budget_bytes: s.cache_budget_mb * 1024 * 1024, recent_unread_days: s.recent_unread_days, pinned_folders: s.pinned_folders.clone(), extract_stubs: true, ..Default::default() }
 }
 
 impl InoInk {
@@ -147,8 +151,10 @@ impl InoInk {
             last_undo: None,
             notice: None,
             opening: None,
+            opening_at: None,
+            prefetched: std::collections::HashSet::new(),
             opening_page: None,
-            open_at_start: false,
+            open_at_end: false,
             share,
             opening_comments: None,
             settings: settings.clone(),
@@ -169,7 +175,7 @@ impl InoInk {
         let api = ApiClient::new(cfg.clone(), transport, clock.clone(), Arc::new(creds)).map_err(|e| e.to_string())?;
         let engine_store = Store::open(db, &self.account).map_err(|e| e.to_string())?;
         let cache = Cache::new(&self.data_dir.join("cache"), &self.account, cache_config(&self.settings));
-        let fetcher = Arc::new(UreqFetcher::new(&cfg.user_agent));
+        let fetcher = Arc::new(UreqFetcher::new(inoink::content::images::BROWSER_USER_AGENT));
         let free_dir = self.data_dir.clone();
         let mut engine = SyncEngine::new(engine_store, api, cache, fetcher, clock, SyncConfig::default())
             .with_free_space(Arc::new(move || inoink::cache::free_space_of(&free_dir)));

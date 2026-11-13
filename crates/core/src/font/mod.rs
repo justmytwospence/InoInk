@@ -32,6 +32,12 @@ pub const KEYBOARD_FONT_SIZES: [u32; 2] = [337, 843];
 
 pub const DISPLAY_FONT_SIZE: u32 = 2516;
 
+pub const TITLE_STYLE: Style = Style {
+    family: Family::SansSerif,
+    variant: Variant::BOLD,
+    size: FONT_SIZES[1],
+};
+
 pub const NORMAL_STYLE: Style = Style {
     family: Family::SansSerif,
     variant: Variant::REGULAR,
@@ -1436,6 +1442,8 @@ impl Font {
     }
 
     #[inline]
+    /// Shortens a plan to `max_width` with a trailing ellipsis, ending at a word boundary unless
+    /// the plan is a single word.
     pub fn crop_right(&self, render_plan: &mut RenderPlan, max_width: i32) {
         if render_plan.width <= max_width {
             return;
@@ -1443,11 +1451,28 @@ impl Font {
 
         render_plan.width += self.ellipsis.width;
 
+        // The glyph just after the kept text: a space there means the cut already ends a word.
+        let mut cut_at_space = false;
         while let Some(gp) = render_plan.glyphs.pop() {
             render_plan.width -= gp.advance.x;
+            cut_at_space = gp.codepoint == self.space_codepoint;
             if render_plan.width <= max_width {
                 break;
             }
+        }
+
+        // Drop a partial last word, unless it is the only word (then the cut stays inside it).
+        if !cut_at_space {
+            if let Some(sp) = render_plan.glyphs.iter().rposition(|g| g.codepoint == self.space_codepoint) {
+                while render_plan.glyphs.len() > sp {
+                    let gp = render_plan.glyphs.pop().unwrap();
+                    render_plan.width -= gp.advance.x;
+                }
+            }
+        }
+        while render_plan.glyphs.last().map_or(false, |g| g.codepoint == self.space_codepoint) {
+            let gp = render_plan.glyphs.pop().unwrap();
+            render_plan.width -= gp.advance.x;
         }
 
         let len = render_plan.glyphs.len();

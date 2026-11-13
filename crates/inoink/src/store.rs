@@ -18,6 +18,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004.sql"),
     include_str!("../migrations/0005.sql"),
     include_str!("../migrations/0006.sql"),
+    include_str!("../migrations/0007.sql"),
+    include_str!("../migrations/0008.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -63,6 +65,41 @@ impl OutboxBatch {
         }
         set.into_iter().collect()
     }
+}
+
+/// How a feed's articles get their full text from the original page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FullText {
+    /// Decided by the item (a teaser) and by what earlier items of the feed showed.
+    Auto,
+    Always,
+    Never,
+}
+
+impl FullText {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FullText::Auto => "auto",
+            FullText::Always => "always",
+            FullText::Never => "never",
+        }
+    }
+
+    pub fn parse(s: &str) -> FullText {
+        match s {
+            "always" => FullText::Always,
+            "never" => FullText::Never,
+            _ => FullText::Auto,
+        }
+    }
+}
+
+/// A feed's full-text choice and what the automatic mode has learned from its articles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeedFullText {
+    pub mode: FullText,
+    pub tries: i64,
+    pub gains: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -315,7 +352,50 @@ impl Store {
         if upgraded_from > 0 && upgraded_from < 3 {
             self.backfill_words()?;
         }
+        if upgraded_from > 0 && upgraded_from < 7 {
+            self.backfill_titles()?;
+        }
         Ok(())
+    }
+
+    /// Decodes HTML entities in the stored titles, authors and feed names (older builds kept
+    /// them as Inoreader sent them).
+    pub fn backfill_titles(&mut self) -> Result<usize> {
+        use crate::util::decode_entities;
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let mut changed = 0;
+        let rows: Vec<(i64, String, String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, title, author, origin_title FROM articles WHERE account=?1 AND (title LIKE '%&%' OR author LIKE '%&%' OR origin_title LIKE '%&%')")?;
+            let r =
+                stmt.query_map([&account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<std::result::Result<_, _>>()?;
+            r
+        };
+        for (id, title, author, origin) in &rows {
+            let (t, a, o) = (decode_entities(title), decode_entities(author), decode_entities(origin));
+            if &t != title || &a != author || &o != origin {
+                tx.execute(
+                    "UPDATE articles SET title=?3, author=?4, origin_title=?5 WHERE account=?1 AND id=?2",
+                    params![account, id, t, a, o],
+                )?;
+                tx.execute("UPDATE article_fts SET title=?3 WHERE account=?1 AND article=?2", params![account, id, t])?;
+                changed += 1;
+            }
+        }
+        let feeds: Vec<(String, String)> = {
+            let mut stmt = tx.prepare("SELECT id, title FROM subscriptions WHERE account=?1 AND title LIKE '%&%'")?;
+            let r = stmt.query_map([&account], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+            r
+        };
+        for (id, title) in &feeds {
+            let t = decode_entities(title);
+            if &t != title {
+                tx.execute("UPDATE subscriptions SET title=?3 WHERE account=?1 AND id=?2", params![account, id, t])?;
+                changed += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Recomputes every article's word count from the best text held (document text when
@@ -892,6 +972,36 @@ impl Store {
             Ok(c.max(0) as usize)
         };
         Ok((n("pending")?, n("failed")?))
+    }
+
+    pub fn feed_full_text(&self, feed: &str) -> Result<FeedFullText> {
+        let row: Option<(String, i64, i64)> = self
+            .conn
+            .query_row("SELECT mode, tries, gains FROM feed_fulltext WHERE account=?1 AND feed=?2", params![self.account, feed], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .optional()?;
+        Ok(match row {
+            Some((m, tries, gains)) => FeedFullText { mode: FullText::parse(&m), tries, gains },
+            None => FeedFullText { mode: FullText::Auto, tries: 0, gains: 0 },
+        })
+    }
+
+    pub fn set_full_text_mode(&self, feed: &str, mode: FullText) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO feed_fulltext(account,feed,mode) VALUES(?1,?2,?3) ON CONFLICT(account,feed) DO UPDATE SET mode=excluded.mode",
+            params![self.account, feed, mode.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// Counts one attempt to get a feed's article from its page, and whether it paid off.
+    pub fn record_full_text_try(&self, feed: &str, gained: bool) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO feed_fulltext(account,feed,tries,gains) VALUES(?1,?2,1,?3) ON CONFLICT(account,feed) DO UPDATE SET tries=tries+1, gains=gains+excluded.gains",
+            params![self.account, feed, gained as i64],
+        )?;
+        Ok(())
     }
 
     pub fn words(&self, id: ArticleId) -> Result<u32> {

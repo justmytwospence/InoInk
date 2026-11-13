@@ -953,3 +953,47 @@ fn svg_images_are_rasterized() {
     assert_eq!(state, DownloadState::Complete);
     assert_eq!(latest_html(&cache, &store, 1).matches("<img src=\"assets/").count(), 1);
 }
+
+fn teaser_setup(mode: Option<FullText>) -> (tempfile::TempDir, Store, Cache, MockFetcher) {
+    let (dir, mut store, _) = setup();
+    let cache = Cache::new(&dir.path().join("cache2"), "acct", CacheConfig { extract_stubs: true, ..Default::default() });
+    store.upsert_article(&rec(1, 10, "<p>Short teaser\u{2026} Read more</p>"), 0).unwrap();
+    if let Some(m) = mode {
+        store.set_full_text_mode("feed/https://blog.example/rss", m).unwrap();
+    }
+    (dir, store, cache, MockFetcher::new())
+}
+
+fn article_page() -> String {
+    let para = "This is a long paragraph with enough words to look like genuine article content for the extractor. ".repeat(3);
+    format!("<html><body><article><h1>T</h1><p>{para}</p><p>{para}</p></article></body></html>")
+}
+
+#[test]
+fn teaser_items_are_replaced_by_the_original_page() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(None);
+    fetcher.ok_typed("https://blog.example/posts/1/", "text/html", &article_page());
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("genuine article content"));
+    let ff = store.feed_full_text("feed/https://blog.example/rss").unwrap();
+    assert_eq!((ff.tries, ff.gains), (1, 1));
+}
+
+#[test]
+fn never_mode_skips_the_page_fetch() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(Some(FullText::Never));
+    fetcher.ok_typed("https://blog.example/posts/1/", "text/html", &article_page());
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    assert!(!fetcher.calls().iter().any(|c| c.contains("blog.example/posts/1")));
+    assert!(latest_html(&cache, &store, 1).contains("Short teaser"));
+}
+
+#[test]
+fn a_page_without_more_text_counts_as_no_gain() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(None);
+    fetcher.ok_typed("https://blog.example/posts/1/", "text/html", "<html><body><p>tiny</p></body></html>");
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("Short teaser"));
+    let ff = store.feed_full_text("feed/https://blog.example/rss").unwrap();
+    assert_eq!((ff.tries, ff.gains), (1, 0));
+}

@@ -110,7 +110,7 @@ fn inherit_frontlight(settings: &mut Settings) {
     eprintln!("frontlight: inherited intensity {:?} warmth {:?}", white, color);
 }
 
-fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Context, Error> {
+fn build_context(mut fb: Box<dyn Framebuffer>, hub: &Sender<Event>, started: Instant) -> Result<Context, Error> {
     let rtc = Rtc::new(RTC_DEVICE)
                   .map_err(|e| eprintln!("Can't open RTC device: {:#}.", e))
                   .ok();
@@ -125,9 +125,13 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
     if let Some(dir) = env::var_os("INOINK_DATA") {
         settings.inoink.data_dir = dir.into();
     }
-    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
+    // Fonts first, so the opening screen shows while the database opens and the rest starts.
+    let mut fonts = Fonts::load().context("can't load fonts")?;
+    show_opening_screen(fb.as_mut(), &mut fonts);
+    log_startup("opening screen shown", started);
 
-    let fonts = Fonts::load().context("can't load fonts")?;
+    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
+    log_startup("database open", started);
 
     let battery = Box::new(KoboBattery::new().context("can't create battery")?) as Box<dyn Battery>;
 
@@ -151,6 +155,19 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
 
     Ok(Context::new(fb, rtc, inoink, settings,
                     fonts, battery, frontlight, lightsensor))
+}
+
+/// Confirms the launch at once: a full-screen "Opening InoInk" until the list is ready. The
+/// refresh runs on the display controller while startup continues.
+fn show_opening_screen(fb: &mut dyn Framebuffer, fonts: &mut Fonts) {
+    let interm = Intermission::with_text(fb.rect(), "Opening InoInk".to_string());
+    interm.render(fb, *interm.rect(), fonts);
+    fb.update(interm.rect(), UpdateMode::Full).ok();
+}
+
+/// One `startup:` line in the log: how long after launch a step finished.
+fn log_startup(step: &str, started: Instant) {
+    eprintln!("startup: {step} at {} ms", started.elapsed().as_millis());
 }
 
 fn schedule_task(id: TaskId, event: Event, delay: Duration, hub: &Sender<Event>, tasks: &mut Vec<Task>) {
@@ -201,6 +218,21 @@ fn power_off(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut
         item.view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
     }
     let interm = Intermission::new(context.fb.rect(), IntermKind::PowerOff, context);
+    wait_for_all(updating, context);
+    interm.render(context.fb.as_mut(), *interm.rect(), &mut context.fonts);
+    context.fb.update(interm.rect(), UpdateMode::Full).ok();
+}
+
+/// Confirms Quit at once with a full-screen message, after leaving every view so open articles
+/// save their position.
+fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut Vec<UpdateData>, context: &mut Context) {
+    let (tx, _rx) = mpsc::channel();
+    view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
+    while let Some(mut item) = history.pop() {
+        item.view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
+    }
+    let text = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Restarting the Kobo" } else { "Closing InoInk" };
+    let interm = Intermission::with_text(context.fb.rect(), text.to_string());
     wait_for_all(updating, context);
     interm.render(context.fb.as_mut(), *interm.rect(), &mut context.fonts);
     context.fb.update(interm.rect(), UpdateMode::Full).ok();
@@ -260,6 +292,7 @@ enum ExitStatus {
 }
 
 pub fn run() -> Result<(), Error> {
+    let started = Instant::now();
     let mut inactive_since = Instant::now();
     let mut exit_status = ExitStatus::Quit;
 
@@ -276,7 +309,7 @@ pub fn run() -> Result<(), Error> {
     }
 
     let (tx, rx) = mpsc::channel();
-    let mut context = build_context(fb, &tx).context("can't build context")?;
+    let mut context = build_context(fb, &tx, started).context("can't build context")?;
 
     context.plugged = context.battery.status().is_ok_and(|v| v[0].is_wired());
 
@@ -374,7 +407,10 @@ pub fn run() -> Result<(), Error> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut history: Vec<HistoryItem> = Vec::new();
     let mut rq = RenderQueue::new();
+    log_startup("Wi-Fi and devices ready", started);
     let mut view: Box<dyn View> = Box::new(InoInkHome::new(context.fb.rect(), &tx, &mut rq, &mut context));
+    log_startup("list built", started);
+    let mut first_frame = true;
 
     let mut updating = Vec::new();
     let current_dir = env::current_dir()?;
@@ -835,6 +871,7 @@ pub fn run() -> Result<(), Error> {
                         },
                         OpenResult::Fetching => {
                             context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
+                            context.inoink.opening_at = Some(std::time::Instant::now());
                             let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
                             view.children_mut().push(Box::new(notif) as Box<dyn View>);
                         },
@@ -933,6 +970,7 @@ pub fn run() -> Result<(), Error> {
                     if let Some((open, mode)) = context.inoink.opening {
                         if open == *id {
                             context.inoink.opening = None;
+                            context.inoink.opening_at = None;
                             tx.send(match mode {
                                 plato_core::view::inoink::state::OpenMode::Push => Event::OpenArticle(*id),
                                 plato_core::view::inoink::state::OpenMode::Replace => Event::OpenNext(*id),
@@ -973,6 +1011,7 @@ pub fn run() -> Result<(), Error> {
                 if let plato_core::inoink::runtime::Update::CacheFailed(id, _) = u {
                     if context.inoink.opening.is_some_and(|(open, _)| open == *id) {
                         context.inoink.opening = None;
+                        context.inoink.opening_at = None;
                         let notif = Notification::new("This article could not be downloaded".to_string(), &tx, &mut rq, &mut context);
                         view.children_mut().push(Box::new(notif) as Box<dyn View>);
                         handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
@@ -1216,6 +1255,7 @@ pub fn run() -> Result<(), Error> {
                 break;
             },
             Event::Select(EntryId::Quit) => {
+                show_quit_screen(view.as_mut(), &mut history, &mut updating, &mut context);
                 break;
             },
             Event::MightSuspend if context.settings.auto_suspend > 0.0 => {
@@ -1239,7 +1279,12 @@ pub fn run() -> Result<(), Error> {
             },
         }
 
+        let had_work = !rq.is_empty();
         process_render_queue(view.as_ref(), &mut rq, &mut context, &mut updating);
+        if first_frame && had_work {
+            first_frame = false;
+            log_startup("first list frame sent", started);
+        }
 
         while let Some(ce) = bus.pop_front() {
             tx.send(ce).ok();

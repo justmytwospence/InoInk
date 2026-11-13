@@ -1,5 +1,5 @@
 use crate::device::CURRENT_DEVICE;
-use crate::font::{Fonts, font_from_style, NORMAL_STYLE};
+use crate::font::{Fonts, font_from_style, NORMAL_STYLE, TITLE_STYLE};
 use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, Align};
 use crate::gesture::GestureEvent;
 use crate::framebuffer::{Framebuffer, UpdateMode};
@@ -15,6 +15,7 @@ pub struct Label {
     align: Align,
     event: Option<Event>,
     hold_event: Option<Event>,
+    bold: bool,
 }
 
 impl Label {
@@ -27,7 +28,14 @@ impl Label {
             align,
             event: None,
             hold_event: None,
+            bold: false,
         }
+    }
+
+    /// Bold title text, centred on the capital height.
+    pub fn bold(mut self) -> Label {
+        self.bold = true;
+        self
     }
 
     pub fn event(mut self, event: Option<Event>) -> Label {
@@ -72,10 +80,10 @@ impl View for Label {
 
         fb.draw_rectangle(&self.rect, TEXT_NORMAL[0]);
 
-        let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-        let x_height = font.x_heights.0 as i32;
+        let font = font_from_style(fonts, if self.bold { &TITLE_STYLE } else { &NORMAL_STYLE }, dpi);
+        let x_height = if self.bold { font.x_heights.1 as i32 } else { font.x_heights.0 as i32 };
         let padding = font.em() as i32;
-        let max_width = self.rect.width() as i32 - padding;
+        let max_width = self.rect.width() as i32 - if self.bold { padding / 2 } else { padding };
 
         let plan = font.plan(&self.text, Some(max_width), None);
 

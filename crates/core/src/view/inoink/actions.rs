@@ -71,9 +71,11 @@ pub enum InoInkEntry {
     ConfirmMarkListRead,
     OpenDetails(ArticleId),
     SetHeadlineTap(HeadlineTap),
-    SetContinueOnSwipe(bool),
-    /// An action of the end-of-article card.
-    Finish(FinishAction),
+    SetQueueTitles(crate::settings::QueueTitles),
+    /// A feed's choice of loading the original page's text for its articles.
+    SetFullText(String, inoink::store::FullText),
+    /// Open the previous or next article of the list (the titles row above the footer).
+    QueueArticle(crate::geom::CycleDir),
     /// Open a linked page in a reading view.
     OpenLink(String),
     ShowQr(String),
@@ -85,16 +87,6 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FinishAction {
-    /// Done (Read later) or Mark read, then the next article.
-    Primary,
-    /// Leave it as it is and go on.
-    Keep,
-    BackToList,
-    Comments,
 }
 
 #[derive(Debug, Default)]
@@ -204,7 +196,7 @@ pub enum OpenResult {
 /// Finds the published content for an article and takes a lease on it so the version stays
 /// until the reader closes.
 pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
-    let at_start = std::mem::take(&mut context.inoink.open_at_start);
+    let at_end = std::mem::take(&mut context.inoink.open_at_end);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {
         return fetch_for_open(context, id);
@@ -216,7 +208,9 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
     let mut offset = None;
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.lease(id, v.version);
-        if let Ok(Some(pos)) = store.position(id).map(|p| p.filter(|_| !at_start)) {
+        if at_end {
+            offset = Some(usize::MAX);
+        } else if let Ok(Some(pos)) = store.position(id) {
             offset = if pos.content_hash == v.hash {
                 Some(pos.offset as usize)
             } else {
@@ -227,6 +221,22 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
         }
     }
     OpenResult::Ready(Box::new(OpenArticle { id, path, version: v.version, content_hash: v.hash, offset, kind: DocKind::Article }))
+}
+
+/// Queues a background download of a neighbour of the open article when it is not cached yet
+/// (once per session), so swiping to it does not wait for the network.
+pub fn prefetch(context: &mut Context, id: ArticleId) {
+    if context.inoink.handle.is_none() || !context.inoink.prefetched.insert(id) {
+        return;
+    }
+    let cached = context
+        .inoink
+        .store()
+        .and_then(|s| s.latest_version(id).ok().flatten())
+        .map_or(false, |v| context.inoink.cache.version_path(id, v.version).is_file());
+    if !cached {
+        context.inoink.submit(Command::CacheNow(id));
+    }
 }
 
 /// Opens the cached comments page of a link post (fetching it when it is missing).
@@ -265,6 +275,7 @@ fn fetch_for_open(context: &mut Context, id: ArticleId) -> OpenResult {
         return OpenResult::Unavailable("This article is not available offline".into());
     }
     context.inoink.opening = Some((id, OpenMode::Push));
+    context.inoink.opening_at = Some(std::time::Instant::now());
     context.inoink.submit(Command::CacheNow(id));
     OpenResult::Fetching
 }
@@ -300,7 +311,7 @@ pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
     match rep.shares.len() {
         0 => None,
         1 => {
-            let t: String = rep.shares[0].title.chars().take(40).collect();
+            let t = inoink::util::shorten(&rep.shares[0].title, 40);
             Some(format!("Saved to Karakeep: {}", if t.is_empty() { "link" } else { &t }))
         }
         n => Some(format!("Saved {n} links to Karakeep")),

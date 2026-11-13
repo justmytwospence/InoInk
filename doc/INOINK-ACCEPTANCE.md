@@ -14,13 +14,13 @@ document tests inside the build container, and the install/launcher tests).
 
 | Area | Where | Result |
 |---|---|---|
-| Local store: durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts | `crates/inoink/tests/store_intent.rs` (32) | PASS |
+| Local store: entity decoding of titles (ingest and migration), durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts | `crates/inoink/tests/store_intent.rs` (34) | PASS |
 | API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (24) | PASS |
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging, skipping unchanged listings, organization refresh on change | `crates/inoink/tests/sync_faults.rs` (32) | PASS |
-| Content and cache: lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (24) | PASS |
+| Content and cache: teaser pages replaced by the original text (per-feed learning), lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (33) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (13), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (33), `font_crop.rs` (2), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
@@ -40,13 +40,13 @@ document tests inside the build container, and the install/launcher tests).
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
-article with the bar and the page indicator; the end card; the next article; a QR code; the light
+article with the bar, the next article's title and the page indicator; the next article (swipe up); a QR code; the light
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
 tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
 and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
-Result: PASS (13 screenshots inspected on 2026-11-11). Not covered by the tour (tested headlessly
+Result: PASS (15 screenshots inspected on 2026-11-12). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
@@ -60,6 +60,8 @@ that was merged.
 | Case | Result |
 |---|---|
 | Launch from NickelMenu; quit restores Nickel (normal exit and after a forced error) | NOT RUN |
+| Launch shows "Opening InoInk" at once; the `startup:` lines in `inoink.log` show the list arriving no later than before | NOT RUN |
+| Quit shows "Closing InoInk" ("Restarting the Kobo" on MediaTek) at once; an open article keeps its position | NOT RUN |
 | Physical page buttons and touch navigation | NOT RUN |
 | Colour images render in articles and in the enlargement view | NOT RUN |
 | Frontlight and warmth | NOT RUN |
@@ -74,7 +76,9 @@ that was merged.
 | Remote unstar and folder/rename changes arrive | NOT RUN |
 | Interrupted image download and write recovery (pull Wi-Fi mid-sync) | NOT RUN |
 | Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
-| Sync icon shows a dot and turns during a sync, and stops upright without the dot | NOT RUN |
+| Sync icon shows its syncing form (dot) during a sync, without ghosting, and returns to the plain icon | NOT RUN |
+| Top bar title is bold, centred and not cut short | NOT RUN |
+| List pages: the line above the footer is the page indicator; group headers read as grey section bands | NOT RUN |
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |
@@ -99,8 +103,19 @@ that was merged.
 | Tap-to-save in the Newsfeed; hold opens; the setting swaps them | NOT RUN |
 | End of unread list: "Mark N read" marks only what was seen and not starred | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
-| End card via forward swipe and via holding the forward button (no immediate double action) | NOT RUN |
-| Continue to the next article; Done in Read later archives it on inoreader.com | NOT RUN |
+| Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
+| Done (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
+| Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
+| Switching articles shows no blank page before the new article | NOT RUN |
+| An article opened part-way shows the bar until the first page turn | NOT RUN |
+| Curved and slightly diagonal vertical swipes change article; a stalled download shows "Still downloading" and gives way after 10 s | NOT RUN |
+| The article title shows in the top margin of every page but the first, clear of the text | NOT RUN |
+| Curly quotes, dashes and ellipses in articles (not in code); a German or French article hyphenates in its language | NOT RUN |
+| Inverted page-turn buttons also swap the swipe directions | NOT RUN |
+| Long titles end at a whole word with an ellipsis (lists, bar, titles row); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
+| Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |
+| Teaser feeds open as the full page; Full text Never keeps the teaser | NOT RUN |
+| Titles row with the bar (tap opens); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
 | QR code scans with a phone | NOT RUN |
 | Follow in Inoreader adds a feed from a held link | NOT RUN |

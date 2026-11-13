@@ -43,6 +43,7 @@ use crate::view::keyboard::Keyboard;
 use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
 use crate::view::notification::Notification;
+use crate::settings::{ButtonScheme, QueueTitles};
 use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
 use crate::settings::{HYPHEN_PENALTY, STRETCH_TOLERANCE};
@@ -104,6 +105,17 @@ pub struct Reader {
     page_pos: Option<(usize, usize)>,
     last_checkpoint: std::time::Instant,
     last_saved_page: usize,
+    /// Titles of the previous and next articles of the list (articles only).
+    queue_titles: (Option<String>, Option<String>),
+    /// Name them beside the progress line on every page (Settings > Previous and next titles > Always).
+    queue_titles_always: bool,
+    /// When an article change was last requested, to ignore repeats while it opens.
+    article_nav_at: Option<std::time::Instant>,
+    /// The article's title, shown in the top margin of every page but the first (where the
+    /// article's own heading is).
+    running_header: Option<String>,
+    /// Location of the first page.
+    first_location: Option<usize>,
 }
 
 /// The article a reader is showing.
@@ -258,6 +270,16 @@ fn word_separator(lang: &str) -> &'static str {
     }
 }
 
+/// Titles of the articles before and after `id` in the reading queue.
+fn queue_titles(context: &Context, id: ArticleId) -> (Option<String>, Option<String>) {
+    let Some(q) = context.inoink.queue.as_ref() else { return (None, None) };
+    let title = |n: ArticleId| {
+        let t = context.inoink.store().and_then(|s| s.article_record(n).ok().flatten()).map(|r| r.title.trim().to_string()).unwrap_or_default();
+        if t.is_empty() { "Untitled".to_string() } else { t }
+    };
+    (q.previous_before(id).map(title), q.next_after(id).map(title))
+}
+
 impl Reader {
     pub fn new(rect: Rectangle, info: Info, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let path = info.file.path.clone();
@@ -269,6 +291,10 @@ impl Reader {
     pub fn new_article(rect: Rectangle, article: &crate::view::inoink::actions::OpenArticle, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let mut doc = HtmlDocument::new(&article.path).map_err(|e| eprintln!("{}: {:#}.", article.path.display(), e)).ok()?;
         doc.set_viewer_stylesheet("css/inoink.css");
+        if article.kind == crate::view::inoink::actions::DocKind::Article {
+            // Room for the title in the top margin, clear of the text.
+            doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
+        }
         let mut info = Info {
             file: FileInfo { path: article.path.clone(), kind: "html".to_string(), size: 0 },
             .. Default::default()
@@ -280,7 +306,23 @@ impl Reader {
         let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone(), kind: article.kind };
         let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
         reader.article = Some(binding);
+        if article.kind == crate::view::inoink::actions::DocKind::Article {
+            reader.queue_titles = queue_titles(context, article.id);
+            reader.queue_titles_always = context.settings.inoink.queue_titles == QueueTitles::Always;
+            if let Some(q) = context.inoink.queue.clone() {
+                for n in [q.previous_before(article.id), q.next_after(article.id)].into_iter().flatten() {
+                    crate::view::inoink::actions::prefetch(context, n);
+                }
+            }
+        }
         reader.load_article_highlights(context);
+        let mut rq = RenderQueue::new();
+        if reader.is_article() {
+            reader.running_header = Some(reader.article_title(context));
+            reader.first_location = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
+        }
+        // Lay out the first page now so the first refresh shows the article, not a blank page.
+        reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
         Some(reader)
     }
 
@@ -594,6 +636,11 @@ impl Reader {
             page_pos: None,
                 last_checkpoint: std::time::Instant::now(),
                 last_saved_page: 0,
+                queue_titles: (None, None),
+                queue_titles_always: false,
+                article_nav_at: None,
+                running_header: None,
+                first_location: None,
             })
         })
     }
@@ -665,6 +712,11 @@ impl Reader {
             page_pos: None,
             last_checkpoint: std::time::Instant::now(),
             last_saved_page: 0,
+            queue_titles: (None, None),
+            queue_titles_always: false,
+            article_nav_at: None,
+            running_header: None,
+            first_location: None,
         }
     }
 
@@ -1073,9 +1125,10 @@ impl Reader {
             },
             _ => {
                 match dir {
+                    _ if self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Comments) => {},
                     CycleDir::Next if self.article.is_some() => {
                         self.finished = true;
-                        self.show_end_card(false, hub, rq, context);
+                        self.go_to_article(CycleDir::Next, hub, rq, context);
                     },
                     CycleDir::Next => {
                         self.finished = true;
@@ -1097,12 +1150,15 @@ impl Reader {
                         }
                     },
                     CycleDir::Previous if self.article.is_some() => {
-                        // Before the first page: the beginning of the previous article in the list.
+                        // Before the first page: the last page of the previous article in the list.
                         let id = self.article.as_ref().map(|a| a.id);
                         let prev = id.and_then(|id| context.inoink.queue.as_ref().and_then(|q| q.previous_before(id)));
                         if let Some(prev) = prev {
-                            context.inoink.open_at_start = true;
-                            hub.send(Event::OpenNext(prev)).ok();
+                            if !self.nav_blocked(hub, rq, context) {
+                                self.article_nav_at = Some(std::time::Instant::now());
+                                context.inoink.open_at_end = true;
+                                hub.send(Event::OpenNext(prev)).ok();
+                            }
                         }
                     },
                     CycleDir::Previous => {
@@ -2957,7 +3013,7 @@ impl Reader {
     }
 
     fn toggle_article_bar(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter};
+        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter, QueueNav};
         if let Some(index) = locate::<ArticleBar>(self) {
             if let Some(true) = enable {
                 return;
@@ -2969,6 +3025,11 @@ impl Reader {
             if let Some(fi) = locate_by_id(self, ViewId::ArticleFooter) {
                 let r = *self.child(fi).rect();
                 self.children.remove(fi);
+                rq.add(RenderData::expose(r, UpdateMode::Gui));
+            }
+            if let Some(qi) = locate_by_id(self, ViewId::QueueNav) {
+                let r = *self.child(qi).rect();
+                self.children.remove(qi);
                 rq.add(RenderData::expose(r, UpdateMode::Gui));
             }
         } else {
@@ -3004,22 +3065,56 @@ impl Reader {
                 rq.add(RenderData::new(footer.id(), *footer.rect(), UpdateMode::Gui));
                 self.children.push(Box::new(footer) as Box<dyn View>);
             }
+            if self.is_article() && (self.queue_titles.0.is_some() || self.queue_titles.1.is_some()) {
+                let nav = QueueNav::new(rect![self.rect.min.x, self.rect.max.y - 2 * small_height, self.rect.max.x, self.rect.max.y - small_height], self.queue_titles.0.clone(), self.queue_titles.1.clone());
+                rq.add(RenderData::new(nav.id(), *nav.rect(), UpdateMode::Gui));
+                self.children.push(Box::new(nav) as Box<dyn View>);
+            }
         }
     }
 
     /// A thin progress indicator along the bottom edge of an article: one segment per page while
     /// they fit across the screen, otherwise a hairline track with the part read in black and a
     /// dot where you are.
-    fn render_progress(&self, fb: &mut dyn Framebuffer, clip: &Rectangle) {
+    fn render_progress(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
         let dpi = CURRENT_DEVICE.dpi;
-        let pad = self.rect.width() as i32 / 12;
+        let labels = self.queue_titles_always && (self.queue_titles.0.is_some() || self.queue_titles.1.is_some());
+        let pad = if labels { self.rect.width() as i32 * 3 / 8 } else { self.rect.width() as i32 / 12 };
         let bottom = self.rect.max.y - scale_by_dpi(24.0, dpi) as i32;
         let thick = scale_by_dpi(5.0, dpi).max(2.0) as i32;
         let x0 = self.rect.min.x + pad;
         let x1 = self.rect.max.x - pad;
-        let area = rect![x0 - thick * 2, bottom - thick * 2, x1 + thick * 2, bottom + thick * 2];
+        let area = if labels {
+            rect![self.rect.min.x, bottom - thick * 4, self.rect.max.x, bottom + thick * 4]
+        } else {
+            rect![x0 - thick * 2, bottom - thick * 2, x1 + thick * 2, bottom + thick * 2]
+        };
         if !area.overlaps(clip) {
             return;
+        }
+        if labels {
+            let edge = scale_by_dpi(24.0, dpi) as i32;
+            let gap = scale_by_dpi(16.0, dpi) as i32;
+            let font = crate::font::font_from_style(fonts, &crate::font::LIST_META, dpi);
+            let x_height = font.x_heights.0 as i32;
+            if let Some(title) = self.queue_titles.0.as_ref() {
+                let mut x = self.rect.min.x + edge;
+                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-left-small") {
+                    fb.draw_blended_pixmap(pixmap, pt!(x, bottom - pixmap.height as i32 / 2), BLACK);
+                    x += pixmap.width as i32 + gap;
+                }
+                let plan = font.plan(title, Some((x0 - gap - x).max(0)), None);
+                font.render(fb, BLACK, &plan, pt!(x, bottom + x_height / 2));
+            }
+            if let Some(title) = self.queue_titles.1.as_ref() {
+                let mut x_end = self.rect.max.x - edge;
+                if let Some(pixmap) = crate::view::icon::ICONS_PIXMAPS.get("angle-right-small") {
+                    fb.draw_blended_pixmap(pixmap, pt!(x_end - pixmap.width as i32, bottom - pixmap.height as i32 / 2), BLACK);
+                    x_end -= pixmap.width as i32 + gap;
+                }
+                let plan = font.plan(title, Some((x_end - (x1 + gap)).max(0)), None);
+                font.render(fb, BLACK, &plan, pt!(x_end - plan.width, bottom + x_height / 2));
+            }
         }
         let (current, total) = self.page_pos.unwrap_or((0, 0));
         crate::view::inoink::page_progress::draw(fb, x0, x1, bottom, current, total, self.progress, true, dpi);
@@ -3285,84 +3380,87 @@ impl Reader {
         context.inoink.store()?.article_record(id).ok().flatten().map(|r| r.canonical_url).filter(|u| !u.is_empty())
     }
 
-    /// Shows the end-of-article card (hiding the bars).
-    fn show_end_card(&mut self, from_hold: bool, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::end_card::{EndCard, EndCardInfo};
-        if locate_by_id(self, ViewId::EndCard).is_some() {
-            return;
+    /// Whether an article change must wait: one was just requested (2 s), or the download of one
+    /// is still running (up to 10 s; after that it is given up so navigation never stays blocked).
+    fn nav_blocked(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        if self.article_nav_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(2)) {
+            return true;
         }
-        let Some(binding) = self.article.clone() else { return };
-        self.toggle_bars(Some(false), hub, rq, context);
-        let id = binding.id;
-        let queue = context.inoink.queue.clone();
-        let (starred, next_title, comments) = {
-            let store = context.inoink.store();
-            let starred = store.and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
-            let next_title = queue.as_ref().and_then(|q| q.next_after(id)).and_then(|n| store.and_then(|s| s.article_record(n).ok().flatten()).map(|r| r.title));
-            let comments = if binding.kind == crate::view::inoink::actions::DocKind::Article {
-                store.and_then(|s| s.discussion(id).ok().flatten()).map(|row| if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) })
-            } else {
-                None
-            };
-            (starred, next_title, comments)
-        };
-        let read_later = queue.as_ref().map(|q| q.read_later).unwrap_or(starred);
-        let has_next = next_title.is_some();
-        let verb = if read_later { "Done" } else { "Mark read" };
-        let primary = format!("{verb} \u{b7} {}", if has_next { "next article" } else { "back to list" });
-        let info = EndCardInfo {
-            title: self.article_title(context),
-            primary,
-            keep: has_next.then(|| "Keep \u{b7} next article".to_string()),
-            comments,
-            next_title,
-            auto: context.settings.inoink.continue_on_swipe,
-            ignore_release: from_hold.then_some(ButtonCode::Forward),
-        };
-        let card = EndCard::new(self.rect, info);
-        rq.add(RenderData::new(card.id(), *card.rect(), UpdateMode::Full));
-        self.children.push(Box::new(card) as Box<dyn View>);
+        if context.inoink.opening.is_some() {
+            if context.inoink.opening_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(10)) {
+                self.notify("Still downloading the article", hub, rq, context);
+                return true;
+            }
+            context.inoink.opening = None;
+            context.inoink.opening_at = None;
+        }
+        false
     }
 
-    /// An action of the end card.
-    fn finish(&mut self, action: crate::view::inoink::actions::FinishAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::actions::{apply_article_action, ArticleAction, DocKind, FinishAction};
-        let Some(binding) = self.article.clone() else { return };
-        let id = binding.id;
-        let queue = context.inoink.queue.clone();
-        let close = |me: &mut Reader, context: &mut Context| {
-            me.quit(context);
-            crate::view::inoink::actions::release_article(context, id, binding.version);
-            hub.send(Event::Back).ok();
-        };
-        match action {
-            FinishAction::Primary => {
-                let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
-                let read_later = queue.as_ref().map(|q| q.read_later).unwrap_or(starred);
-                let a = if read_later { ArticleAction::Done } else { ArticleAction::MarkRead };
-                if let Err(m) = apply_article_action(context, id, &a) {
-                    self.notify(&m, hub, rq, context);
-                    return;
-                }
-            }
-            FinishAction::Keep => {}
-            FinishAction::BackToList => {
-                close(self, context);
-                return;
-            }
-            FinishAction::Comments => {
-                if let Some(index) = locate_by_id(self, ViewId::EndCard) {
-                    self.children.remove(index);
-                }
-                hub.send(Event::ShowDocument(id, DocKind::Comments)).ok();
-                return;
-            }
+    /// The title shown in the top margin of the current page, if any.
+    pub fn running_header(&self) -> Option<&str> {
+        if Some(self.current_page) == self.first_location {
+            return None;
         }
-        match queue.and_then(|q| q.next_after(id)) {
-            Some(next) => {
-                hub.send(Event::OpenNext(next)).ok();
+        self.running_header.as_deref()
+    }
+
+    /// The article's title in the top margin of every page, like a book's running header: it
+    /// covers no text and needs no dismissing.
+    fn render_running_header(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
+        let Some(title) = self.running_header() else { return };
+        let dpi = CURRENT_DEVICE.dpi;
+        let pad = self.rect.width() as i32 / 12;
+        let y = self.rect.min.y + scale_by_dpi(40.0, dpi) as i32;
+        let band = rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, y + scale_by_dpi(16.0, dpi) as i32];
+        if !band.overlaps(clip) {
+            return;
+        }
+        let font = crate::font::font_from_style(fonts, &crate::font::NORMAL_STYLE, dpi);
+        let x_height = font.x_heights.0 as i32;
+        let plan = font.plan(title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
+        let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
+        font.render(fb, BLACK, &plan, pt!(x, y + x_height / 2));
+    }
+
+    fn is_article(&self) -> bool {
+        self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Article)
+    }
+
+    /// Leaves the article for the list.
+    fn close_article(&mut self, hub: &Hub, context: &mut Context) {
+        let Some(binding) = self.article.clone() else { return };
+        self.quit(context);
+        crate::view::inoink::actions::release_article(context, binding.id, binding.version);
+        hub.send(Event::Back).ok();
+    }
+
+    /// The next or previous article of the list (swipe up/down, holding a page button, paging
+    /// past either end, the titles row). The article left keeps its read state; its position is
+    /// saved when the reader is replaced.
+    fn go_to_article(&mut self, dir: CycleDir, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        if self.nav_blocked(hub, rq, context) {
+            return;
+        }
+        let queue = context.inoink.queue.clone();
+        match dir {
+            CycleDir::Next => {
+                self.article_nav_at = Some(std::time::Instant::now());
+                match queue.and_then(|q| q.next_after(id)) {
+                    Some(next) => {
+                        hub.send(Event::OpenNext(next)).ok();
+                    }
+                    None => self.close_article(hub, context),
+                }
             }
-            None => close(self, context),
+            CycleDir::Previous => match queue.and_then(|q| q.previous_before(id)) {
+                Some(prev) => {
+                    self.article_nav_at = Some(std::time::Instant::now());
+                    hub.send(Event::OpenNext(prev)).ok();
+                }
+                None => self.notify("No previous article", hub, rq, context),
+            },
         }
     }
 
@@ -3417,6 +3515,18 @@ impl Reader {
                 }
                 Some(true)
             }
+            Event::Gesture(GestureEvent::Swipe { dir: Dir::North | Dir::South, start, end })
+            | Event::Gesture(GestureEvent::SlantedSwipe { start, end, .. })
+            | Event::Gesture(GestureEvent::Arrow { start, end, .. })
+                if self.rect.includes(start) && self.is_article() && self.view_port.zoom_mode == ZoomMode::FitToPage => {
+                let (dx, dy) = (end.x - start.x, end.y - start.y);
+                if self.focus.is_none() && dy.abs() > dx.abs() && dy.abs() >= self.rect.height() as i32 / 5 {
+                    // Natural buttons: swiping up is "next"; Inverted swaps it.
+                    let next_is_up = context.settings.button_scheme != ButtonScheme::Inverted;
+                    self.go_to_article(if (dy < 0) == next_is_up { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
+                }
+                Some(true)
+            }
             Event::Gesture(GestureEvent::HoldFingerLong(..))
             | Event::Gesture(GestureEvent::Arrow { .. })
             | Event::Gesture(GestureEvent::MultiArrow { .. })
@@ -3429,12 +3539,13 @@ impl Reader {
             | Event::Gesture(GestureEvent::SlantedSwipe { .. })
             | Event::Gesture(GestureEvent::MultiTap(_)) => Some(true),
             Event::Gesture(GestureEvent::HoldButtonShort(code, ..)) => {
-                if code == ButtonCode::Forward && article {
-                    // The release that ends this hold is ignored by the card itself.
-                    self.show_end_card(true, hub, rq, context);
-                } else {
-                    self.held_buttons.insert(code);
-                }
+                self.held_buttons.insert(code);
+                Some(true)
+            }
+            Event::Device(DeviceEvent::Button { code: code @ (ButtonCode::Forward | ButtonCode::Backward), status: ButtonStatus::Released, .. })
+                if self.is_article() && self.held_buttons.contains(&code) => {
+                self.held_buttons.remove(&code);
+                self.go_to_article(if code == ButtonCode::Forward { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
                 Some(true)
             }
             Event::ToggleNear(ViewId::LinkMenu, rect) => {
@@ -3450,17 +3561,16 @@ impl Reader {
                 }
                 Some(true)
             }
-            Event::Close(ViewId::QrView) | Event::Close(ViewId::EndCard) => {
-                let id = if matches!(*evt, Event::Close(ViewId::QrView)) { ViewId::QrView } else { ViewId::EndCard };
-                if let Some(index) = locate_by_id(self, id) {
+            Event::Close(ViewId::QrView) => {
+                if let Some(index) = locate_by_id(self, ViewId::QrView) {
                     self.children.remove(index);
                 }
                 rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 Some(true)
             }
             Event::Select(EntryId::InoInk(ref e)) => match e {
-                InoInkEntry::Finish(a) if article => {
-                    self.finish(*a, hub, rq, context);
+                InoInkEntry::QueueArticle(d) if article => {
+                    self.go_to_article(*d, hub, rq, context);
                     Some(true)
                 }
                 InoInkEntry::OpenLink(u) => {
@@ -4929,7 +5039,7 @@ impl View for Reader {
         }
     }
 
-    fn render(&self, fb: &mut dyn Framebuffer, rect: Rectangle, _fonts: &mut Fonts) {
+    fn render(&self, fb: &mut dyn Framebuffer, rect: Rectangle, fonts: &mut Fonts) {
         fb.draw_rectangle(&rect, WHITE);
 
         for chunk in &self.chunks {
@@ -5051,7 +5161,8 @@ impl View for Reader {
         }
 
         if self.article.is_some() {
-            self.render_progress(fb, &rect);
+            self.render_progress(fb, &rect, fonts);
+            self.render_running_header(fb, &rect, fonts);
         }
 
         if self.info.reader.as_ref().map_or(false, |r| r.bookmarks.contains(&self.current_page)) {

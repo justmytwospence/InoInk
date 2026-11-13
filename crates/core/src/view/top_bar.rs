@@ -95,6 +95,9 @@ impl TopBar {
     pub fn with_home_layout(mut self, actions: Vec<(&str, Event)>) -> TopBar {
         let r = self.rect;
         let side = r.height() as i32;
+        // The icons on the right are drawn centred, so a narrower slot only trims blank space
+        // and leaves the title more room.
+        let slot = side * 4 / 5;
         let mut put = |child: &mut Box<dyn View>, x0: i32, x1: i32| {
             *child.rect_mut() = rect![x0, r.min.y, x1, r.max.y];
         };
@@ -105,17 +108,17 @@ impl TopBar {
         let left_end = x + clock_w + side;
         let mut x = r.max.x;
         for i in [5usize, 4, 6] {
-            put(&mut self.children[i], x - side, x);
-            x -= side;
+            put(&mut self.children[i], x - slot, x);
+            x -= slot;
         }
         for (name, event) in actions.into_iter().rev() {
-            self.children.push(Box::new(Icon::new(name, rect![x - side, r.min.y, x, r.max.y], event)) as Box<dyn View>);
-            x -= side;
+            self.children.push(Box::new(Icon::new(name, rect![x - slot, r.min.y, x, r.max.y], event)) as Box<dyn View>);
+            x -= slot;
         }
-        put(&mut self.children[0], x - side, x);
-        x -= side;
+        put(&mut self.children[0], x - slot, x);
+        x -= slot;
         let title_rect = rect![left_end, r.min.y, x.max(left_end), r.max.y];
-        self.children[1] = Box::new(Label::new(title_rect, String::new(), Align::Center).event(Some(Event::ToggleNear(ViewId::TitleMenu, title_rect))));
+        self.children[1] = Box::new(Label::new(title_rect, String::new(), Align::Center).bold().event(Some(Event::ToggleNear(ViewId::TitleMenu, title_rect))));
         // Nothing else covers the margin before the clock: keep it white.
         self.children.push(Box::new(crate::view::filler::Filler::new(rect![r.min.x, r.min.y, r.min.x + side / 4, r.max.y], crate::color::WHITE)) as Box<dyn View>);
         // The menu opens from the menu icon, wherever it now is.

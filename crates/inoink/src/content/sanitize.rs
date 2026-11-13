@@ -338,6 +338,13 @@ impl Ctx<'_> {
     }
 
     fn emit_text(&mut self, t: &str) {
+        let smart;
+        let t = if self.in_pre || self.in_code > 0 {
+            t
+        } else {
+            smart = super::typography::smarten(t, self.text.chars().last());
+            smart.as_str()
+        };
         esc_text(t, &mut self.out);
         if self.in_pre {
             self.text.push_str(t);
@@ -690,9 +697,16 @@ pub fn sanitize_fragment(raw: &str, base_url: Option<&str>) -> (String, String) 
 }
 
 /// A complete XHTML document: the title as heading, a meta line, then already sanitized `body`.
-pub fn document(title: &str, meta: &str, body: &str) -> String {
+/// A complete XHTML document. `lang` (an ISO 639-1 code) picks the hyphenation patterns.
+pub fn document(title: &str, meta: &str, body: &str, lang: Option<&str>) -> String {
     let mut html = String::with_capacity(body.len() + 512);
-    html.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>");
+    html.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"");
+    if let Some(l) = lang {
+        html.push_str(" xml:lang=\"");
+        esc(l, &mut html);
+        html.push('"');
+    }
+    html.push_str("><head><title>");
     esc(title, &mut html);
     html.push_str("</title></head><body><h1>");
     esc(title, &mut html);
@@ -739,6 +753,7 @@ pub fn prepare_article(raw: &str, base_url: Option<&str>, meta: &ArticleMeta, as
         esc(label, &mut body);
         body.push_str("</a></p>");
     }
-    let html = document(&meta.title, &parts.join(" \u{b7} "), &body);
+    let lang = super::typography::detect_language(&cx.text);
+    let html = document(&meta.title, &parts.join(" \u{b7} "), &body, lang);
     PreparedArticle { html, text: cx.text.trim().to_string(), assets: cx.refs, placeholders: cx.placeholders }
 }

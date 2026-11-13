@@ -547,8 +547,18 @@ pub struct InoInkSettings {
     pub mark_read_on_open: bool,
     /// What tapping a headline does in the Newsfeed and Categories (holding does the other).
     pub list_tap: HeadlineTap,
-    /// A forward swipe or press on the end-of-article card finishes the article and continues.
-    pub continue_on_swipe: bool,
+    /// Where the previous and next articles are named while reading.
+    pub queue_titles: QueueTitles,
+}
+
+/// Where the previous and next articles of the list are named while reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QueueTitles {
+    /// In a row above the footer while the bar is showing (tap a side to open it).
+    WithBar,
+    /// Also beside the progress line at the bottom of every page.
+    Always,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -569,7 +579,7 @@ impl Default for InoInkSettings {
             pinned_folders: Vec::new(),
             mark_read_on_open: false,
             list_tap: HeadlineTap::Open,
-            continue_on_swipe: true,
+            queue_titles: QueueTitles::WithBar,
         }
     }
 }

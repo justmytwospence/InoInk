@@ -6,7 +6,9 @@ pub mod extract;
 pub mod images;
 pub mod math;
 pub mod sanitize;
+pub mod stub;
 pub mod svg;
+pub mod typography;
 
 use std::collections::HashMap;
 
