@@ -19,7 +19,9 @@ public API and does not try to match the Inoreader website feature for feature; 
   and **Read later** (your starred articles, the reading queue). Each view remembers its own
   filter, grouping and sort. Search covers every downloaded article.
 - Tap a headline to read it; hold it to save it for later (star it). Settings can swap the two.
-  At the end of an unread list a card offers **Mark N read** for what you saw and did not save.
+  At the end of an unread list a card offers **Mark N read**: it selects what you saw and did not
+  save, for one tap on Read. Unread headlines you have not seen before carry a bar on the left;
+  any list can switch to selection mode to mark or save many articles at once, with Undo.
 - A compact list that uses the full width: bold for unread, the source, a relative date
   ("3 h ago") and the reading time ("6 min read") on one line, with the saved mark and the
   offline mark stacked at the right.

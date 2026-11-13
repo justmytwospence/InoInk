@@ -1,4 +1,6 @@
-//! One line of the article list: title, source and date, with an unobtrusive offline marker.
+//! One line of the article list. Each mark has one meaning: a bar on the left edge for a new
+//! headline (unread, not seen before this visit), a bold title for unread, a bookmark ribbon for
+//! saved for later, a dot beside the meta line for offline, and in selection mode a check box.
 
 use crate::chrono::{DateTime, Datelike, Local, TimeZone};
 use crate::color::{BLACK, GRAY03, TEXT_INVERTED_HARD, TEXT_NORMAL, WHITE};
@@ -9,8 +11,8 @@ use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
 use crate::unit::scale_by_dpi;
-use crate::view::{Bus, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
-use crate::view::inoink::actions::ArticleAction;
+use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
+use crate::view::inoink::actions::{ArticleAction, InoInkEntry};
 use inoink::model::{ArticleSummary, DownloadState};
 
 pub struct ArticleRow {
@@ -21,6 +23,8 @@ pub struct ArticleRow {
     index: usize,
     active: bool,
     mode: RowMode,
+    /// Ticked (selection mode only).
+    selected: bool,
 }
 
 /// What a tap and a hold on a row do.
@@ -32,11 +36,25 @@ pub enum RowMode {
     OpenSave,
     /// Tap saves for later, hold opens.
     SaveOpen,
+    /// Selection mode: tap toggles the check box, hold selects a range.
+    Select,
 }
 
 impl ArticleRow {
-    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, mode: RowMode) -> ArticleRow {
-        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, mode }
+    pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, mode: RowMode, selected: bool) -> ArticleRow {
+        ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, mode, selected }
+    }
+
+    pub fn is_selected(&self) -> bool {
+        self.selected
+    }
+
+    /// Ticks or unticks the check box and redraws the row.
+    pub fn set_selected(&mut self, selected: bool, rq: &mut RenderQueue) {
+        if self.selected != selected {
+            self.selected = selected;
+            rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+        }
     }
 
     fn open(&mut self, bus: &mut Bus, rq: &mut RenderQueue) {
@@ -109,6 +127,14 @@ mod tests {
 impl View for ArticleRow {
     fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
+            Event::Gesture(GestureEvent::Tap(center)) if self.rect.includes(center) && self.mode == RowMode::Select => {
+                bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ToggleSelected(self.item.id))));
+                true
+            }
+            Event::Gesture(GestureEvent::HoldFingerShort(center, ..)) if self.rect.includes(center) && self.mode == RowMode::Select => {
+                bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::SelectRangeTo(self.item.id))));
+                true
+            }
             Event::Gesture(GestureEvent::Tap(center)) if self.rect.includes(center) => {
                 if self.mode == RowMode::SaveOpen {
                     bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar));
@@ -125,6 +151,7 @@ impl View for ArticleRow {
                     }
                     RowMode::OpenSave => bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar)),
                     RowMode::SaveOpen => self.open(bus, rq),
+                    RowMode::Select => {}
                 }
                 true
             }
@@ -161,8 +188,12 @@ impl View for ArticleRow {
         let (half_w, half_h) = ((mxh * 2 / 3).max(4), (mxh * 6 / 5).max(6));
         let col_half = half_w.max(r);
         let col_x = self.rect.max.x - padding - col_half;
-        let start_x = self.rect.min.x + padding;
-        let full_w = self.rect.width() as i32 - 2 * padding;
+        // In selection mode a check box column comes first and the text moves right.
+        let select = self.mode == RowMode::Select;
+        let box_side = tlh * 3 / 5;
+        let inset = if select { box_side + padding / 2 } else { 0 };
+        let start_x = self.rect.min.x + padding + inset;
+        let full_w = self.rect.width() as i32 - 2 * padding - inset;
         let text_w = full_w - 2 * col_half - padding / 2;
 
         // Title: one or two lines.
@@ -191,13 +222,26 @@ impl View for ArticleRow {
             }
         }
 
-        // Saved for later: a bar down the left edge and a bookmark ribbon at the right of the
-        // title, above the offline mark, like Inoreader's Read later mark.
-        if self.item.starred {
-            let ink = if self.active { WHITE } else { BLACK };
-            let paper = if self.active { BLACK } else { WHITE };
-            let bar_w = scale_by_dpi(6.0, dpi) as i32;
+        let ink = if self.active { WHITE } else { BLACK };
+        let paper = if self.active { BLACK } else { WHITE };
+        // New (unread, not seen before this visit): a bar down the left edge.
+        if self.item.new {
+            let bar_w = scale_by_dpi(4.0, dpi) as i32;
             fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.min.x + bar_w, self.rect.max.y], ink);
+        }
+        if select {
+            let x0 = self.rect.min.x + padding;
+            let y0 = self.rect.min.y + (self.rect.height() as i32 - box_side) / 2;
+            let outer = rect![x0, y0, x0 + box_side, y0 + box_side];
+            fb.draw_rectangle(&outer, ink);
+            if !self.selected {
+                let t = (scale_by_dpi(2.0, dpi) as i32).max(1);
+                fb.draw_rectangle(&rect![x0 + t, y0 + t, x0 + box_side - t, y0 + box_side - t], paper);
+            }
+        }
+
+        // Saved for later: a bookmark ribbon at the right of the title, above the offline mark.
+        if self.item.starred {
             let cx = col_x;
             let cy = top + tlh / 2;
             let (x0, x1, y0, y1) = (cx - half_w, cx + half_w, cy - half_h, cy + half_h);

@@ -20,6 +20,14 @@ use std::time::Duration;
 
 pub const DB_FILE: &str = "inoink.db";
 
+/// What the Undo bar reverts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Undo {
+    Done(UndoId),
+    /// A bulk selection that was applied.
+    Bulk(i64),
+}
+
 /// The three places the interface opens into.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
@@ -87,8 +95,8 @@ pub struct InoInk {
     pub show_categories: bool,
     /// The list the open article came from, for "next article".
     pub queue: Option<ReadingQueue>,
-    /// The most recent Done, offered for undo until superseded.
-    pub last_undo: Option<(UndoId, String)>,
+    /// The most recent Done or bulk action and the Undo bar's label, offered until superseded.
+    pub last_undo: Option<(Undo, String)>,
     /// A one-line message for the next redraw of the list.
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.

@@ -20,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0006.sql"),
     include_str!("../migrations/0007.sql"),
     include_str!("../migrations/0008.sql"),
+    include_str!("../migrations/0009.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -1018,7 +1019,14 @@ impl Store {
         sql.push_str(&flag_expr("read"));
         sql.push_str(" AS is_read, ");
         sql.push_str(&flag_expr("starred"));
-        sql.push_str(" AS is_starred, a.words FROM articles a WHERE a.account=?1");
+        let read_expr = flag_expr("read");
+        // The visit start is inlined as an integer literal: the expression is repeated in the
+        // keyset condition and in ORDER BY, where a placeholder would break the binding order.
+        let new_expr = format!(
+            "({read_expr}=0 AND NOT EXISTS (SELECT 1 FROM seen s WHERE s.account=a.account AND s.article=a.id AND s.at < {}))",
+            q.visit_start_usec
+        );
+        sql.push_str(&format!(" AS is_starred, a.words, {new_expr} AS is_new FROM articles a WHERE a.account=?1"));
         let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
         let Some((cond, cond_args)) = self.filter_sql(q) else { return Ok(ArticlePage { items: vec![], next: None }) };
         sql.push_str(&cond);
@@ -1032,7 +1040,6 @@ impl Store {
         // (expression, descending, the cursor's value for it).
         let opts = ViewOptions { unread_only: q.unread_only, group: q.group, sort: q.sort }
             .effective(q.collection.as_ref().unwrap_or(&Collection::All));
-        let read_expr = flag_expr("read");
         let time_expr = "CASE WHEN a.published > 0 THEN a.published ELSE a.timestamp_usec / 1000000 END".to_string();
         let src_expr = "a.origin_title COLLATE NOCASE".to_string();
         let title_expr = "a.title COLLATE NOCASE".to_string();
@@ -1042,6 +1049,7 @@ impl Store {
         let mut keys: Vec<Key> = Vec::new();
         match opts.group {
             ArticleGroup::None => {}
+            ArticleGroup::New => keys.push((new_expr.clone(), true, cur.and_then(|c| int(c.new as i64)))),
             ArticleGroup::Unread => keys.push((read_expr.clone(), false, cur.and_then(|c| int(c.read as i64)))),
             ArticleGroup::Source => keys.push((src_expr.clone(), false, cur.map(|c| c.source.clone().into()))),
         }
@@ -1107,6 +1115,7 @@ impl Store {
                 read: r.get::<_, i64>(6)? != 0,
                 starred: r.get::<_, i64>(7)? != 0,
                 words: r.get::<_, i64>(8)?.max(0) as u32,
+                new: r.get::<_, i64>(9)? != 0,
             });
         }
         let next = if items.len() > limit {
@@ -1252,10 +1261,89 @@ impl Store {
             BulkAction::Unstar => (Membership::Starred, false),
         };
         for id in &ids {
+            let prev = effective_tx(&tx, &account, ArticleId::from_db(*id), &m)?;
+            tx.execute("INSERT OR REPLACE INTO bulk_prev(scope,article,prev) VALUES(?1,?2,?3)", params![sel.id, id, prev as i64])?;
             set_intent_tx(&tx, &account, ArticleId::from_db(*id), &m, v)?;
         }
+        tx.execute("INSERT OR REPLACE INTO bulk_applied(scope,membership,undone) VALUES(?1,?2,0)", params![sel.id, m.key()])?;
         tx.commit()?;
         Ok(ids.len())
+    }
+
+    /// Reverts an applied bulk action once, restoring each article's previous value.
+    pub fn undo_bulk(&mut self, scope: i64) -> Result<()> {
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let row: Option<(String, i64)> = tx
+            .query_row(
+                "SELECT b.membership, b.undone FROM bulk_scopes s LEFT JOIN bulk_applied b ON b.scope=s.id WHERE s.id=?1 AND s.account=?2",
+                params![scope, account],
+                |r| Ok((r.get::<_, Option<String>>(0)?.unwrap_or_default(), r.get::<_, Option<i64>>(1)?.unwrap_or(0))),
+            )
+            .optional()?;
+        let (membership, undone) = row.ok_or_else(|| Error::InvalidRequest("unknown undo".into()))?;
+        if membership.is_empty() {
+            return Err(Error::InvalidRequest("nothing to undo".into()));
+        }
+        if undone != 0 {
+            return Err(Error::InvalidRequest("already undone".into()));
+        }
+        let m = Membership::from_key(&membership)?;
+        let items: Vec<(i64, i64)> = {
+            let mut stmt = tx.prepare("SELECT article, prev FROM bulk_prev WHERE scope=?1")?;
+            let rows = stmt.query_map(params![scope], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        for (article, prev) in items {
+            set_intent_tx(&tx, &account, ArticleId::from_db(article), &m, prev != 0)?;
+        }
+        tx.execute("UPDATE bulk_applied SET undone=1 WHERE scope=?1", params![scope])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Records that headlines were shown in a list or articles opened on this device, keeping
+    /// the first time. Local only: never synced.
+    pub fn mark_seen(&mut self, ids: &[ArticleId], at_usec: i64) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        for id in ids {
+            tx.execute("INSERT OR IGNORE INTO seen(account,article,at) VALUES(?1,?2,?3)", params![account, id.to_db(), at_usec])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// When an article was first seen on this device (microseconds), if ever.
+    pub fn seen_at(&self, id: ArticleId) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row("SELECT at FROM seen WHERE account=?1 AND article=?2", params![self.account, id.to_db()], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Articles matching `q`'s conditions that were seen on this device and are unread and not
+    /// starred, at most `max`.
+    pub fn seen_unmarked_ids(&self, q: &ArticleQuery, max: usize) -> Result<Vec<ArticleId>> {
+        let Some((cond, args)) = self.filter_sql(q) else { return Ok(Vec::new()) };
+        let sql = format!(
+            "SELECT a.id FROM articles a WHERE a.account=?1{cond} AND {}=0 AND {}=0 \
+             AND EXISTS (SELECT 1 FROM seen s WHERE s.account=a.account AND s.article=a.id) ORDER BY a.id DESC LIMIT {max}",
+            flag_expr("read"),
+            flag_expr("starred")
+        );
+        let mut all: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
+        all.extend(args);
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(all.iter()), |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(ArticleId::from_db(r?));
+        }
+        Ok(out)
     }
 
     pub fn save_position(&mut self, article: ArticleId, pos: &ReadingPosition) -> Result<()> {

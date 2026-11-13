@@ -108,10 +108,21 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
   **Read later** is your starred articles. The numbers in the tabs are counts on the device.
 - In the Newsfeed and in categories, **tap a headline to read it** and **hold it to save it for
-  later** (it gets a bookmark at the right of the title and a bar along the left edge). Main menu > Settings > Headlines swaps
+  later** (it gets a bookmark at the right of the title). Main menu > Settings > Headlines swaps
   these. In Read later, holding a headline shows its menu.
+- A bar along the left edge marks an unread headline this Kobo has not shown you before. It stays
+  while you are in the list and is gone the next time you come back (after an article, waking, or
+  switching lists). Seen is kept on the Kobo only; Inoreader and your other devices do not know
+  about it. The numbers in tabs and folders still count unread articles.
+- **Selection mode** marks or saves many articles at once. Enter it from the circled check mark
+  (the whole list is selected), the "Mark N read" card, a headline's menu (in Read later and
+  search: hold > Select) or Main menu > Select articles. Tap a headline to tick it, hold one to
+  tick everything from the last ticked headline on this page, and page as usual. The footer offers
+  Read, Unread, Save, Unsave and Select (add this page, whole list, seen not saved, none, cancel);
+  the cross at the top left cancels. A change applies to exactly the ticked articles, and the
+  Undo bar reverts it.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
-  search, mark this list read (circled check mark; shows a count first), sync, Wi-Fi, light, menu.
+  search, mark this list read (circled check mark; selects the whole list), sync, Wi-Fi, light, menu.
   The sync icon shows a dot and turns while a sync runs; Main menu > Status shows the last sync.
 - InoInk syncs when it starts, wakes or gets a network connection (at most every 15 minutes), and
   sends your changes a few seconds after you make them; there is no timer keeping the Kobo awake.
@@ -123,10 +134,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   beginning.
 - A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the
   page shown, while each can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
-- On the last page of an unread list a card says "Mark N read": N is what you were shown in this
-  visit that is still unread and not starred. Nothing is marked read by turning pages.
-- The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, unread
-  first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
+- On the last page of an unread list a card says "Mark N read": it selects the articles of this
+  list you were shown (in any visit) that are still unread and not saved; tap Read to mark them.
+  Nothing is marked read by turning pages.
+- The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, new first,
+  unread first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
