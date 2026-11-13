@@ -75,7 +75,9 @@ that was merged.
 | Remote unstar and folder/rename changes arrive | NOT RUN |
 | Interrupted image download and write recovery (pull Wi-Fi mid-sync) | NOT RUN |
 | Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
-| Sync icon shows a dot and turns during a sync, and stops upright without the dot | NOT RUN |
+| Sync icon shows its syncing form (dot) during a sync, without ghosting, and returns to the plain icon | NOT RUN |
+| Top bar title is bold, centred and not cut short | NOT RUN |
+| List footer: page bar and count above the view choice; group headers read as grey section bands | NOT RUN |
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |

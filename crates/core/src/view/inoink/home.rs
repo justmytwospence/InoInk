@@ -82,8 +82,6 @@ pub struct InoInkHome {
     next_is_end: bool,
     end_count: usize,
     /// A spin tick is scheduled.
-    spinning: bool,
-    spin_frame: usize,
     /// Pages the current list takes (at least 1).
     total_pages: usize,
     /// More may be loaded from Inoreader after the last stored page.
@@ -235,13 +233,11 @@ impl InoInkHome {
             end_only: false,
             next_is_end: false,
             end_count: 0,
-            spinning: false,
-            spin_frame: 0,
             total_pages: 1,
             more_online: false,
         };
         home.load_page(hub, rq, context);
-        home.update_sync_icon(hub, rq, context);
+        home.update_sync_icon(rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
         home
     }
@@ -660,33 +656,29 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Filler::new(prev_rect, WHITE)));
         }
-        // The view choice sits in the middle of the bar, the page number to its right; the
-        // equal space on its left keeps it centered.
-        let inner = rect.width() as i32 - 2 * side;
-        let side_w = inner / 4;
-        let x0 = rect.min.x + side;
-        let x1 = rect.max.x - side;
-        footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
-        let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
-        if view_text.is_empty() {
-            footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
-        } else {
-            footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
-        }
-        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], format!("{page} / {total}{plus}"), Align::Center)));
         let next_rect = rect![rect.max - side, rect.max];
         if next {
             footer.children.push(Box::new(Icon::new("arrow-right", next_rect, Event::Page(CycleDir::Next))));
         } else {
             footer.children.push(Box::new(Filler::new(next_rect, WHITE)));
         }
-        // Pushed last so it draws over the labels' white backgrounds.
+        // Between the arrows: the page bar with its count above the view choice. With one page
+        // there is nothing to count, and the view choice takes the whole height.
+        let dpi = CURRENT_DEVICE.dpi;
+        let pad = scale_by_dpi(12.0, dpi) as i32;
+        let x0 = rect.min.x + side;
+        let x1 = rect.max.x - side;
+        let mid = rect.min.y + rect.height() as i32 / 2;
+        let view_rect = if total > 1 { rect![x0, mid, x1, rect.max.y] } else { rect![x0, rect.min.y, x1, rect.max.y] };
         if total > 1 {
-            let dpi = CURRENT_DEVICE.dpi;
-            let pad = scale_by_dpi(12.0, dpi) as i32;
-            let bar_h = scale_by_dpi(24.0, dpi) as i32;
-            let bar_rect = rect![rect.min.x + side + pad, rect.min.y, rect.max.x - side - pad, rect.min.y + bar_h];
-            footer.children.push(Box::new(PageProgress::new(bar_rect, page - 1, total)));
+            let count_w = scale_by_dpi(150.0, dpi) as i32;
+            footer.children.push(Box::new(PageProgress::new(rect![x0 + pad, rect.min.y, x1 - count_w, mid], page - 1, total)));
+            footer.children.push(Box::new(Label::new(rect![x1 - count_w, rect.min.y, x1, mid], format!("{page} / {total}{plus}"), Align::Center)));
+        }
+        if view_text.is_empty() {
+            footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
+        } else {
+            footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
         }
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
@@ -751,28 +743,16 @@ impl InoInkHome {
         self.load_page(hub, rq, context);
     }
 
-    /// While a sync runs, the sync button gets a dot and turns: one frame every [`SPIN_FRAME`],
-    /// drawn with a fast black-and-white update. It stops upright, without the dot.
-    fn update_sync_icon(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &Context) {
+    /// While a sync runs, the sync button shows its "syncing" form (with a dot); it is drawn once
+    /// per change and never animated, so e-ink leaves no ghost.
+    fn update_sync_icon(&mut self, rq: &mut RenderQueue, context: &Context) {
         let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
-        if syncing && !self.spinning {
-            self.spinning = true;
-            schedule_spin(hub);
-        }
-        if !syncing {
-            self.spin_frame = 0;
-        }
-        self.set_sync_frame(syncing, rq);
-    }
-
-    fn set_sync_frame(&mut self, syncing: bool, rq: &mut RenderQueue) {
-        let name = if syncing { SPIN_FRAMES[self.spin_frame % SPIN_FRAMES.len()] } else { "sync" };
+        let name = if syncing { "sync-0" } else { "sync" };
         let Some(top) = self.children[TOP].downcast_mut::<TopBar>() else { return };
         for icon in top.children_mut().iter_mut().filter_map(|c| c.downcast_mut::<Icon>()) {
-            if (icon.name == "sync" || SPIN_FRAMES.contains(&icon.name.as_str())) && icon.name != name {
+            if (icon.name == "sync" || icon.name == "sync-0") && icon.name != name {
                 icon.name = name.to_string();
-                let mode = if name == "sync" { UpdateMode::Gui } else { UpdateMode::Fast };
-                rq.add(RenderData::new(icon.id(), icon.rect, mode));
+                rq.add(RenderData::new(icon.id(), icon.rect, UpdateMode::Gui));
             }
         }
     }
@@ -1091,17 +1071,6 @@ impl InoInkHome {
 /// Grouped lists read at most this many summaries to count their pages.
 const PAGE_SCAN_LIMIT: usize = 3000;
 
-const SPIN_FRAMES: [&str; 4] = ["sync-0", "sync-1", "sync-2", "sync-3"];
-const SPIN_FRAME: std::time::Duration = std::time::Duration::from_millis(600);
-
-fn schedule_spin(hub: &Hub) {
-    let hub = hub.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(SPIN_FRAME);
-        hub.send(Event::SyncSpin).ok();
-    });
-}
-
 pub fn browse_key(c: &Collection) -> String {
     format!("browse:{}", serde_json::to_string(c).unwrap_or_default())
 }
@@ -1273,19 +1242,7 @@ impl View for InoInkHome {
                 if refresh {
                     self.load_page(hub, rq, context);
                 }
-                self.update_sync_icon(hub, rq, context);
-                true
-            }
-            Event::SyncSpin => {
-                let syncing = matches!(context.inoink.status, inoink::runtime::SyncStatus::Syncing);
-                if syncing {
-                    self.spin_frame = (self.spin_frame + 1) % SPIN_FRAMES.len();
-                    schedule_spin(hub);
-                } else {
-                    self.spinning = false;
-                    self.spin_frame = 0;
-                }
-                self.set_sync_frame(syncing, rq);
+                self.update_sync_icon(rq, context);
                 true
             }
             Event::Reseed => {
@@ -1293,9 +1250,7 @@ impl View for InoInkHome {
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
                 }
-                // A tick may have been lost while another view was in front.
-                self.spinning = false;
-                self.update_sync_icon(hub, rq, context);
+                self.update_sync_icon(rq, context);
                 // Coming back from the reader (or a menu): repaint everything.
                 rq.add(RenderData::new(self.id, self.rect, UpdateMode::Full));
                 true

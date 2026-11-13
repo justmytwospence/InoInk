@@ -32,6 +32,12 @@ pub const KEYBOARD_FONT_SIZES: [u32; 2] = [337, 843];
 
 pub const DISPLAY_FONT_SIZE: u32 = 2516;
 
+pub const TITLE_STYLE: Style = Style {
+    family: Family::SansSerif,
+    variant: Variant::BOLD,
+    size: FONT_SIZES[1],
+};
+
 pub const NORMAL_STYLE: Style = Style {
     family: Family::SansSerif,
     variant: Variant::REGULAR,
