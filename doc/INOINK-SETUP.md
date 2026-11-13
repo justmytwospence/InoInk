@@ -2,9 +2,10 @@
 
 ## What you need
 
-- A Kobo Libra Colour. InoInk replaces the normal Kobo interface while it runs and restores it
-  when you quit. Firmware 4.46.23852 is the target; compatibility is only established by the
-  device tests in `doc/INOINK-ACCEPTANCE.md`.
+- A Kobo, or a Tolino running Kobo firmware (the README lists which models are expected to work).
+  InoInk replaces the normal Kobo interface while it runs and restores it when you quit. Firmware
+  4.6 or newer; only the Libra Colour on 4.46.23852 has been tested on hardware, and
+  compatibility is only established by the tests in `doc/INOINK-ACCEPTANCE.md`.
 - [NickelMenu](https://pgaskin.net/NickelMenu/) (a launcher entry) is optional but recommended.
   Without it, start `.adds/inoink/current/inoink.sh` any way you launch scripts.
 - An Inoreader account with API access. Inoreader's developer portal states that the API is for
@@ -78,7 +79,7 @@ can read it. Use a dedicated application registration you can revoke.
 
 ## Quitting
 
-On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW), quitting InoInk **reboots** the Kobo
+On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting InoInk **reboots** the Kobo
 instead of restarting its interface directly. Restarting the interface after another app has used
 the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the device then reboots uncleanly
 and may show its setup screens. A clean reboot takes about half a minute and avoids that. To

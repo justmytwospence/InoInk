@@ -3,18 +3,22 @@
 #   build-inoink.sh --target desktop          build the desktop emulator (Linux container)
 #   build-inoink.sh --target kobo             cross-build the Kobo binary (ARM, Linaro GCC 4.9.4)
 #   build-inoink.sh --run-emulator --data DIR run the scripted emulator tour on DIR's data and
-#                                             write screenshots to target/inoink-emulator-shots
+#                                             write screenshots to target/inoink-emulator-shots/<codename>
+#   --device CODENAME:MODEL                   the device the emulator pretends to be (default monza:390,
+#                                             the Libra Colour); sets its screen size and input kind
 # Nothing here touches an installed application.
 set -eu
 cd "$(dirname "$0")/.."
 TARGET=""
 RUN=0
 DATA=target/inoink-fixtures
+DEVICE=monza:390
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--target) TARGET=$2; shift ;;
 		--run-emulator) RUN=1 ;;
 		--data) DATA=$2; shift ;;
+		--device) DEVICE=$2; shift ;;
 		*) echo "unknown option $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -59,12 +63,14 @@ case "$TARGET" in
 esac
 
 if [ "$RUN" = 1 ]; then
-	rm -rf target/inoink-emulator-shots target/inoink-emulator-data
+	PRODUCT=${DEVICE%%:*}
+	MODEL_NUMBER=${DEVICE##*:}
+	rm -rf "target/inoink-emulator-shots/$PRODUCT" target/inoink-emulator-data
 	# Work on a copy so every tour starts from the same state (the app saves positions and changes).
 	cp -R "$DATA" target/inoink-emulator-data
 	DATA=target/inoink-emulator-data
 	scripts/container-run.sh sh -c "
 		cargo build --locked -p emulator &&
-		SDL_VIDEODRIVER=dummy PRODUCT=monza MODEL_NUMBER=390 INOINK_SETTINGS=/tmp/inoink-settings.toml \
-		target/linux/debug/inoink-emulator --data '$DATA' --scripted-tour --screenshots target/inoink-emulator-shots"
+		SDL_VIDEODRIVER=dummy PRODUCT=$PRODUCT MODEL_NUMBER=$MODEL_NUMBER INOINK_SETTINGS=/tmp/inoink-settings.toml \
+		target/linux/debug/inoink-emulator --data '$DATA' --scripted-tour --screenshots target/inoink-emulator-shots/$PRODUCT"
 fi

@@ -1,6 +1,7 @@
 # InoInk
 
-Unofficial standalone Inoreader client for the Kobo Libra Colour (firmware 4.46.23852),
+Unofficial standalone Inoreader client for Kobo e-readers and Tolinos on Kobo firmware
+(developed and tested on a Kobo Libra Colour, firmware 4.46.23852),
 derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
 
 ## Policy
@@ -12,6 +13,8 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
 - Never force-push `main`. Do not publish or open upstream PRs without asking.
 - Never log or commit credentials (tokens, client secret, callback URLs). Secrets are never
   accepted on a command line.
+- Other models are supported on a best-effort basis: never claim a model works without a device
+  report; keep the compatibility list in README.md current.
 - Hardware claims need hardware evidence. Emulator and automated results are reported separately
   (`doc/INOINK-ACCEPTANCE.md`); unperformed cases stay NOT RUN.
 

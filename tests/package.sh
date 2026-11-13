@@ -184,6 +184,7 @@ echo 0 > "$SYS/sys/class/backlight/mxc_msp430.0/brightness"; printf 'FrontLightS
 run_state
 check "light known to be off stays off" grep -q "fl=0 " "$B/data/ran.log"
 check "launch line is logged" grep -q "^launch: light sys=0" "$B/data/inoink.log"
+check "device line is logged" grep -q "^device: product=" "$B/data/inoink.log"
 
 # --- removal ---------------------------------------------------------------------------------------
 check "removal succeeds" sh scripts/remove-inoink.sh "$KOBO"

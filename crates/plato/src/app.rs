@@ -144,13 +144,19 @@ fn build_context(mut fb: Box<dyn Framebuffer>, hub: &Sender<Event>, started: Ins
     plato_core::settings::migrate_time_format(&mut settings);
     inherit_frontlight(&mut settings);
     let levels = settings.frontlight_levels;
-    let frontlight = match CURRENT_DEVICE.frontlight_kind() {
-        FrontlightKind::Standard => Box::new(StandardFrontlight::new(levels.intensity)
-                                        .context("can't create standard frontlight")?) as Box<dyn Frontlight>,
-        FrontlightKind::Natural => Box::new(NaturalFrontlight::new(levels.intensity, levels.warmth)
-                                        .context("can't create natural frontlight")?) as Box<dyn Frontlight>,
-        FrontlightKind::Premixed => Box::new(PremixedFrontlight::new(levels.intensity, levels.warmth)
-                                        .context("can't create premixed frontlight")?) as Box<dyn Frontlight>,
+    // A missing or unexpected light driver must not stop the app: it runs without light control.
+    let frontlight: Box<dyn Frontlight> = if !CURRENT_DEVICE.has_frontlight() {
+        Box::new(levels)
+    } else {
+        let made: Result<Box<dyn Frontlight>, Error> = match CURRENT_DEVICE.frontlight_kind() {
+            FrontlightKind::Standard => StandardFrontlight::new(levels.intensity).map(|f| Box::new(f) as Box<dyn Frontlight>),
+            FrontlightKind::Natural => NaturalFrontlight::new(levels.intensity, levels.warmth).map(|f| Box::new(f) as Box<dyn Frontlight>),
+            FrontlightKind::Premixed => PremixedFrontlight::new(levels.intensity, levels.warmth).map(|f| Box::new(f) as Box<dyn Frontlight>),
+        };
+        made.unwrap_or_else(|e| {
+            eprintln!("frontlight: unavailable ({e:#}); running without light control");
+            Box::new(levels)
+        })
     };
 
     Ok(Context::new(fb, rtc, inoink, settings,
@@ -417,6 +423,9 @@ pub fn run() -> Result<(), Error> {
 
     println!("{} is running on a Kobo {}.", APP_NAME,
                                             CURRENT_DEVICE.model);
+    if CURRENT_DEVICE.is_experimental() {
+        println!("This model is experimental: its Linux kernel is older than InoInk's toolchain supports.");
+    }
     println!("The framebuffer resolution is {} by {}.", context.fb.rect().width(),
                                                         context.fb.rect().height());
 
@@ -430,7 +439,7 @@ pub fn run() -> Result<(), Error> {
         match evt {
             Event::Device(de) => {
                 if let DeviceEvent::Finger { id, status, position, .. } = de {
-                    if !context.shared && !context.covered {
+                    if CURRENT_DEVICE.has_frontlight() && !context.shared && !context.covered {
                         let intensity = context.frontlight.levels().intensity;
                         if let Some(v) = edge_slide.feed(id, status, position, context.fb.rect(), intensity) {
                             if !context.settings.frontlight {
@@ -1163,6 +1172,9 @@ pub fn run() -> Result<(), Error> {
                 }
             },
             Event::Show(ViewId::Frontlight) => {
+                if !CURRENT_DEVICE.has_frontlight() {
+                    continue;
+                }
                 if !context.settings.frontlight {
                     context.set_frontlight(true);
                     view.handle_event(&Event::ToggleFrontlight, &tx, &mut bus, &mut rq, &mut context);

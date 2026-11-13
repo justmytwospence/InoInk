@@ -224,6 +224,12 @@ fn status_entries(context: &Context) -> Vec<EntryKind> {
         format!("Karakeep: {waiting} waiting, {failed} failed")
     };
     entries.push(EntryKind::Message(karakeep, None));
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "?".into());
+    let exp = if CURRENT_DEVICE.is_experimental() { " (experimental)" } else { "" };
+    entries.push(EntryKind::Message(
+        format!("Device: {}{exp} ({}, {}), firmware {}", CURRENT_DEVICE.model, env("PRODUCT"), env("PLATFORM"), env("FIRMWARE_VERSION")),
+        None,
+    ));
     entries.push(EntryKind::Message(format!("Version {}", inoink::VERSION), None));
     entries
 }
