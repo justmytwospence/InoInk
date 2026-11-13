@@ -110,7 +110,7 @@ fn inherit_frontlight(settings: &mut Settings) {
     eprintln!("frontlight: inherited intensity {:?} warmth {:?}", white, color);
 }
 
-fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Context, Error> {
+fn build_context(mut fb: Box<dyn Framebuffer>, hub: &Sender<Event>, started: Instant) -> Result<Context, Error> {
     let rtc = Rtc::new(RTC_DEVICE)
                   .map_err(|e| eprintln!("Can't open RTC device: {:#}.", e))
                   .ok();
@@ -125,9 +125,13 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
     if let Some(dir) = env::var_os("INOINK_DATA") {
         settings.inoink.data_dir = dir.into();
     }
-    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
+    // Fonts first, so the opening screen shows while the database opens and the rest starts.
+    let mut fonts = Fonts::load().context("can't load fonts")?;
+    show_opening_screen(fb.as_mut(), &mut fonts);
+    log_startup("opening screen shown", started);
 
-    let fonts = Fonts::load().context("can't load fonts")?;
+    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
+    log_startup("database open", started);
 
     let battery = Box::new(KoboBattery::new().context("can't create battery")?) as Box<dyn Battery>;
 
@@ -151,6 +155,19 @@ fn build_context(fb: Box<dyn Framebuffer>, hub: &Sender<Event>) -> Result<Contex
 
     Ok(Context::new(fb, rtc, inoink, settings,
                     fonts, battery, frontlight, lightsensor))
+}
+
+/// Confirms the launch at once: a full-screen "Opening InoInk" until the list is ready. The
+/// refresh runs on the display controller while startup continues.
+fn show_opening_screen(fb: &mut dyn Framebuffer, fonts: &mut Fonts) {
+    let interm = Intermission::with_text(fb.rect(), "Opening InoInk".to_string());
+    interm.render(fb, *interm.rect(), fonts);
+    fb.update(interm.rect(), UpdateMode::Full).ok();
+}
+
+/// One `startup:` line in the log: how long after launch a step finished.
+fn log_startup(step: &str, started: Instant) {
+    eprintln!("startup: {step} at {} ms", started.elapsed().as_millis());
 }
 
 fn schedule_task(id: TaskId, event: Event, delay: Duration, hub: &Sender<Event>, tasks: &mut Vec<Task>) {
@@ -275,6 +292,7 @@ enum ExitStatus {
 }
 
 pub fn run() -> Result<(), Error> {
+    let started = Instant::now();
     let mut inactive_since = Instant::now();
     let mut exit_status = ExitStatus::Quit;
 
@@ -291,7 +309,7 @@ pub fn run() -> Result<(), Error> {
     }
 
     let (tx, rx) = mpsc::channel();
-    let mut context = build_context(fb, &tx).context("can't build context")?;
+    let mut context = build_context(fb, &tx, started).context("can't build context")?;
 
     context.plugged = context.battery.status().is_ok_and(|v| v[0].is_wired());
 
@@ -389,7 +407,10 @@ pub fn run() -> Result<(), Error> {
     let mut tasks: Vec<Task> = Vec::new();
     let mut history: Vec<HistoryItem> = Vec::new();
     let mut rq = RenderQueue::new();
+    log_startup("Wi-Fi and devices ready", started);
     let mut view: Box<dyn View> = Box::new(InoInkHome::new(context.fb.rect(), &tx, &mut rq, &mut context));
+    log_startup("list built", started);
+    let mut first_frame = true;
 
     let mut updating = Vec::new();
     let current_dir = env::current_dir()?;
@@ -1258,7 +1279,12 @@ pub fn run() -> Result<(), Error> {
             },
         }
 
+        let had_work = !rq.is_empty();
         process_render_queue(view.as_ref(), &mut rq, &mut context, &mut updating);
+        if first_frame && had_work {
+            first_frame = false;
+            log_startup("first list frame sent", started);
+        }
 
         while let Some(ce) = bus.pop_front() {
             tx.send(ce).ok();
