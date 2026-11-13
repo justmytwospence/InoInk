@@ -21,7 +21,8 @@ document tests inside the build container, and the install/launcher tests).
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
 | Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (33), `font_crop.rs` (2), in the container | PASS |
-| Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety | `tests/package.sh` | PASS |
+| Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
+| Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
 
 ## Build and package (computer only)
@@ -49,6 +50,23 @@ and the highlight is then in the database (`inoink-cli highlights --data target/
 Result: PASS (15 screenshots inspected on 2026-11-12). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
+
+### Screen geometries
+
+`scripts/emulator-matrix.sh` runs the same tour as each device (`--device CODENAME:MODEL`) and
+writes screenshots to `target/inoink-emulator-shots/<codename>`. Inspected on 2026-11-13 (01, 07
+and 11 for each; other shots were produced without errors). Same caveat: nothing here is about
+hardware.
+
+| Device pretended | Screen | Result |
+|---|---|---|
+| monza (Libra Colour) | 1264x1680 @ 300 | PASS |
+| spaBW (Clara BW) | 1072x1448 @ 300 | PASS |
+| condor (Elipsa 2E) | 1404x1872 @ 227 | PASS with a known issue: rows are sized in dp, so at 227 dpi the list fills only the upper part of the screen |
+| frost (Forma) | 1440x1920 @ 300 | PASS |
+| luna (Nia) | 758x1024 @ 212 | PASS |
+| pika (Touch 2.0) | 600x800 @ 167 | PASS: no light icon in the top bar. The tour's `11-light-panel` still shows the panel because the emulator opens it itself |
+| trilogy (Touch C) | 600x800 @ 167, single touch | PASS: no light icon |
 
 ## Device (Kobo Libra Colour, firmware 4.46.23852)
 
@@ -149,3 +167,37 @@ that was merged.
 - Formulas that use macros a site defines for itself, or LaTeX packages MiTeX does not know, show as LaTeX source.
 - Articles cached before formula support keep their old text until re-downloaded.
 - Sleep-cover and screen-cover images from Plato's library are not available; the logo text is used.
+
+## Other devices
+
+Filled in from Device report issues; a row says PASS only for what the report covers.
+
+| Model | Firmware | Build | Result | Report |
+|---|---|---|---|---|
+| Clara Colour | | | NOT RUN | |
+| Clara BW | | | NOT RUN | |
+| Elipsa 2E | | | NOT RUN | |
+| Clara 2E | | | NOT RUN | |
+| Libra 2 | | | NOT RUN | |
+| Sage | | | NOT RUN | |
+| Elipsa | | | NOT RUN | |
+| Nia | | | NOT RUN | |
+| Libra H₂O | | | NOT RUN | |
+| Forma | | | NOT RUN | |
+| Clara HD | | | NOT RUN | |
+| Aura H₂O Edition 2 (revision 2) | | | NOT RUN | |
+| Aura Edition 2 (revision 2) | | | NOT RUN | |
+| Tolino Vision Color | | | NOT RUN | |
+| Tolino Shine Color | | | NOT RUN | |
+| Tolino Shine (5th gen) | | | NOT RUN | |
+| Aura ONE (experimental) | | | NOT RUN | |
+| Glo HD (experimental) | | | NOT RUN | |
+| Touch 2.0 (experimental) | | | NOT RUN | |
+| Aura Edition 2 (revision 1, experimental) | | | NOT RUN | |
+| Aura H₂O Edition 2 (revision 1, experimental) | | | NOT RUN | |
+| Aura H₂O (experimental) | | | NOT RUN | |
+| Aura (experimental) | | | NOT RUN | |
+| Aura HD (experimental) | | | NOT RUN | |
+| Glo (experimental) | | | NOT RUN | |
+| Mini (experimental) | | | NOT RUN | |
+| Touch A/B/C (experimental) | | | NOT RUN | |

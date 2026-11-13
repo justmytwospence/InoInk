@@ -55,8 +55,25 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Status
 
-Early and unofficial. It is developed and tested on one Kobo Libra Colour on
-firmware 4.46.23852. Other Kobo models that Plato supports may work, but nobody has tested them.
+Early and unofficial. It is developed and tested on one Kobo Libra Colour on firmware 4.46.23852,
+but it is built to run on every device that runs Kobo firmware 4.6 or newer, including Tolinos:
+
+- **Tested:** Kobo Libra Colour.
+- **Expected to work, not yet tested** (Linux 4.x and newer, the same code paths): Clara Colour,
+  Clara BW, Elipsa 2E, Clara 2E, Libra 2, Sage, Elipsa, Nia, Libra H₂O, Forma, Clara HD,
+  Aura H₂O Edition 2 (revision 2), Aura Edition 2 (revision 2), and the Tolino Vision Color,
+  Shine Color and Shine (5th generation) running Kobo firmware.
+- **Experimental** (their Linux is older than the minimum the compiler targets, so InoInk may not
+  start): Aura ONE, Glo HD, Touch 2.0, Aura Edition 2 (revision 1), Aura H₂O Edition 2
+  (revision 1), Aura H₂O, Aura, Aura HD, Glo, Mini and Touch A/B/C. Main menu > Status says
+  "(experimental)" on these.
+- **Firmware 5.x:** experimental. Official NickelMenu does not run on it (a community build is in
+  testing), so the launcher entry may be missing; without NickelMenu, start
+  `.adds/inoink/current/inoink.sh` with any script launcher.
+
+Other e-readers (Kindle, PocketBook, reMarkable, Android) are not supported: each would need its
+own port. Reports from other devices are very welcome: open a **Device report** issue (the log
+line `device:` in `.adds/inoink/data/inoink.log` and Main menu > Status > Device say what you have).
 [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how.
 
 InoInk only touches its own folder on the Kobo (`.adds/inoink`) and, if you use NickelMenu, one
@@ -65,7 +82,7 @@ runs, the normal Kobo interface is stopped; it comes back when you quit.
 
 ## What you need
 
-1. A **Kobo Libra Colour** with [NickelMenu](https://pgaskin.net/NickelMenu/) installed (it
+1. A **Kobo** (or a Tolino running Kobo firmware; see Status below) with [NickelMenu](https://pgaskin.net/NickelMenu/) installed (it
    adds the menu entry that starts InoInk).
 2. An **Inoreader account whose plan includes API access** (check Inoreader's developer page for
    current terms).
@@ -140,7 +157,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
   sets it up; see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
 - **USB:** quit InoInk before connecting to a computer.
-- **Quitting:** on the Libra Colour, quitting restarts the Kobo (about half a minute). Restarting
+- **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting restarts the Kobo (about half a minute). Restarting
   only the Kobo interface can crash these MediaTek models; see
   [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#quitting).
 
@@ -169,7 +186,7 @@ data first with `cargo run -p inoink-cli -- fixtures --output target/inoink-fixt
 Changes go through pull requests to `main`, and each one is tried on a real Kobo before it is
 merged. With the Kobo connected by USB, `scripts/kobo-dev.sh` builds your working tree and
 installs it (your data on the Kobo is kept); the pull request template asks which device,
-firmware and build you checked. Testing on other Kobo models is especially welcome.
+firmware and build you checked. Testing on other Kobo and Tolino models is especially welcome.
 
 Merging is releasing: once CI passes on `main`, the Release workflow publishes the next version
 to everyone. The version follows the pull request title: `feat:` bumps the minor version, a
