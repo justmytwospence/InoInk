@@ -77,7 +77,7 @@ that was merged.
 | Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
 | Sync icon shows its syncing form (dot) during a sync, without ghosting, and returns to the plain icon | NOT RUN |
 | Top bar title is bold, centred and not cut short | NOT RUN |
-| List footer: page bar and count above the view choice; group headers read as grey section bands | NOT RUN |
+| List pages: the line above the footer is the page indicator; group headers read as grey section bands | NOT RUN |
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |
@@ -108,9 +108,10 @@ that was merged.
 | Switching articles shows no blank page before the new article | NOT RUN |
 | An article opened part-way shows the bar until the first page turn | NOT RUN |
 | Curved and slightly diagonal vertical swipes change article; a stalled download shows "Still downloading" and gives way after 10 s | NOT RUN |
-| Mid-way opens show the title line in the top margin, gone after a page turn | NOT RUN |
+| The article title shows in the top margin of every page, clear of the text | NOT RUN |
 | Inverted page-turn buttons also swap the swipe directions | NOT RUN |
 | Long titles end at a whole word with an ellipsis (lists, bar, titles row); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
+| Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |
 | Teaser feeds open as the full page; Full text Never keeps the teaser | NOT RUN |
 | Titles row with the bar (tap opens); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |

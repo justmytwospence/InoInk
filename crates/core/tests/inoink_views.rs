@@ -513,7 +513,7 @@ fn has_bar(reader: &Reader) -> bool {
 }
 
 #[test]
-fn an_article_opened_mid_way_shows_a_running_header_until_the_first_page_turn() {
+fn the_title_stays_in_the_top_margin_on_every_page() {
     let mut e = env();
     add_long_article(&mut e, 9);
     e.context.inoink.open_at_end = true;
@@ -521,7 +521,7 @@ fn an_article_opened_mid_way_shows_a_running_header_until_the_first_page_turn() 
     assert!(!has_bar(&reader));
     assert_eq!(reader.running_header(), Some("Article 9"));
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
-    assert!(reader.running_header().is_none());
+    assert_eq!(reader.running_header(), Some("Article 9"));
 }
 
 #[test]
@@ -529,7 +529,7 @@ fn an_article_opened_at_its_start_shows_no_bar() {
     let mut e = env();
     let reader = open(&mut e, &[4, 3], false, 4);
     assert!(!has_bar(&reader));
-    assert!(reader.running_header().is_none());
+    assert_eq!(reader.running_header(), Some("Article 4"));
 }
 
 #[test]

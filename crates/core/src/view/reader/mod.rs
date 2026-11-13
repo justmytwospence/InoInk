@@ -111,8 +111,7 @@ pub struct Reader {
     queue_titles_always: bool,
     /// When an article change was last requested, to ignore repeats while it opens.
     article_nav_at: Option<std::time::Instant>,
-    /// Shown on the first page after opening mid-way: the title in the top margin; cleared by
-    /// the first page turn.
+    /// The article's title, shown in the top margin of every page.
     running_header: Option<String>,
 }
 
@@ -311,8 +310,7 @@ impl Reader {
         }
         reader.load_article_highlights(context);
         let mut rq = RenderQueue::new();
-        let first = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
-        if reader.is_article() && Some(reader.current_page) != first {
+        if reader.is_article() {
             reader.running_header = Some(reader.article_title(context));
         }
         // Lay out the first page now so the first refresh shows the article, not a blank page.
@@ -1108,7 +1106,6 @@ impl Reader {
                 self.current_page = location;
                 self.selection = None;
                 self.state = State::Idle;
-                self.running_header = None;
                 self.update(None, hub, rq, context);
                 self.update_bottom_bar(rq);
 
@@ -3394,24 +3391,22 @@ impl Reader {
         self.running_header.as_deref()
     }
 
-    /// The title and place in the article, in the top margin, on the first page after opening
-    /// part-way through (a book's running header: it covers no text and needs no dismissing).
+    /// The article's title in the top margin of every page, like a book's running header: it
+    /// covers no text and needs no dismissing.
     fn render_running_header(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
         let Some(title) = self.running_header.as_ref() else { return };
         let dpi = CURRENT_DEVICE.dpi;
         let pad = self.rect.width() as i32 / 12;
-        let y = self.rect.min.y + scale_by_dpi(24.0, dpi) as i32;
-        let band = rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, y + (y - self.rect.min.y)];
+        let y = self.rect.min.y + scale_by_dpi(40.0, dpi) as i32;
+        let band = rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, y + scale_by_dpi(16.0, dpi) as i32];
         if !band.overlaps(clip) {
             return;
         }
-        let font = crate::font::font_from_style(fonts, &crate::font::LIST_META, dpi);
+        let font = crate::font::font_from_style(fonts, &crate::font::NORMAL_STYLE, dpi);
         let x_height = font.x_heights.0 as i32;
-        let suffix = font.plan(format!(" \u{b7} {}%", (self.progress * 100.0).round() as usize), None, None);
-        let title = font.plan(title, Some((self.rect.width() as i32 - 2 * pad - suffix.width).max(0)), None);
-        let x = self.rect.min.x + (self.rect.width() as i32 - title.width - suffix.width) / 2;
-        font.render(fb, BLACK, &title, pt!(x, y + x_height / 2));
-        font.render(fb, BLACK, &suffix, pt!(x + title.width, y + x_height / 2));
+        let plan = font.plan(title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
+        let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
+        font.render(fb, BLACK, &plan, pt!(x, y + x_height / 2));
     }
 
     fn is_article(&self) -> bool {

@@ -131,8 +131,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
   On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
-  loaded from Inoreader), with a bar above it like the one under articles, except that only the page shown is dark
-  (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
+  loaded from Inoreader), and the line above the footer is the page indicator: one segment per page with the page shown
+  dark (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
   buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
@@ -146,8 +146,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Done or Mark read. After the last article of the list you are
   back at the list. With the bar showing, a row above the footer names the previous (left) and next
-  (right) articles; tap one to open it. An article that opens part-way through shows its title and
-  your place in the top margin until you turn a page. The previous and next articles download in
+  (right) articles; tap one to open it. The article's title stays in the top margin of every page. The previous and next articles download in
   the background while you read. Settings > Previous and next titles > Always also names them beside
   the progress line on every page.
 - Articles whose feed gives only a teaser (short text or a "Read more" link) are replaced by the full

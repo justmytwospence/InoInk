@@ -646,10 +646,30 @@ impl InoInkHome {
         } else {
             format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short())
         };
+        let dpi = CURRENT_DEVICE.dpi;
+        // With several pages, the line above the footer is the page indicator (one segment per
+        // page while they fit, the page shown dark); it reaches a little into the footer.
+        let edge = scale_by_dpi(10.0, dpi) as i32;
+        let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
+        let frect = self.children[FOOTER].rect().to_owned();
+        let sep_rect = rect![frect.min.x, frect.min.y - thickness, frect.max.x, frect.min.y];
+        let pager: Box<dyn View> = if total > 1 {
+            let pad = scale_by_dpi(12.0, dpi) as i32;
+            Box::new(PageProgress::new(rect![sep_rect.min.x + pad, sep_rect.min.y, sep_rect.max.x - pad, frect.min.y + edge], page - 1, total))
+        } else {
+            Box::new(Filler::new(sep_rect, BLACK))
+        };
+        let pager_rect = rect![frect.min.x, sep_rect.min.y, frect.max.x, frect.min.y + edge];
+        self.children[FOOTER - 1] = pager;
+        rq.add(RenderData::new(self.children[FOOTER - 1].id(), pager_rect, UpdateMode::Gui));
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
-        let rect = footer.rect;
-        let side = rect.height() as i32;
+        let full = footer.rect;
         footer.children.clear();
+        if total <= 1 {
+            footer.children.push(Box::new(Filler::new(rect![full.min.x, full.min.y, full.max.x, full.min.y + edge], WHITE)));
+        }
+        let rect = rect![full.min.x, full.min.y + edge, full.max.x, full.max.y];
+        let side = rect.height() as i32;
         let prev_rect = rect![rect.min, rect.min + side];
         if prev {
             footer.children.push(Box::new(Icon::new("arrow-left", prev_rect, Event::Page(CycleDir::Previous))));
@@ -662,24 +682,20 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Filler::new(next_rect, WHITE)));
         }
-        // Between the arrows: the page bar with its count above the view choice. With one page
-        // there is nothing to count, and the view choice takes the whole height.
-        let dpi = CURRENT_DEVICE.dpi;
-        let pad = scale_by_dpi(12.0, dpi) as i32;
+        // One row: the view choice centred, the page number to its right; the equal space on its
+        // left keeps the view choice centred.
         let x0 = rect.min.x + side;
         let x1 = rect.max.x - side;
-        let mid = rect.min.y + rect.height() as i32 / 2;
-        let view_rect = if total > 1 { rect![x0, mid, x1, rect.max.y] } else { rect![x0, rect.min.y, x1, rect.max.y] };
-        if total > 1 {
-            let count_w = scale_by_dpi(150.0, dpi) as i32;
-            footer.children.push(Box::new(PageProgress::new(rect![x0 + pad, rect.min.y, x1 - count_w, mid], page - 1, total)));
-            footer.children.push(Box::new(Label::new(rect![x1 - count_w, rect.min.y, x1, mid], format!("{page} / {total}{plus}"), Align::Center)));
-        }
+        let side_w = (x1 - x0) / 4;
+        footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
+        let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
         if view_text.is_empty() {
             footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
         } else {
             footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
         }
+        let count = if total > 1 || !plus.is_empty() { format!("{page} / {total}{plus}") } else { String::new() };
+        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center)));
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
 

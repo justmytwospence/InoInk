@@ -164,6 +164,9 @@ pub fn extract_original(
     }
     let fetched = match fetch_following(f, &url, limits, cancel) {
         Ok(r) => r,
+        Err(Error::InvalidRequest(m)) if m == "status 401" || m == "status 403" => {
+            return Ok(Extraction::Failed("the site refused the download; it may need a login".into()))
+        }
         Err(Error::InvalidRequest(m)) => return Ok(Extraction::Failed(format!("the page could not be loaded ({m})"))),
         Err(e) => return Err(e),
     };

@@ -175,7 +175,7 @@ impl InoInk {
         let api = ApiClient::new(cfg.clone(), transport, clock.clone(), Arc::new(creds)).map_err(|e| e.to_string())?;
         let engine_store = Store::open(db, &self.account).map_err(|e| e.to_string())?;
         let cache = Cache::new(&self.data_dir.join("cache"), &self.account, cache_config(&self.settings));
-        let fetcher = Arc::new(UreqFetcher::new(&cfg.user_agent));
+        let fetcher = Arc::new(UreqFetcher::new(inoink::content::images::BROWSER_USER_AGENT));
         let free_dir = self.data_dir.clone();
         let mut engine = SyncEngine::new(engine_store, api, cache, fetcher, clock, SyncConfig::default())
             .with_free_space(Arc::new(move || inoink::cache::free_space_of(&free_dir)));

@@ -248,6 +248,11 @@ impl ureq::unversioned::resolver::Resolver for GuardedResolver {
     }
 }
 
+/// What page and image downloads identify as. Many sites refuse anything that does not look
+/// like a browser (Hacker News links often answer 401 or 403 otherwise).
+pub const BROWSER_USER_AGENT: &str =
+    "Mozilla/5.0 (Linux; Android 14; Kobo) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36";
+
 /// Real fetcher: 10 s connect, 30 s total, no redirects, no credentials, public addresses only.
 pub struct UreqFetcher {
     agent: ureq::Agent,
@@ -269,12 +274,18 @@ impl UreqFetcher {
 
 impl Fetcher for UreqFetcher {
     fn get(&self, url: &Url, max_bytes: usize) -> Result<Fetched> {
-        let mut resp = self.agent.get(url.as_str()).call().map_err(|e| match e {
-            ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => Error::Offline,
-            ureq::Error::Timeout(_) => Error::Retryable("the site did not answer in time".into()),
-            ureq::Error::Io(e) => Error::Retryable(format!("network error ({})", e.kind())),
-            other => Error::Retryable(other.to_string().chars().take(60).collect()),
-        })?;
+        let mut resp = self
+            .agent
+            .get(url.as_str())
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .call()
+            .map_err(|e| match e {
+                ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => Error::Offline,
+                ureq::Error::Timeout(_) => Error::Retryable("the site did not answer in time".into()),
+                ureq::Error::Io(e) => Error::Retryable(format!("network error ({})", e.kind())),
+                other => Error::Retryable(other.to_string().chars().take(60).collect()),
+            })?;
         let status = resp.status().as_u16();
         let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(String::from);
         let location = resp.headers().get("location").and_then(|v| v.to_str().ok()).map(String::from);
