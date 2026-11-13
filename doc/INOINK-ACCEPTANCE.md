@@ -40,13 +40,13 @@ document tests inside the build container, and the install/launcher tests).
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
-article with the bar and the page indicator; the next article (swipe up); a QR code; the light
+article with the bar, the next article's title and the page indicator; the next article (swipe up); a QR code; the light
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
 tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
 and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
-Result: NOT RUN since the end card was removed (12 screenshots expected). Not covered by the tour (tested headlessly
+Result: PASS (15 screenshots inspected on 2026-11-12). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 

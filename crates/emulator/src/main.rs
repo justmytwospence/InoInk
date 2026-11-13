@@ -891,6 +891,10 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Send(Event::Select(EntryId::HighlightSelection)));
     t.push_back(TourStep::Wait(600));
     t.push_back(TourStep::Shot("06d-highlight"));
+    // The selection menu is still open (the tour chose Highlight without tapping it): the first
+    // tap closes it, the second shows the bar.
+    t.push_back(TourStep::Tap(w / 2, rect.height() as i32 / 2));
+    t.push_back(TourStep::Wait(500));
     t.push_back(TourStep::Tap(w / 2, rect.height() as i32 / 2));
     t.push_back(TourStep::Wait(500));
     t.push_back(TourStep::Shot("07-article-bar-footer"));
