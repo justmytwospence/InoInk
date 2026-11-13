@@ -88,10 +88,17 @@ runs, the normal Kobo interface is stopped; it comes back when you quit.
    adds the menu entry that starts InoInk).
 2. An **Inoreader account whose plan includes API access** (check Inoreader's developer page for
    current terms).
-3. Your own **Inoreader app registration**: open
-   <https://www.inoreader.com/developers/register-app>, choose the `read write` scope and set the
-   redirect URI to `http://localhost:8080/callback`. Keep its App ID and App Key at hand.
-   No key is shipped with InoInk.
+3. Your own **Inoreader app registration** (no key is shipped with InoInk). In Inoreader, open
+   [Preferences > Developer API](https://www.inoreader.com/preferences/other), click
+   **New application** and fill in:
+   - **Name:** `InoInk` (anything you like)
+   - **Platform:** Other
+   - **Redirect URI:** `http://localhost:8080/callback`
+   - **OAuth scope:** Read and write
+
+   Save, and keep the **App ID** and **App key** it shows at hand. If New application is greyed
+   out, your account already has an application: you can use that one instead (InoInk then shares
+   its daily request budget), with its own redirect URI in step 4 below.
 4. A computer (macOS or Linux) for installing and signing in.
 
 ## Install
@@ -119,14 +126,32 @@ Then:
 
    ```sh
    chmod +x inoink-cli-macos-arm64
+   xattr -d com.apple.quarantine inoink-cli-macos-arm64   # macOS only, see below
    ./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID \
        --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader
    ```
 
-   It asks for your App Key at a hidden prompt, opens Inoreader in your browser for you to
-   approve, and writes the sign-in to the Kobo **encrypted to that Kobo's key**.
+   On Linux use `inoink-cli-linux-x86_64` and your Kobo's mount point (often
+   `/media/$USER/KOBOeReader`). On macOS the `xattr` line is needed because the helper is not
+   signed by Apple: without it macOS refuses to open a downloaded binary ("Apple could not
+   verify..."). It asks for your App key at a hidden prompt, opens Inoreader in your browser for
+   you to approve, and writes the sign-in to the Kobo **encrypted to that Kobo's key**. If you
+   used an existing application whose redirect URI is not `localhost`, pass that URI instead;
+   after approving, paste the address your browser ends on into the terminal.
 5. Eject the Kobo and open InoInk again. It picks up the sign-in, connects using the Kobo's
    saved Wi-Fi network, and syncs.
+
+### First five minutes
+
+- You land on **Newsfeed**, your unread articles. **Tap** a headline to read it; **hold** it to
+  save it for later (star it).
+- In an article, turn pages by tapping the left or right third (or the page-turn buttons). Tap
+  the middle for the bar: **Done** marks the article read and removes its star, **Aa** changes
+  the font and spacing, **Back** returns to the list.
+- **Categories** shows your folders and feeds; **Read later** is your starred articles.
+- At the end of an unread list, **Mark N read** clears what you skimmed in one tap.
+- Changes go to Inoreader on their own when Wi-Fi is on. To quit, use the main menu (≡ > Quit),
+  and always quit before plugging the Kobo into a computer.
 
 To update, run step 2 again with the new package. Your data, sign-in and settings are kept, and
 the previous version stays installed for rollback. To remove InoInk, run

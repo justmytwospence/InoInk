@@ -123,10 +123,20 @@
       <ul>
         <li>A <strong>Kobo</strong> or a Tolino on Kobo firmware (developed on a Libra Colour, firmware 4.46.23852), ideally with
           <a href="https://pgaskin.net/NickelMenu/">NickelMenu</a> for a launcher entry.</li>
-        <li>An <strong>Inoreader plan with API access</strong> and your own
-          <a href="https://www.inoreader.com/developers/register-app">app registration</a>
-          (scope <code>read write</code>).</li>
+        <li>An <strong>Inoreader plan with API access</strong> and your own app registration:
+          in <a href="https://www.inoreader.com/preferences/other">Preferences &gt; Developer API</a>,
+          click New application, choose Platform Other, Redirect URI
+          <code>http://localhost:8080/callback</code> and scope Read and write, and note the App ID
+          and App key.</li>
         <li>A Mac or Linux computer for installing and signing in.</li>
+      </ul>
+      <h3>First five minutes</h3>
+      <ul>
+        <li><strong>Tap</strong> a headline to read it, <strong>hold</strong> it to save it for later.</li>
+        <li>Tap the sides of a page (or the page-turn buttons) to turn it, the middle for the bar:
+          <strong>Done</strong> marks the article read and unstars it.</li>
+        <li>Changes reach Inoreader on their own over Wi-Fi. Quit from the main menu, and always
+          before connecting the Kobo by USB.</li>
       </ul>
     </div>
     <div>
@@ -136,8 +146,15 @@
           <a href="https://github.com/justmytwospence/InoInk/releases/latest">latest release</a>.</li>
         <li>Connect the Kobo by USB and run<br>
           <code>sh install-inoink.sh inoink-&lt;version&gt;-kobo.tar.gz /Volumes/KOBOeReader --menu</code></li>
-        <li>Sign in once from the computer with <code>inoink-cli authorize --device /Volumes/KOBOeReader ...</code></li>
-        <li>Eject, then open InoInk from NickelMenu.</li>
+        <li>Eject, open InoInk once from NickelMenu (it creates its own key and asks you to sign in),
+          then quit it from its main menu.</li>
+        <li>Connect the Kobo again and sign in from the computer. On a Mac, first run
+          <code>chmod +x inoink-cli-macos-arm64</code> and
+          <code>xattr -d com.apple.quarantine inoink-cli-macos-arm64</code> (the helper is not signed
+          by Apple), then<br>
+          <code>./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader</code><br>
+          It asks for your App key and opens Inoreader in your browser to approve.</li>
+        <li>Eject and open InoInk again. It syncs, and you are reading.</li>
       </ol>
       <p>The <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-SETUP.md">setup guide</a>
         covers every step, updates and removal.</p>
