@@ -176,6 +176,7 @@ fi
 
 echo "--- $(date) starting in $(pwd)" >> "$LOG"
 echo "launch: $LAUNCH_NOTE" >> "$LOG"
+echo "device: product=${PRODUCT:-?} platform=${PLATFORM:-?} model=${MODEL_NUMBER:-?} firmware=${FIRMWARE_VERSION:-?} kernel=$(uname -r 2>/dev/null)" >> "$LOG"
 # The Kobo's disk check renames files it rejects to FSCK*.000: record any in this release.
 find . -iname 'FSCK*' -exec echo "warning: disk check leftover {}" \; >> "$LOG" 2>&1
 LIBC_FATAL_STDERR_=1 ./inoink >> "$LOG" 2>&1
