@@ -109,7 +109,8 @@ that was merged.
 | Switching articles shows no blank page before the new article | NOT RUN |
 | An article opened part-way shows the bar until the first page turn | NOT RUN |
 | Curved and slightly diagonal vertical swipes change article; a stalled download shows "Still downloading" and gives way after 10 s | NOT RUN |
-| The article title shows in the top margin of every page, clear of the text | NOT RUN |
+| The article title shows in the top margin of every page but the first, clear of the text | NOT RUN |
+| Curly quotes, dashes and ellipses in articles (not in code); a German or French article hyphenates in its language | NOT RUN |
 | Inverted page-turn buttons also swap the swipe directions | NOT RUN |
 | Long titles end at a whole word with an ellipsis (lists, bar, titles row); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
 | Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |

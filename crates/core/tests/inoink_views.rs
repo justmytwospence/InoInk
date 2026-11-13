@@ -513,7 +513,7 @@ fn has_bar(reader: &Reader) -> bool {
 }
 
 #[test]
-fn the_title_stays_in_the_top_margin_on_every_page() {
+fn the_title_stays_in_the_top_margin_after_the_first_page() {
     let mut e = env();
     add_long_article(&mut e, 9);
     e.context.inoink.open_at_end = true;
@@ -529,7 +529,7 @@ fn an_article_opened_at_its_start_shows_no_bar() {
     let mut e = env();
     let reader = open(&mut e, &[4, 3], false, 4);
     assert!(!has_bar(&reader));
-    assert_eq!(reader.running_header(), Some("Article 4"));
+    assert_eq!(reader.running_header(), None, "the first page has the article's own heading");
 }
 
 #[test]

@@ -696,7 +696,7 @@ impl Cache {
         }
         let host = u.host_str().unwrap_or("").to_string();
         let title = page_title(&page).unwrap_or_else(|| host.clone());
-        let html = document(&title, &host, &frag);
+        let html = document(&title, &host, &frag, crate::content::typography::detect_language(&text));
         let path = self.web_path(url);
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;

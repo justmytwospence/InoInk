@@ -177,6 +177,7 @@ device's own C library.
 | fluent-langneg | 0.13.1 | Apache-2.0 OR MIT |
 | fluent-syntax | 0.11.1 | Apache-2.0 OR MIT |
 | fnv | 1.0.7 | Apache-2.0 / MIT |
+| foldhash | 0.1.5 | Zlib |
 | foldhash | 0.2.0 | Zlib |
 | font-types | 0.11.3 | MIT OR Apache-2.0 |
 | fontdb | 0.23.0 | MIT |
@@ -203,6 +204,7 @@ device's own C library.
 | half | 2.7.1 | MIT OR Apache-2.0 |
 | hashbrown | 0.12.3 | MIT OR Apache-2.0 |
 | hashbrown | 0.14.5 | MIT OR Apache-2.0 |
+| hashbrown | 0.15.5 | MIT OR Apache-2.0 |
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
 | hashlink | 0.12.2 | MIT OR Apache-2.0 |
@@ -543,6 +545,7 @@ device's own C library.
 | web_atoms | 0.3.0 | MIT OR Apache-2.0 |
 | webpki-roots | 1.0.12 | CDLA-Permissive-2.0 |
 | weezl | 0.1.12 | MIT OR Apache-2.0 |
+| whatlang | 0.18.0 | MIT |
 | which | 6.0.3 | MIT |
 | winapi-util | 0.1.11 | Unlicense OR MIT |
 | windows-core | 0.62.2 | MIT OR Apache-2.0 |

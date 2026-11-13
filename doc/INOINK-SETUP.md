@@ -146,7 +146,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Done or Mark read. After the last article of the list you are
   back at the list. With the bar showing, a row above the footer names the previous (left) and next
-  (right) articles; tap one to open it. The article's title stays in the top margin of every page. The previous and next articles download in
+  (right) articles; tap one to open it. The article's title stays in the top margin of every page after the first. Straight quotes,
+  `--` and `...` in articles are set as curly quotes, dashes and ellipses, and lines are hyphenated
+  in the article's language when InoInk can tell it (English otherwise). The previous and next articles download in
   the background while you read. Settings > Previous and next titles > Always also names them beside
   the progress line on every page.
 - Articles whose feed gives only a teaser (short text or a "Read more" link) are replaced by the full

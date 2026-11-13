@@ -111,8 +111,11 @@ pub struct Reader {
     queue_titles_always: bool,
     /// When an article change was last requested, to ignore repeats while it opens.
     article_nav_at: Option<std::time::Instant>,
-    /// The article's title, shown in the top margin of every page.
+    /// The article's title, shown in the top margin of every page but the first (where the
+    /// article's own heading is).
     running_header: Option<String>,
+    /// Location of the first page.
+    first_location: Option<usize>,
 }
 
 /// The article a reader is showing.
@@ -316,6 +319,7 @@ impl Reader {
         let mut rq = RenderQueue::new();
         if reader.is_article() {
             reader.running_header = Some(reader.article_title(context));
+            reader.first_location = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
         }
         // Lay out the first page now so the first refresh shows the article, not a blank page.
         reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
@@ -636,6 +640,7 @@ impl Reader {
                 queue_titles_always: false,
                 article_nav_at: None,
                 running_header: None,
+                first_location: None,
             })
         })
     }
@@ -711,6 +716,7 @@ impl Reader {
             queue_titles_always: false,
             article_nav_at: None,
             running_header: None,
+            first_location: None,
         }
     }
 
@@ -3391,14 +3397,18 @@ impl Reader {
         false
     }
 
+    /// The title shown in the top margin of the current page, if any.
     pub fn running_header(&self) -> Option<&str> {
+        if Some(self.current_page) == self.first_location {
+            return None;
+        }
         self.running_header.as_deref()
     }
 
     /// The article's title in the top margin of every page, like a book's running header: it
     /// covers no text and needs no dismissing.
     fn render_running_header(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
-        let Some(title) = self.running_header.as_ref() else { return };
+        let Some(title) = self.running_header() else { return };
         let dpi = CURRENT_DEVICE.dpi;
         let pad = self.rect.width() as i32 / 12;
         let y = self.rect.min.y + scale_by_dpi(40.0, dpi) as i32;
