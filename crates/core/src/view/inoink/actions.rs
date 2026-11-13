@@ -72,6 +72,8 @@ pub enum InoInkEntry {
     OpenDetails(ArticleId),
     SetHeadlineTap(HeadlineTap),
     SetQueueTitles(crate::settings::QueueTitles),
+    /// A feed's choice of loading the original page's text for its articles.
+    SetFullText(String, inoink::store::FullText),
     /// Open the previous or next article of the list (the titles row above the footer).
     QueueArticle(crate::geom::CycleDir),
     /// Open a linked page in a reading view.

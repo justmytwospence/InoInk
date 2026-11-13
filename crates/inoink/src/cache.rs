@@ -32,6 +32,8 @@ pub struct CacheConfig {
     pub concurrency: usize,
     pub max_candidates_per_cycle: usize,
     pub pinned_folders: Vec<String>,
+    /// Fetch the original page for teaser items (see `content::stub`).
+    pub extract_stubs: bool,
 }
 
 impl Default for CacheConfig {
@@ -44,6 +46,7 @@ impl Default for CacheConfig {
             concurrency: 2,
             max_candidates_per_cycle: 50,
             pinned_folders: Vec::new(),
+            extract_stubs: false,
         }
     }
 }
@@ -278,9 +281,47 @@ impl Cache {
         if let Some(d) = discussion::detect(&rec.canonical_url, &rec.summary_html) {
             return self.cache_link_post(store, fetcher, id, &rec, &d, ctl);
         }
+        if self.cfg.extract_stubs && rec.canonical_url.starts_with("https://") {
+            if let Some(state) = self.try_full_text(store, fetcher, id, &rec, ctl)? {
+                return Ok(state);
+            }
+        }
         let base = if rec.canonical_url.is_empty() { None } else { Some(rec.canonical_url.clone()) };
         let raw_hash = sha256_hex(rec.summary_html.as_bytes());
         self.process(store, fetcher, id, &rec, &rec.summary_html, base.as_deref(), &raw_hash, ctl)
+    }
+
+    /// For a teaser item (or a feed known to send teasers): the original page's text in place of
+    /// the feed's. `None` when the feed text stays, because the page was not tried, could not be
+    /// fetched, or had no more text. What each try showed is kept per feed.
+    fn try_full_text(
+        &self,
+        store: &mut Store,
+        fetcher: &dyn Fetcher,
+        id: ArticleId,
+        rec: &crate::store::ArticleRecord,
+        ctl: &Control,
+    ) -> Result<Option<DownloadState>> {
+        use crate::content::stub::{looks_like_stub, should_extract};
+        let feed_text = prepare_article(&rec.summary_html, None, &ArticleMeta::default(), &AssetMap::new()).text;
+        let ff = store.feed_full_text(&rec.origin_stream)?;
+        if !should_extract(ff.mode, ff.tries, ff.gains, looks_like_stub(&feed_text)) {
+            return Ok(None);
+        }
+        match extract_original(fetcher, &rec.canonical_url, feed_text.chars().count(), &self.cfg.limits, &ctl.cancel) {
+            Ok(Extraction::Extracted { html, .. }) => {
+                store.record_full_text_try(&rec.origin_stream, true)?;
+                let raw_hash = format!("extract:{}", sha256_hex(html.as_bytes()));
+                self.process(store, fetcher, id, rec, &html, Some(&rec.canonical_url), &raw_hash, ctl).map(Some)
+            }
+            Ok(Extraction::Failed(_)) => {
+                store.record_full_text_try(&rec.origin_stream, false)?;
+                Ok(None)
+            }
+            Err(Error::Storage(m)) => Err(Error::Storage(m)),
+            // Offline or a transient failure: the feed text stands, and nothing is learned.
+            Err(_) => Ok(None),
+        }
     }
 
     pub fn comments_path(&self, id: ArticleId) -> PathBuf {

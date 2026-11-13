@@ -654,6 +654,19 @@ fn migration_decodes_entities_in_titles() {
     assert_eq!(r.origin_title, "A & B");
 }
 
+#[test]
+fn full_text_mode_and_learning_are_stored() {
+    let s = store();
+    let f = "feed/x";
+    assert_eq!(s.feed_full_text(f).unwrap(), FeedFullText { mode: FullText::Auto, tries: 0, gains: 0 });
+    s.record_full_text_try(f, true).unwrap();
+    s.record_full_text_try(f, false).unwrap();
+    let ff = s.feed_full_text(f).unwrap();
+    assert_eq!((ff.tries, ff.gains), (2, 1));
+    s.set_full_text_mode(f, FullText::Never).unwrap();
+    assert_eq!(s.feed_full_text(f).unwrap(), FeedFullText { mode: FullText::Never, tries: 2, gains: 1 });
+}
+
 fn hl(uid: &str, article: u64, exact: &str, start: i64) -> inoink::highlight::Highlight {
     inoink::highlight::Highlight {
         uid: uid.into(),

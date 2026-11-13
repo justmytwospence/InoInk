@@ -110,7 +110,7 @@ pub struct InoInk {
 }
 
 fn cache_config(s: &InoInkSettings) -> CacheConfig {
-    CacheConfig { budget_bytes: s.cache_budget_mb * 1024 * 1024, recent_unread_days: s.recent_unread_days, pinned_folders: s.pinned_folders.clone(), ..Default::default() }
+    CacheConfig { budget_bytes: s.cache_budget_mb * 1024 * 1024, recent_unread_days: s.recent_unread_days, pinned_folders: s.pinned_folders.clone(), extract_stubs: true, ..Default::default() }
 }
 
 impl InoInk {

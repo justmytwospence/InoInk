@@ -19,6 +19,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005.sql"),
     include_str!("../migrations/0006.sql"),
     include_str!("../migrations/0007.sql"),
+    include_str!("../migrations/0008.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -64,6 +65,41 @@ impl OutboxBatch {
         }
         set.into_iter().collect()
     }
+}
+
+/// How a feed's articles get their full text from the original page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FullText {
+    /// Decided by the item (a teaser) and by what earlier items of the feed showed.
+    Auto,
+    Always,
+    Never,
+}
+
+impl FullText {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FullText::Auto => "auto",
+            FullText::Always => "always",
+            FullText::Never => "never",
+        }
+    }
+
+    pub fn parse(s: &str) -> FullText {
+        match s {
+            "always" => FullText::Always,
+            "never" => FullText::Never,
+            _ => FullText::Auto,
+        }
+    }
+}
+
+/// A feed's full-text choice and what the automatic mode has learned from its articles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeedFullText {
+    pub mode: FullText,
+    pub tries: i64,
+    pub gains: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -936,6 +972,36 @@ impl Store {
             Ok(c.max(0) as usize)
         };
         Ok((n("pending")?, n("failed")?))
+    }
+
+    pub fn feed_full_text(&self, feed: &str) -> Result<FeedFullText> {
+        let row: Option<(String, i64, i64)> = self
+            .conn
+            .query_row("SELECT mode, tries, gains FROM feed_fulltext WHERE account=?1 AND feed=?2", params![self.account, feed], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .optional()?;
+        Ok(match row {
+            Some((m, tries, gains)) => FeedFullText { mode: FullText::parse(&m), tries, gains },
+            None => FeedFullText { mode: FullText::Auto, tries: 0, gains: 0 },
+        })
+    }
+
+    pub fn set_full_text_mode(&self, feed: &str, mode: FullText) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO feed_fulltext(account,feed,mode) VALUES(?1,?2,?3) ON CONFLICT(account,feed) DO UPDATE SET mode=excluded.mode",
+            params![self.account, feed, mode.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// Counts one attempt to get a feed's article from its page, and whether it paid off.
+    pub fn record_full_text_try(&self, feed: &str, gained: bool) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO feed_fulltext(account,feed,tries,gains) VALUES(?1,?2,1,?3) ON CONFLICT(account,feed) DO UPDATE SET tries=tries+1, gains=gains+excluded.gains",
+            params![self.account, feed, gained as i64],
+        )?;
+        Ok(())
     }
 
     pub fn words(&self, id: ArticleId) -> Result<u32> {

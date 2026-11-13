@@ -150,6 +150,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   your place in the top margin until you turn a page. The previous and next articles download in
   the background while you read. Settings > Previous and next titles > Always also names them beside
   the progress line on every page.
+- Articles whose feed gives only a teaser (short text or a "Read more" link) are replaced by the full
+  page when they are downloaded. InoInk learns which feeds do this; Manage > a feed > Full text sets
+  Always or Never for one feed.
 - Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
   a highlight to add, edit or remove its note, or to remove it. They are saved on the Kobo and
   found again if the article text is later replaced (for example by Load original page). Inoreader's
