@@ -33,6 +33,9 @@ pub enum Model {
     Glo,
     TouchC,
     TouchAB,
+    /// A codename this build does not know (a newer Kobo or Tolino): treated as a current
+    /// 300 dpi MediaTek model.
+    Unknown,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -72,6 +75,7 @@ impl fmt::Display for Model {
             Model::Glo           => write!(f, "Glo"),
             Model::TouchC        => write!(f, "Touch C"),
             Model::TouchAB       => write!(f, "Touch A/B"),
+            Model::Unknown       => write!(f, "Unknown Kobo"),
         }
     }
 }
@@ -208,29 +212,36 @@ impl Device {
                 dims: (1404, 1872),
                 dpi: 227,
             },
-            "spaBW" | "spaBWTPV" => Device {
+            "spaBW" | "spaBWTPV" | "spaKoboBW" | "spaTolinoBW" => Device {
                 model: Model::ClaraBW,
                 proto: TouchProto::MultiB,
                 dims: (1072, 1448),
                 dpi: 300,
             },
-            "spaColour" => Device {
+            "spaColour" | "spaKoboColour" | "spaTolinoColour" => Device {
                 model: Model::ClaraColour,
                 proto: TouchProto::MultiB,
                 dims: (1072, 1448),
                 dpi: 300,
             },
-            "monza" => Device {
+            "monza" | "monzaKobo" | "monzaTolino" => Device {
                 model: Model::LibraColour,
                 proto: TouchProto::MultiB,
                 dims: (1264, 1680),
                 dpi: 300,
             },
-            _ => Device {
+            "trilogy" | "" => Device {
                 model: if model_number == "320" { Model::TouchC } else { Model::TouchAB },
                 proto: TouchProto::Single,
                 dims: (600, 800),
                 dpi: 167,
+            },
+            // Anything newer than this build: every Kobo since 2023 is MediaTek at 300 dpi.
+            _ => Device {
+                model: Model::Unknown,
+                proto: TouchProto::MultiB,
+                dims: (1072, 1448),
+                dpi: 300,
             },
         }
     }
@@ -254,7 +265,8 @@ impl Device {
             Model::Elipsa2E |
             Model::ClaraBW |
             Model::ClaraColour |
-            Model::LibraColour => FrontlightKind::Premixed,
+            Model::LibraColour |
+            Model::Unknown => FrontlightKind::Premixed,
             Model::AuraONE |
             Model::AuraONELimEd |
             Model::AuraH2OEd2V1 |
@@ -270,6 +282,17 @@ impl Device {
     pub fn has_lightsensor(&self) -> bool {
         matches!(self.model,
                  Model::AuraONE | Model::AuraONELimEd)
+    }
+
+    /// The Touch A/B, Touch C, Mini and Touch 2.0 have no frontlight.
+    pub fn has_frontlight(&self) -> bool {
+        !matches!(self.model, Model::TouchAB | Model::TouchC | Model::Mini | Model::Touch2)
+    }
+
+    /// Runs a Linux kernel older than Rust's minimum (3.2): mark 6 and earlier ship 2.6.35 or
+    /// 3.0.35, so InoInk may not start there.
+    pub fn is_experimental(&self) -> bool {
+        self.mark() <= 6
     }
 
     pub fn has_gyroscope(&self) -> bool {
@@ -311,7 +334,8 @@ impl Device {
 
     pub fn mark(&self) -> u8 {
         match self.model {
-            Model::LibraColour => 13,
+            Model::LibraColour |
+            Model::Unknown => 13,
             Model::ClaraBW |
             Model::ClaraColour => 12,
             Model::Elipsa2E => 11,
@@ -437,7 +461,26 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use super::Device;
+    use super::{Device, Model};
+
+    #[test]
+    fn codenames_and_aliases() {
+        assert_eq!(Device::new("monzaTolino", "").model, Model::LibraColour);
+        assert_eq!(Device::new("monzaKobo", "").model, Model::LibraColour);
+        assert_eq!(Device::new("spaTolinoColour", "").model, Model::ClaraColour);
+        assert_eq!(Device::new("spaKoboColour", "").model, Model::ClaraColour);
+        assert_eq!(Device::new("spaTolinoBW", "").model, Model::ClaraBW);
+        assert_eq!(Device::new("spaKoboBW", "").model, Model::ClaraBW);
+        assert_eq!(Device::new("trilogy", "320").model, Model::TouchC);
+        assert_eq!(Device::new("trilogy", "310").model, Model::TouchAB);
+        assert_eq!(Device::new("", "").model, Model::TouchAB);
+        let u = Device::new("futurebird", "999");
+        assert_eq!((u.model, u.dpi, u.mark()), (Model::Unknown, 300, 13));
+        assert!(!Device::new("pika", "").has_frontlight());
+        assert!(Device::new("monza", "").has_frontlight());
+        assert!(Device::new("alyssum", "").is_experimental());
+        assert!(!Device::new("nova", "").is_experimental());
+    }
 
     #[test]
     fn test_device_canonical_rotation() {

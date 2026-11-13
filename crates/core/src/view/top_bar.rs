@@ -9,6 +9,7 @@ use crate::view::label::Label;
 use crate::geom::{Rectangle};
 use crate::font::Fonts;
 use crate::context::Context;
+use crate::device::CURRENT_DEVICE;
 
 /// The Wi-Fi icon for the current state: online, switched on but not connected yet, or off.
 pub fn wifi_icon_name(context: &Context) -> &'static str {
@@ -108,6 +109,12 @@ impl TopBar {
         let left_end = x + clock_w + side;
         let mut x = r.max.x;
         for i in [5usize, 4, 6] {
+            if i == 4 && !CURRENT_DEVICE.has_frontlight() {
+                // No light on this model: keep the child (the others are addressed by index)
+                // but give it no room.
+                self.children[4] = Box::new(crate::view::filler::Filler::new(rect![x, r.min.y, x, r.min.y], crate::color::WHITE));
+                continue;
+            }
             put(&mut self.children[i], x - slot, x);
             x -= slot;
         }
@@ -142,9 +149,10 @@ impl TopBar {
 
     pub fn update_frontlight_icon(&mut self, rq: &mut RenderQueue, context: &mut Context) {
         let name = if context.settings.frontlight { "frontlight" } else { "frontlight-disabled" };
-        let icon = self.child_mut(4).downcast_mut::<Icon>().unwrap();
-        icon.name = name.to_string();
-        rq.add(RenderData::new(icon.id(), *icon.rect(), UpdateMode::Gui));
+        if let Some(icon) = self.child_mut(4).downcast_mut::<Icon>() {
+            icon.name = name.to_string();
+            rq.add(RenderData::new(icon.id(), *icon.rect(), UpdateMode::Gui));
+        }
     }
 
     pub fn update_wifi_icon(&mut self, rq: &mut RenderQueue, context: &mut Context) {
