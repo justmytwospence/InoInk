@@ -206,6 +206,21 @@ fn power_off(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut
     context.fb.update(interm.rect(), UpdateMode::Full).ok();
 }
 
+/// Confirms Quit at once with a full-screen message, after leaving every view so open articles
+/// save their position.
+fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut Vec<UpdateData>, context: &mut Context) {
+    let (tx, _rx) = mpsc::channel();
+    view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
+    while let Some(mut item) = history.pop() {
+        item.view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
+    }
+    let text = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Restarting the Kobo" } else { "Closing InoInk" };
+    let interm = Intermission::with_text(context.fb.rect(), text.to_string());
+    wait_for_all(updating, context);
+    interm.render(context.fb.as_mut(), *interm.rect(), &mut context.fonts);
+    context.fb.update(interm.rect(), UpdateMode::Full).ok();
+}
+
 /// Waits for the Wi-Fi to get an address, then reports the network as up. The Kobo's DHCP
 /// script does not always announce it, and syncing waits for that signal.
 fn watch_network(tx: &Sender<Event>) {
@@ -1216,6 +1231,7 @@ pub fn run() -> Result<(), Error> {
                 break;
             },
             Event::Select(EntryId::Quit) => {
+                show_quit_screen(view.as_mut(), &mut history, &mut updating, &mut context);
                 break;
             },
             Event::MightSuspend if context.settings.auto_suspend > 0.0 => {

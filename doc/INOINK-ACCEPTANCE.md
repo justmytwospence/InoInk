@@ -60,6 +60,7 @@ that was merged.
 | Case | Result |
 |---|---|
 | Launch from NickelMenu; quit restores Nickel (normal exit and after a forced error) | NOT RUN |
+| Quit shows "Closing InoInk" ("Restarting the Kobo" on MediaTek) at once; an open article keeps its position | NOT RUN |
 | Physical page buttons and touch navigation | NOT RUN |
 | Colour images render in articles and in the enlargement view | NOT RUN |
 | Frontlight and warmth | NOT RUN |

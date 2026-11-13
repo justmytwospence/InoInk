@@ -42,6 +42,13 @@ impl Intermission {
     }
 }
 
+impl Intermission {
+    /// A full-screen message with the logo, such as the screen shown while quitting.
+    pub fn with_text(rect: Rectangle, text: String) -> Intermission {
+        Intermission { id: ID_FEEDER.next(), rect, children: Vec::new(), message: Message::Text(text), halt: false }
+    }
+}
+
 impl View for Intermission {
     fn handle_event(&mut self, _evt: &Event, _hub: &Hub, _bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
         true
