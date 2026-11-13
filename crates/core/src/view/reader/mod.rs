@@ -111,8 +111,9 @@ pub struct Reader {
     queue_titles_always: bool,
     /// When an article change was last requested, to ignore repeats while it opens.
     article_nav_at: Option<std::time::Instant>,
-    /// The bar was shown because the article opened mid-way; the first page turn hides it.
-    auto_bar: bool,
+    /// Shown on the first page after opening mid-way: the title in the top margin; cleared by
+    /// the first page turn.
+    running_header: Option<String>,
 }
 
 /// The article a reader is showing.
@@ -302,13 +303,17 @@ impl Reader {
         if article.kind == crate::view::inoink::actions::DocKind::Article {
             reader.queue_titles = queue_titles(context, article.id);
             reader.queue_titles_always = context.settings.inoink.queue_titles == QueueTitles::Always;
+            if let Some(q) = context.inoink.queue.clone() {
+                for n in [q.previous_before(article.id), q.next_after(article.id)].into_iter().flatten() {
+                    crate::view::inoink::actions::prefetch(context, n);
+                }
+            }
         }
         reader.load_article_highlights(context);
         let mut rq = RenderQueue::new();
         let first = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
         if reader.is_article() && Some(reader.current_page) != first {
-            reader.toggle_bars(Some(true), hub, &mut rq, context);
-            reader.auto_bar = true;
+            reader.running_header = Some(reader.article_title(context));
         }
         // Lay out the first page now so the first refresh shows the article, not a blank page.
         reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
@@ -628,7 +633,7 @@ impl Reader {
                 queue_titles: (None, None),
                 queue_titles_always: false,
                 article_nav_at: None,
-                auto_bar: false,
+                running_header: None,
             })
         })
     }
@@ -703,7 +708,7 @@ impl Reader {
             queue_titles: (None, None),
             queue_titles_always: false,
             article_nav_at: None,
-            auto_bar: false,
+            running_header: None,
         }
     }
 
@@ -1103,9 +1108,7 @@ impl Reader {
                 self.current_page = location;
                 self.selection = None;
                 self.state = State::Idle;
-                if std::mem::take(&mut self.auto_bar) {
-                    self.toggle_bars(Some(false), hub, rq, context);
-                }
+                self.running_header = None;
                 self.update(None, hub, rq, context);
                 self.update_bottom_bar(rq);
 
@@ -1144,7 +1147,7 @@ impl Reader {
                         let id = self.article.as_ref().map(|a| a.id);
                         let prev = id.and_then(|id| context.inoink.queue.as_ref().and_then(|q| q.previous_before(id)));
                         if let Some(prev) = prev {
-                            if context.inoink.opening.is_none() && self.article_nav_at.map_or(true, |t| t.elapsed() >= std::time::Duration::from_secs(2)) {
+                            if !self.nav_blocked(hub, rq, context) {
                                 self.article_nav_at = Some(std::time::Instant::now());
                                 context.inoink.open_at_end = true;
                                 hub.send(Event::OpenNext(prev)).ok();
@@ -3370,6 +3373,47 @@ impl Reader {
         context.inoink.store()?.article_record(id).ok().flatten().map(|r| r.canonical_url).filter(|u| !u.is_empty())
     }
 
+    /// Whether an article change must wait: one was just requested (2 s), or the download of one
+    /// is still running (up to 10 s; after that it is given up so navigation never stays blocked).
+    fn nav_blocked(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        if self.article_nav_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(2)) {
+            return true;
+        }
+        if context.inoink.opening.is_some() {
+            if context.inoink.opening_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(10)) {
+                self.notify("Still downloading the article", hub, rq, context);
+                return true;
+            }
+            context.inoink.opening = None;
+            context.inoink.opening_at = None;
+        }
+        false
+    }
+
+    pub fn running_header(&self) -> Option<&str> {
+        self.running_header.as_deref()
+    }
+
+    /// The title and place in the article, in the top margin, on the first page after opening
+    /// part-way through (a book's running header: it covers no text and needs no dismissing).
+    fn render_running_header(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
+        let Some(title) = self.running_header.as_ref() else { return };
+        let dpi = CURRENT_DEVICE.dpi;
+        let pad = self.rect.width() as i32 / 12;
+        let y = self.rect.min.y + scale_by_dpi(24.0, dpi) as i32;
+        let band = rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, y + (y - self.rect.min.y)];
+        if !band.overlaps(clip) {
+            return;
+        }
+        let font = crate::font::font_from_style(fonts, &crate::font::LIST_META, dpi);
+        let x_height = font.x_heights.0 as i32;
+        let suffix = font.plan(format!(" \u{b7} {}%", (self.progress * 100.0).round() as usize), None, None);
+        let title = font.plan(title, Some((self.rect.width() as i32 - 2 * pad - suffix.width).max(0)), None);
+        let x = self.rect.min.x + (self.rect.width() as i32 - title.width - suffix.width) / 2;
+        font.render(fb, BLACK, &title, pt!(x, y + x_height / 2));
+        font.render(fb, BLACK, &suffix, pt!(x + title.width, y + x_height / 2));
+    }
+
     fn is_article(&self) -> bool {
         self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Article)
     }
@@ -3387,7 +3431,7 @@ impl Reader {
     /// saved when the reader is replaced.
     fn go_to_article(&mut self, dir: CycleDir, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
-        if context.inoink.opening.is_some() || self.article_nav_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(2)) {
+        if self.nav_blocked(hub, rq, context) {
             return;
         }
         let queue = context.inoink.queue.clone();
@@ -3462,11 +3506,15 @@ impl Reader {
                 }
                 Some(true)
             }
-            Event::Gesture(GestureEvent::Swipe { dir: dir @ (Dir::North | Dir::South), start, end })
+            Event::Gesture(GestureEvent::Swipe { dir: Dir::North | Dir::South, start, end })
+            | Event::Gesture(GestureEvent::SlantedSwipe { start, end, .. })
+            | Event::Gesture(GestureEvent::Arrow { start, end, .. })
                 if self.rect.includes(start) && self.is_article() && self.view_port.zoom_mode == ZoomMode::FitToPage => {
-                if self.focus.is_none() && (start.y - end.y).abs() >= self.rect.height() as i32 / 4 {
-                    let next = if context.settings.button_scheme == ButtonScheme::Inverted { Dir::South } else { Dir::North };
-                    self.go_to_article(if dir == next { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
+                let (dx, dy) = (end.x - start.x, end.y - start.y);
+                if self.focus.is_none() && dy.abs() > dx.abs() && dy.abs() >= self.rect.height() as i32 / 5 {
+                    // Natural buttons: swiping up is "next"; Inverted swaps it.
+                    let next_is_up = context.settings.button_scheme != ButtonScheme::Inverted;
+                    self.go_to_article(if (dy < 0) == next_is_up { CycleDir::Next } else { CycleDir::Previous }, hub, rq, context);
                 }
                 Some(true)
             }
@@ -5105,6 +5153,7 @@ impl View for Reader {
 
         if self.article.is_some() {
             self.render_progress(fb, &rect, fonts);
+            self.render_running_header(fb, &rect, fonts);
         }
 
         if self.info.reader.as_ref().map_or(false, |r| r.bookmarks.contains(&self.current_page)) {

@@ -221,6 +221,22 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
     OpenResult::Ready(Box::new(OpenArticle { id, path, version: v.version, content_hash: v.hash, offset, kind: DocKind::Article }))
 }
 
+/// Queues a background download of a neighbour of the open article when it is not cached yet
+/// (once per session), so swiping to it does not wait for the network.
+pub fn prefetch(context: &mut Context, id: ArticleId) {
+    if context.inoink.handle.is_none() || !context.inoink.prefetched.insert(id) {
+        return;
+    }
+    let cached = context
+        .inoink
+        .store()
+        .and_then(|s| s.latest_version(id).ok().flatten())
+        .map_or(false, |v| context.inoink.cache.version_path(id, v.version).is_file());
+    if !cached {
+        context.inoink.submit(Command::CacheNow(id));
+    }
+}
+
 /// Opens the cached comments page of a link post (fetching it when it is missing).
 pub fn open_comments(context: &mut Context, id: ArticleId) -> OpenResult {
     let path = context.inoink.cache.comments_path(id);
@@ -257,6 +273,7 @@ fn fetch_for_open(context: &mut Context, id: ArticleId) -> OpenResult {
         return OpenResult::Unavailable("This article is not available offline".into());
     }
     context.inoink.opening = Some((id, OpenMode::Push));
+    context.inoink.opening_at = Some(std::time::Instant::now());
     context.inoink.submit(Command::CacheNow(id));
     OpenResult::Fetching
 }

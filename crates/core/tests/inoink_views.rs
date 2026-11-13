@@ -513,14 +513,15 @@ fn has_bar(reader: &Reader) -> bool {
 }
 
 #[test]
-fn an_article_opened_mid_way_shows_the_bar_until_the_first_page_turn() {
+fn an_article_opened_mid_way_shows_a_running_header_until_the_first_page_turn() {
     let mut e = env();
     add_long_article(&mut e, 9);
     e.context.inoink.open_at_end = true;
     let mut reader = open(&mut e, &[9], false, 9);
-    assert!(has_bar(&reader));
-    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
     assert!(!has_bar(&reader));
+    assert_eq!(reader.running_header(), Some("Article 9"));
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
+    assert!(reader.running_header().is_none());
 }
 
 #[test]
@@ -528,6 +529,7 @@ fn an_article_opened_at_its_start_shows_no_bar() {
     let mut e = env();
     let reader = open(&mut e, &[4, 3], false, 4);
     assert!(!has_bar(&reader));
+    assert!(reader.running_header().is_none());
 }
 
 #[test]
@@ -537,4 +539,40 @@ fn with_inverted_buttons_swiping_down_opens_the_next_article() {
     let mut reader = open(&mut e, &[4, 3], false, 4);
     drive(&mut reader, &mut e, swipe_v(600, 1400));
     assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+}
+
+#[test]
+fn a_slanted_upward_swipe_still_opens_the_next_article() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    let p = plato_core::geom::Point::new;
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::SlantedSwipe { dir: plato_core::geom::DiagDir::NorthEast, start: p(500, 1400), end: p(800, 700) }));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+}
+
+#[test]
+fn a_stalled_download_blocks_briefly_then_gives_way() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    e.context.inoink.opening = Some((ArticleId(9), plato_core::view::inoink::state::OpenMode::Replace));
+    e.context.inoink.opening_at = Some(std::time::Instant::now());
+    sent(&e);
+    drive(&mut reader, &mut e, swipe_v(1400, 600));
+    assert!(opens(&sent(&e)).is_empty());
+    assert!(reader.children().iter().any(|c| c.downcast_ref::<plato_core::view::notification::Notification>().is_some()));
+
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    e.context.inoink.opening = Some((ArticleId(9), plato_core::view::inoink::state::OpenMode::Replace));
+    e.context.inoink.opening_at = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(11));
+    sent(&e);
+    drive(&mut reader, &mut e, swipe_v(1400, 600));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+    assert!(e.context.inoink.opening.is_none());
+}
+
+#[test]
+fn no_prefetch_without_a_sync_worker() {
+    let mut e = env();
+    let _reader = open(&mut e, &[4, 3, 2], false, 3);
+    assert!(e.context.inoink.prefetched.is_empty());
 }

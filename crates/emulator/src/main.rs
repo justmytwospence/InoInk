@@ -469,6 +469,7 @@ fn main() -> Result<(), Error> {
                             },
                             OpenResult::Fetching => {
                                 context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
+                                context.inoink.opening_at = Some(std::time::Instant::now());
                                 let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
                                 view.children_mut().push(Box::new(notif) as Box<dyn View>);
                             },
@@ -556,6 +557,7 @@ fn main() -> Result<(), Error> {
                         if let Some((open, mode)) = context.inoink.opening {
                             if open == *id {
                                 context.inoink.opening = None;
+                                context.inoink.opening_at = None;
                                 tx.send(match mode {
                                     plato_core::view::inoink::state::OpenMode::Push => Event::OpenArticle(*id),
                                     plato_core::view::inoink::state::OpenMode::Replace => Event::OpenNext(*id),

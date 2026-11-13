@@ -850,6 +850,7 @@ pub fn run() -> Result<(), Error> {
                         },
                         OpenResult::Fetching => {
                             context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
+                            context.inoink.opening_at = Some(std::time::Instant::now());
                             let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
                             view.children_mut().push(Box::new(notif) as Box<dyn View>);
                         },
@@ -948,6 +949,7 @@ pub fn run() -> Result<(), Error> {
                     if let Some((open, mode)) = context.inoink.opening {
                         if open == *id {
                             context.inoink.opening = None;
+                            context.inoink.opening_at = None;
                             tx.send(match mode {
                                 plato_core::view::inoink::state::OpenMode::Push => Event::OpenArticle(*id),
                                 plato_core::view::inoink::state::OpenMode::Replace => Event::OpenNext(*id),
@@ -988,6 +990,7 @@ pub fn run() -> Result<(), Error> {
                 if let plato_core::inoink::runtime::Update::CacheFailed(id, _) = u {
                     if context.inoink.opening.is_some_and(|(open, _)| open == *id) {
                         context.inoink.opening = None;
+                        context.inoink.opening_at = None;
                         let notif = Notification::new("This article could not be downloaded".to_string(), &tx, &mut rq, &mut context);
                         view.children_mut().push(Box::new(notif) as Box<dyn View>);
                         handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);

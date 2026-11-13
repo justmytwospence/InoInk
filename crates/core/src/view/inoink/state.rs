@@ -93,6 +93,10 @@ pub struct InoInk {
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.
     pub opening: Option<(ArticleId, OpenMode)>,
+    /// When `opening` was set.
+    pub opening_at: Option<std::time::Instant>,
+    /// Neighbours already queued for download this session.
+    pub prefetched: std::collections::HashSet<ArticleId>,
     /// A linked page being fetched for the reading view.
     pub opening_page: Option<String>,
     /// The next article opened starts on its last page (paging back from the first page of the following one).
@@ -147,6 +151,8 @@ impl InoInk {
             last_undo: None,
             notice: None,
             opening: None,
+            opening_at: None,
+            prefetched: std::collections::HashSet::new(),
             opening_page: None,
             open_at_end: false,
             share,
