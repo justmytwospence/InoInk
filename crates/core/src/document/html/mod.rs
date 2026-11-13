@@ -118,8 +118,8 @@ impl HtmlDocument {
         self.pages.clear();
     }
 
-    /// Keeps `px` more space above the text on every page than the margin gives, also after the
-    /// margin changes.
+    /// Keeps `px` more space above the text on every page but the first than the margin gives,
+    /// also after the margin changes.
     pub fn set_top_reserve(&mut self, px: i32) {
         let mut m = self.engine.margin;
         m.top += px - self.top_reserve;
@@ -247,8 +247,9 @@ impl HtmlDocument {
         };
 
         let loop_context = LoopContext::default();
+        // The first page shows no running title, so its text starts at the plain margin.
         let mut draw_state = DrawState {
-            position: rect.min,
+            position: rect.min - pt!(0, self.top_reserve),
             .. Default::default()
         };
 
