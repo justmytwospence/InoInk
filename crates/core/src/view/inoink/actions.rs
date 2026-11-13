@@ -5,7 +5,7 @@ use crate::context::Context;
 use inoink::content::relocate;
 use inoink::model::*;
 use crate::settings::HeadlineTap;
-use crate::view::inoink::state::{OpenMode, Tab};
+use crate::view::inoink::state::{OpenMode, Tab, Undo};
 use inoink::runtime::Command;
 use std::path::PathBuf;
 
@@ -39,9 +39,15 @@ pub enum InoInkEntry {
     Tab(Tab),
     /// Open a category (folder, feed, tag...) from the Categories tab.
     OpenCategory(Collection),
-    /// Mark read what was seen in this list and not starred (the end-of-list card).
-    MarkSeenRead,
-    ConfirmMarkSeenRead,
+    /// Enter selection mode (if needed) with this selection.
+    Select(SelectPreset),
+    /// Selection mode: tick or untick one article.
+    ToggleSelected(ArticleId),
+    /// Hold in selection mode: select from the last tapped row to this one (on this page).
+    SelectRangeTo(ArticleId),
+    /// Apply a change to exactly the selected articles (undoable).
+    BulkApply(BulkAction),
+    CancelSelection,
     UnreadOnly(bool),
     ViewGroup(ArticleGroup),
     ViewSort(ArticleSort),
@@ -66,9 +72,6 @@ pub enum InoInkEntry {
     ConfirmDeleteMonitoring(String),
     CacheBudget(u64),
     UnreadDays(i64),
-    /// Show a frozen, counted selection of the current list before marking it read.
-    MarkListRead,
-    ConfirmMarkListRead,
     OpenDetails(ArticleId),
     SetHeadlineTap(HeadlineTap),
     SetQueueTitles(crate::settings::QueueTitles),
@@ -87,6 +90,21 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
+}
+
+/// Which articles a selection starts from or switches to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectPreset {
+    /// Nothing selected.
+    None,
+    /// Adds the articles of the page shown.
+    Page,
+    /// The whole list (at most `BULK_LIMIT`).
+    List,
+    /// Seen in this list, unread and not starred (the end-of-list card).
+    SeenUnmarked,
+    /// A single article.
+    One(ArticleId),
 }
 
 #[derive(Debug, Default)]
@@ -137,7 +155,7 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             };
             let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
             let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
-            context.inoink.last_undo = Some((undo, title));
+            context.inoink.last_undo = Some((Undo::Done(undo), format!("Done: {}", inoink::util::shorten(&title, 40))));
             context.inoink.changed();
             // The Undo bar at the top of the list is the confirmation; no notification covers it.
             Ok(ActionOutcome { message: None, close: true })
@@ -160,13 +178,38 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
     }
 }
 
-/// Reverts the most recent Done.
+/// Freezes `ids` (at most `BULK_LIMIT`, the rest dropped), applies `action` and offers it for
+/// undo. Returns how many articles it covered.
+pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkAction) -> Result<usize, String> {
+    if ids.is_empty() {
+        return Err("Select articles first".into());
+    }
+    let ids = &ids[..ids.len().min(inoink::store::BULK_LIMIT)];
+    let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
+    let sel = store.freeze_ids(ids).map_err(|_| SAVE_FAILED)?;
+    let n = store.apply_bulk(&sel, action).map_err(|_| SAVE_FAILED)?;
+    let label = match action {
+        BulkAction::MarkRead => format!("Marked {n} read"),
+        BulkAction::MarkUnread => format!("Marked {n} unread"),
+        BulkAction::Star => format!("Saved {n} for later"),
+        BulkAction::Unstar => format!("Removed {n} from Read later"),
+    };
+    context.inoink.last_undo = Some((Undo::Bulk(sel.id), label));
+    context.inoink.changed();
+    Ok(n)
+}
+
+/// Reverts the most recent Done or bulk action.
 pub fn undo_done(context: &mut Context) -> Result<ActionOutcome, String> {
     let Some((undo, _)) = context.inoink.last_undo.clone() else {
         return Ok(ActionOutcome::default());
     };
     let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
-    store.undo(undo).map_err(|_| SAVE_FAILED)?;
+    match undo {
+        Undo::Done(u) => store.undo(u),
+        Undo::Bulk(s) => store.undo_bulk(s),
+    }
+    .map_err(|_| SAVE_FAILED)?;
     context.inoink.last_undo = None;
     context.inoink.changed();
     Ok(ActionOutcome { message: Some("Restored".into()), close: false })
@@ -196,6 +239,9 @@ pub enum OpenResult {
 /// Finds the published content for an article and takes a lease on it so the version stays
 /// until the reader closes.
 pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
+    if let Some(s) = context.inoink.store_mut() {
+        let _ = s.mark_seen(&[id], inoink::util::now_usec());
+    }
     let at_end = std::mem::take(&mut context.inoink.open_at_end);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {

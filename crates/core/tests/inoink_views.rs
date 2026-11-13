@@ -158,10 +158,12 @@ fn end_of_unread_marks_only_seen_unstarred() {
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(rows(&home), vec![4, 3, 2, 1]);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::MarkSeenRead)));
-    // A new article arrives after the user saw the count and before they confirmed.
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::SeenUnmarked))));
+    assert_eq!(home.selected_articles(), Some(vec![ArticleId(3), ArticleId(4)]));
+    // A new article arrives after the selection was made and before Read.
     e.context.inoink.store_mut().unwrap().upsert_article(&rec(5, 500_000_000, false), 0).unwrap();
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkSeenRead)));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::BulkApply(BulkAction::MarkRead))));
+    assert_eq!(home.selected_articles(), None, "applying leaves selection mode");
     let st = e.context.inoink.store().unwrap();
     // 1 and 2 are starred in the fixtures and stay unread; 3 and 4 were seen and unstarred.
     assert!(st.effective(ArticleId(3), &Membership::Read).unwrap());
@@ -224,6 +226,7 @@ fn opening_does_not_mark_read_and_leases_the_version() {
         _ => panic!("cached article should open"),
     }
     assert!(!e.context.inoink.store().unwrap().effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(e.context.inoink.store().unwrap().seen_at(ArticleId(3)).unwrap().is_some(), "opening counts as seen");
     // An article that was never downloaded cannot open offline.
     e.context.inoink.store_mut().unwrap().upsert_article(&rec(9, 900_000_000, false), 0).unwrap();
     assert!(matches!(open_article(&mut e.context, ArticleId(9)), OpenResult::Unavailable(_)));
@@ -245,16 +248,82 @@ fn marking_a_list_read_uses_a_frozen_selection() {
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(rows(&home), vec![4, 3, 2, 1]);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::MarkListRead)));
-    // A new article arrives after the user saw the count and before they confirmed.
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::List))));
+    assert_eq!(home.selected_articles().map(|v| v.len()), Some(4));
+    // A new article arrives after the selection was made and before Read.
     e.context.inoink.store_mut().unwrap().upsert_article(&rec(5, 500_000_000, false), 0).unwrap();
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkListRead)));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::BulkApply(BulkAction::MarkRead))));
     let st = e.context.inoink.store().unwrap();
     for id in 1..=4 {
         assert!(st.effective(ArticleId(id), &Membership::Read).unwrap(), "#{id} in the frozen scope");
     }
     assert!(!st.effective(ArticleId(5), &Membership::Read).unwrap(), "the newcomer is untouched");
     assert!(st.effective(ArticleId(1), &Membership::Starred).unwrap(), "stars are kept");
+}
+
+fn new_rows(home: &InoInkHome) -> Vec<(u64, bool)> {
+    home.children()[4].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).map(|r| (r.item.id.0, r.item.new)).collect()
+}
+
+#[test]
+fn new_marks_last_for_the_visit() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(new_rows(&home), vec![(4, true), (3, true), (2, true), (1, true)], "never seen before this visit");
+    // Changing the view (or a sync refresh) reloads the list without starting a new visit.
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ViewSort(ArticleSort::Oldest))));
+    assert_eq!(new_rows(&home), vec![(1, true), (2, true), (3, true), (4, true)], "still new while the visit lasts");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ViewSort(ArticleSort::Newest))));
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    e.context.inoink.store_mut().unwrap().upsert_article(&rec(5, 500_000_000, false), 0).unwrap();
+    // Back from an article (or awake again): a new visit.
+    send(&mut home, &mut e, Event::Reseed);
+    assert_eq!(new_rows(&home), vec![(5, true), (4, false), (3, false), (2, false), (1, false)]);
+}
+
+#[test]
+fn selection_toggles_ranges_and_applies_with_undo() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let sel = |home: &mut InoInkHome, e: &mut Env, entry: InoInkEntry| send(home, e, Event::Select(EntryId::InoInk(entry)));
+    sel(&mut home, &mut e, InoInkEntry::Select(SelectPreset::None));
+    assert_eq!(home.selected_articles(), Some(vec![]));
+    assert_eq!(rows(&home), vec![4, 3, 2, 1]);
+    sel(&mut home, &mut e, InoInkEntry::ToggleSelected(ArticleId(4)));
+    sel(&mut home, &mut e, InoInkEntry::SelectRangeTo(ArticleId(2)));
+    assert_eq!(home.selected_articles(), Some(vec![ArticleId(2), ArticleId(3), ArticleId(4)]));
+    sel(&mut home, &mut e, InoInkEntry::ToggleSelected(ArticleId(3)));
+    assert_eq!(home.selected_articles(), Some(vec![ArticleId(2), ArticleId(4)]));
+    let ticked: Vec<u64> = home.children()[4].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).filter(|r| r.is_selected()).map(|r| r.item.id.0).collect();
+    assert_eq!(ticked, vec![4, 2], "the rows show it");
+    sel(&mut home, &mut e, InoInkEntry::BulkApply(BulkAction::MarkRead));
+    {
+        let st = e.context.inoink.store().unwrap();
+        assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
+        assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+        assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
+    }
+    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Marked 2 read"));
+    assert_eq!(rows(&home), vec![3, 1]);
+    sel(&mut home, &mut e, InoInkEntry::UndoDone);
+    let st = e.context.inoink.store().unwrap();
+    assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(2), &Membership::Starred).unwrap(), "the star is untouched");
+}
+
+#[test]
+fn changing_tab_cancels_selection_and_the_row_menu_starts_one() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::None))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    assert_eq!(home.selected_articles(), None);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::One(ArticleId(2))))));
+    assert_eq!(home.selected_articles(), Some(vec![ArticleId(2)]));
 }
 
 #[test]

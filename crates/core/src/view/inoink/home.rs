@@ -14,7 +14,7 @@ use crate::view::dialog::Dialog;
 use crate::view::filler::Filler;
 use crate::view::icon::Icon;
 use crate::view::button::Button;
-use crate::view::inoink::actions::{apply_article_action, undo_done, ArticleAction, InoInkEntry};
+use crate::view::inoink::actions::{apply_article_action, apply_bulk_action, undo_done, ArticleAction, InoInkEntry, SelectPreset};
 use crate::view::inoink::categories::{category_items, CategoryItem, CategoryRow};
 use crate::view::inoink::group_header::GroupHeader;
 use crate::view::inoink::manage;
@@ -45,6 +45,13 @@ enum Slot {
     End,
 }
 
+/// Selection mode's state.
+struct Selecting {
+    ids: BTreeSet<ArticleId>,
+    /// The last tapped or held row: a hold selects from here.
+    anchor: Option<ArticleId>,
+}
+
 #[derive(Debug, Clone)]
 enum Prompt {
     Search,
@@ -65,8 +72,12 @@ pub struct InoInkHome {
     prompt: Option<Prompt>,
     focus: Option<ViewId>,
     rows: usize,
-    /// A frozen selection awaiting confirmation (count shown to the user).
-    selection: Option<BulkSelection>,
+    /// Selection mode: the chosen articles and the row a range starts from.
+    selecting: Option<Selecting>,
+    /// Start of the current visit to this list (microseconds), for "new".
+    visit_start: i64,
+    /// What the visit is to: tab, collection, search, category list showing.
+    visit_key: (Tab, Collection, Option<String>, bool),
     /// The article a row menu acts on.
     pending_row: Option<ArticleId>,
     cat_items: Vec<CategoryItem>,
@@ -74,8 +85,6 @@ pub struct InoInkHome {
     cat_page: usize,
     showing_cats: bool,
     row_mode: RowMode,
-    /// Every article shown in this list since it was opened (for "Mark N read").
-    seen: BTreeSet<ArticleId>,
     /// The page that only holds the end-of-list card.
     end_only: bool,
     /// The last page of articles had no room for the card: Next shows it.
@@ -192,7 +201,7 @@ impl InoInkHome {
         let title = String::new();
         let top = TopBar::new(rect![rect.min.x, rect.min.y, rect.max.x, rect.min.y + small_height - small_thickness], Event::Toggle(ViewId::SearchBar), title, context)
             .with_home_layout(vec![
-                ("mark-read", Event::Select(EntryId::InoInk(InoInkEntry::MarkListRead))),
+                ("mark-read", Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::List)))),
                 ("sync", Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))),
             ]);
         children.push(Box::new(top));
@@ -222,20 +231,22 @@ impl InoInkHome {
             prompt: None,
             focus: None,
             rows,
-            selection: None,
+            selecting: None,
+            visit_start: 0,
+            visit_key: (context.inoink.tab, context.inoink.collection.clone(), None, context.inoink.show_categories),
             pending_row: None,
             cat_items: Vec::new(),
             cat_pages: vec![0],
             cat_page: 0,
             showing_cats: false,
             row_mode: RowMode::OpenMenu,
-            seen: BTreeSet::new(),
             end_only: false,
             next_is_end: false,
             end_count: 0,
             total_pages: 1,
             more_online: false,
         };
+        home.start_visit(context);
         home.load_page(hub, rq, context);
         home.update_sync_icon(rq, context);
         rq.add(RenderData::new(home.id, rect, UpdateMode::Full));
@@ -250,7 +261,9 @@ impl InoInkHome {
     /// How rows answer taps and holds. In Read later and search results a tap opens and a hold
     /// shows the menu; elsewhere one of them saves for later (the setting says which).
     fn row_mode(&self, context: &Context) -> RowMode {
-        if self.search.is_some() || context.inoink.tab == Tab::ReadLater {
+        if self.selecting.is_some() {
+            RowMode::Select
+        } else if self.search.is_some() || context.inoink.tab == Tab::ReadLater {
             RowMode::OpenMenu
         } else if context.settings.inoink.list_tap == HeadlineTap::Star {
             RowMode::SaveOpen
@@ -261,10 +274,26 @@ impl InoInkHome {
 
     fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
         if let Some(text) = &self.search {
-            return ArticleQuery { collection: None, unread_only: false, search: Some(text.clone()), limit, after, group: ArticleGroup::None, sort: ArticleSort::Newest };
+            return ArticleQuery { collection: None, unread_only: false, search: Some(text.clone()), limit, after, group: ArticleGroup::None, sort: ArticleSort::Newest, visit_start_usec: self.visit_start };
         }
         let o = Self::effective_options(context);
-        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: o.unread_only, search: None, limit, after, group: o.group, sort: o.sort }
+        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: o.unread_only, search: None, limit, after, group: o.group, sort: o.sort, visit_start_usec: self.visit_start }
+    }
+
+    /// The current visit's key: what the list shows.
+    fn current_visit_key(&self, context: &Context) -> (Tab, Collection, Option<String>, bool) {
+        (context.inoink.tab, context.inoink.collection.clone(), self.search.clone(), context.inoink.show_categories)
+    }
+
+    /// Starts a new visit: headlines seen until now stop counting as new.
+    fn start_visit(&mut self, context: &Context) {
+        self.visit_start = inoink::util::now_usec();
+        self.visit_key = self.current_visit_key(context);
+    }
+
+    /// The articles selected, in id order, or `None` outside selection mode.
+    pub fn selected_articles(&self) -> Option<Vec<ArticleId>> {
+        self.selecting.as_ref().map(|s| s.ids.iter().copied().collect())
     }
 
     /// The filter, group and sort actually applied to the current list.
@@ -392,8 +421,10 @@ impl InoInkHome {
         let mut items = items;
         items.truncate(placed);
         let next = if truncated { items.last().map(Cursor::from) } else { next };
-        if self.search.is_none() {
-            self.seen.extend(items.iter().map(|i| i.id));
+        // Everything placed on the page counts as seen (local only).
+        let shown: Vec<ArticleId> = items.iter().map(|i| i.id).collect();
+        if let Some(s) = context.inoink.store_mut() {
+            let _ = s.mark_seen(&shown, inoink::util::now_usec());
         }
         if next.is_none() && applies {
             self.end_count = self.count_unmarked(context);
@@ -475,18 +506,27 @@ impl InoInkHome {
         (page, self.total_pages, self.more_online)
     }
 
-    /// How many articles seen in this list are still unread and not saved.
+    /// How many articles of this list were seen and are still unread and not saved.
     fn count_unmarked(&self, context: &Context) -> usize {
-        self.unmarked(context).len()
+        self.seen_unmarked(context).len()
     }
 
-    fn unmarked(&self, context: &Context) -> Vec<ArticleId> {
+    fn seen_unmarked(&self, context: &Context) -> Vec<ArticleId> {
         let Some(store) = context.inoink.store() else { return Vec::new() };
-        self.seen
-            .iter()
-            .filter(|id| !store.effective(**id, &Membership::Read).unwrap_or(true) && !store.effective(**id, &Membership::Starred).unwrap_or(true))
-            .copied()
-            .collect()
+        let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
+        store.seen_unmarked_ids(&q, inoink::store::BULK_LIMIT).unwrap_or_default()
+    }
+
+    /// Updates the check boxes on screen and the title's count.
+    fn refresh_selection(&mut self, rq: &mut RenderQueue, context: &Context) {
+        let ids = self.selecting.as_ref().map(|s| s.ids.clone()).unwrap_or_default();
+        if let Some(list) = self.children[LIST].downcast_mut::<List>() {
+            for row in list.children.iter_mut().filter_map(|c| c.downcast_mut::<ArticleRow>()) {
+                let on = ids.contains(&row.item.id);
+                row.set_selected(on, rq);
+            }
+        }
+        self.update_chrome(rq, context);
     }
 
     /// Title, back/search icon and tab labels.
@@ -494,14 +534,22 @@ impl InoInkHome {
         let in_category = context.inoink.tab == Tab::Categories && !context.inoink.show_categories;
         // The tabs already name the Newsfeed, Categories and Read later: the title only says
         // where you are inside Categories, or what you searched for.
-        let title = if let Some(q) = &self.search {
+        let title = if let Some(sel) = &self.selecting {
+            format!("{} selected", sel.ids.len())
+        } else if let Some(q) = &self.search {
             format!("Search: {q}")
         } else if in_category {
             format!("{} \u{25be}", collection_title(context, &context.inoink.collection))
         } else {
             String::new()
         };
-        let icon = if self.search.is_some() || in_category { "back" } else { "search" };
+        let icon = if self.selecting.is_some() {
+            "close"
+        } else if self.search.is_some() || in_category {
+            "back"
+        } else {
+            "search"
+        };
         if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
             top.update_title_label(&title, rq);
             top.update_root_icon(icon, rq);
@@ -551,6 +599,7 @@ impl InoInkHome {
         let row_mode = self.row_mode;
         let end_count = self.end_count;
         let layout = self.layout.clone();
+        let selected = self.selecting.as_ref().map(|s| s.ids.clone()).unwrap_or_default();
         let list = self.children[LIST].downcast_mut::<List>().unwrap();
         list.children.clear();
         let rect = list.rect;
@@ -560,11 +609,11 @@ impl InoInkHome {
         let mut y = rect.min.y;
         let mut unit = 0i32;
         if !self.showing_cats {
-            if let Some((_, title)) = context.inoink.last_undo.as_ref() {
+            if let Some((_, label)) = context.inoink.last_undo.as_ref() {
                 // The undo bar takes the first row until superseded.
                 let h = span(0, 2);
                 let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
-                let label = format!("Done: {}", inoink::util::shorten(title, 40));
+                let label = label.clone();
                 let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
                 list.children.push(Box::new(lbl));
                 list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
@@ -590,7 +639,7 @@ impl InoInkHome {
                     list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { small_thickness }], text.clone())));
                 }
                 Slot::Item(i) => {
-                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, row_mode)));
+                    list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, row_mode, selected.contains(&items[*i].id))));
                     if !last {
                         list.children.push(Box::new(Filler::new(rect![rect.min.x, y_max, rect.max.x, y_max + thickness], SEPARATOR_NORMAL)));
                     }
@@ -611,7 +660,7 @@ impl InoInkHome {
                     let w = r.width() as i32 / 3;
                     let cx = (r.min.x + r.max.x) / 2;
                     let pad = half / 6;
-                    list.children.push(Box::new(Button::new(rect![cx - w, r.min.y + half + pad, cx + w, r.max.y - pad], Event::Select(EntryId::InoInk(InoInkEntry::MarkSeenRead)), format!("Mark {end_count} read"))));
+                    list.children.push(Box::new(Button::new(rect![cx - w, r.min.y + half + pad, cx + w, r.max.y - pad], Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::SeenUnmarked))), format!("Mark {end_count} read"))));
                 }
             }
             y += h;
@@ -686,6 +735,29 @@ impl InoInkHome {
         // left keeps the view choice centred.
         let x0 = rect.min.x + side;
         let x1 = rect.max.x - side;
+        if self.selecting.is_some() {
+            // Selection mode: the actions across the footer, the selection menu last.
+            let actions: [(&str, Option<BulkAction>); 5] = [
+                ("Read", Some(BulkAction::MarkRead)),
+                ("Unread", Some(BulkAction::MarkUnread)),
+                ("Save", Some(BulkAction::Star)),
+                ("Unsave", Some(BulkAction::Unstar)),
+                ("Select \u{25be}", None),
+            ];
+            let cells = divide(x1 - x0, actions.len() as i32);
+            let mut x = x0;
+            for ((label, action), w) in actions.iter().zip(cells) {
+                let r = rect![x, rect.min.y, x + w, rect.max.y];
+                let event = match action {
+                    Some(a) => Event::Select(EntryId::InoInk(InoInkEntry::BulkApply(*a))),
+                    None => Event::ToggleNear(ViewId::SortMenu, r),
+                };
+                footer.children.push(Box::new(Label::new(r, label.to_string(), Align::Center).event(Some(event))));
+                x += w;
+            }
+            rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
+            return;
+        }
         let side_w = (x1 - x0) / 4;
         footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
         let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
@@ -753,7 +825,10 @@ impl InoInkHome {
         self.page = 0;
         self.cursors = vec![None];
         self.cat_page = 0;
-        self.seen.clear();
+        self.selecting = None;
+        if self.current_visit_key(context) != self.visit_key {
+            self.start_visit(context);
+        }
         self.end_only = false;
         self.next_is_end = false;
         self.load_page(hub, rq, context);
@@ -856,6 +931,7 @@ impl InoInkHome {
             EntryKind::Command(if item.read { "Mark unread" } else { "Mark read" }.to_string(), e(ArticleAction::ToggleRead)),
             EntryKind::Command("Done".to_string(), e(ArticleAction::Done)),
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(item.id))),
+            EntryKind::Command("Select".to_string(), EntryId::InoInk(InoInkEntry::Select(SelectPreset::One(item.id)))),
         ];
         self.toggle_menu(ViewId::BookMenu, rect, MenuKind::Contextual, entries, rq, context);
     }
@@ -932,30 +1008,44 @@ impl InoInkHome {
                 context.inoink.set_view_options(o);
                 self.reset(hub, rq, context);
             }
-            InoInkEntry::MarkSeenRead => {
-                let mut ids = self.unmarked(context);
-                ids.truncate(inoink::store::BULK_LIMIT);
-                let frozen = context.inoink.store_mut().and_then(|s| s.freeze_ids(&ids).ok());
-                match frozen {
-                    Some(sel) if !sel.articles.is_empty() => {
-                        let n = sel.articles.len();
-                        self.selection = Some(sel);
-                        self.confirm(format!("Mark {n} articles read? Starred articles stay unread."), InoInkEntry::ConfirmMarkSeenRead, rq, context);
+            InoInkEntry::Select(p) => self.start_selection(*p, hub, rq, context),
+            InoInkEntry::ToggleSelected(id) => {
+                if let Some(sel) = self.selecting.as_mut() {
+                    if !sel.ids.remove(id) {
+                        sel.ids.insert(*id);
                     }
-                    _ => self.notify("Nothing to mark", hub, rq, context),
+                    sel.anchor = Some(*id);
+                    self.refresh_selection(rq, context);
                 }
             }
-            InoInkEntry::ConfirmMarkSeenRead => {
-                if let (Some(sel), Some(store)) = (self.selection.take(), context.inoink.store_mut()) {
-                    match store.apply_bulk(&sel, BulkAction::MarkRead) {
-                        Ok(n) => {
-                            context.inoink.changed();
-                            self.notify(&format!("Marked {n} read"), hub, rq, context);
-                        }
-                        Err(_) => self.notify(crate::view::inoink::actions::SAVE_FAILED, hub, rq, context),
+            InoInkEntry::SelectRangeTo(id) => {
+                if let Some(anchor) = self.selecting.as_ref().map(|s| s.anchor) {
+                    let pos = |x: ArticleId| self.items.iter().position(|i| i.id == x);
+                    // A range only within this page; otherwise just the held row.
+                    let range: Vec<ArticleId> = match (anchor.and_then(pos), pos(*id)) {
+                        (Some(a), Some(b)) => self.items[a.min(b)..=a.max(b)].iter().map(|i| i.id).collect(),
+                        _ => vec![*id],
+                    };
+                    if let Some(sel) = self.selecting.as_mut() {
+                        sel.ids.extend(range);
+                        sel.anchor = Some(*id);
                     }
-                    self.reset(hub, rq, context);
+                    self.refresh_selection(rq, context);
                 }
+            }
+            InoInkEntry::BulkApply(a) => {
+                let ids = self.selected_articles().unwrap_or_default();
+                match apply_bulk_action(context, &ids, *a) {
+                    Ok(_) => {
+                        self.selecting = None;
+                        self.load_page(hub, rq, context);
+                    }
+                    Err(m) => self.notify(&m, hub, rq, context),
+                }
+            }
+            InoInkEntry::CancelSelection => {
+                self.selecting = None;
+                self.load_page(hub, rq, context);
             }
             InoInkEntry::ViewGroup(g) => {
                 let mut v = context.inoink.view_options();
@@ -1013,31 +1103,6 @@ impl InoInkHome {
             InoInkEntry::Unsubscribe(f) => self.confirm("Unfollow this feed? Its articles stay.".into(), InoInkEntry::ConfirmUnsubscribe(f.clone()), rq, context),
             InoInkEntry::DeleteFolder(f) => self.confirm("Delete this folder? Its feeds are kept.".into(), InoInkEntry::ConfirmDeleteFolder(f.clone()), rq, context),
             InoInkEntry::DeleteMonitoring(m) => self.confirm("Delete this monitoring search?".into(), InoInkEntry::ConfirmDeleteMonitoring(m.clone()), rq, context),
-            InoInkEntry::MarkListRead => {
-                let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
-                let frozen = context.inoink.store_mut().and_then(|s| s.freeze_selection(&q).ok());
-                match frozen {
-                    Some(sel) if !sel.articles.is_empty() => {
-                        let n = sel.articles.len();
-                        self.selection = Some(sel);
-                        let more = if n >= inoink::store::BULK_LIMIT { " (the first 1000)" } else { "" };
-                        self.confirm(format!("Mark {n} article(s){more} read? Stars are kept."), InoInkEntry::ConfirmMarkListRead, rq, context);
-                    }
-                    _ => self.notify("Nothing to mark", hub, rq, context),
-                }
-            }
-            InoInkEntry::ConfirmMarkListRead => {
-                if let (Some(sel), Some(store)) = (self.selection.take(), context.inoink.store_mut()) {
-                    match store.apply_bulk(&sel, BulkAction::MarkRead) {
-                        Ok(n) => {
-                            context.inoink.changed();
-                            self.notify(&format!("Marked {n} read"), hub, rq, context);
-                        }
-                        Err(_) => self.notify(crate::view::inoink::actions::SAVE_FAILED, hub, rq, context),
-                    }
-                    self.load_page(hub, rq, context);
-                }
-            }
             InoInkEntry::OpenDetails(id) => {
                 hub.send(Event::OpenDetails(*id)).ok();
             }
@@ -1060,6 +1125,39 @@ impl InoInkHome {
                 Err(m) => self.notify(&m, hub, rq, context),
             },
         }
+    }
+
+    /// Enters selection mode (or changes the selection) from a preset.
+    fn start_selection(&mut self, p: SelectPreset, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if self.showing_cats {
+            self.notify("Open a list to select articles", hub, rq, context);
+            return;
+        }
+        self.pending_row = None;
+        let ids: BTreeSet<ArticleId> = match p {
+            SelectPreset::None => BTreeSet::new(),
+            SelectPreset::Page => {
+                let mut ids = self.selecting.as_ref().map(|s| s.ids.clone()).unwrap_or_default();
+                ids.extend(self.items.iter().map(|i| i.id));
+                ids
+            }
+            SelectPreset::List => {
+                let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
+                let ids = context.inoink.store().and_then(|s| s.query_ids(&q, inoink::store::BULK_LIMIT).ok()).unwrap_or_default();
+                if ids.len() >= inoink::store::BULK_LIMIT {
+                    self.notify("Selected the first 1000", hub, rq, context);
+                }
+                ids.into_iter().collect()
+            }
+            SelectPreset::SeenUnmarked => self.seen_unmarked(context).into_iter().collect(),
+            SelectPreset::One(id) => BTreeSet::from([id]),
+        };
+        if self.selecting.is_none() && ids.is_empty() && matches!(p, SelectPreset::List | SelectPreset::SeenUnmarked) {
+            self.notify("Nothing to select", hub, rq, context);
+            return;
+        }
+        self.selecting = Some(Selecting { ids, anchor: None });
+        self.load_page(hub, rq, context);
     }
 
     fn submit(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -1118,6 +1216,22 @@ impl View for InoInkHome {
                 self.toggle_menu(ViewId::TitleMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
+            Event::ToggleNear(ViewId::SortMenu, rect) if self.selecting.is_some() => {
+                let sel = |label: &str, p: SelectPreset| EntryKind::Command(label.to_string(), EntryId::InoInk(InoInkEntry::Select(p)));
+                let mut entries = vec![
+                    EntryKind::Message("Select".to_string(), None),
+                    sel("Add this page", SelectPreset::Page),
+                    sel("Whole list", SelectPreset::List),
+                    sel("Seen, not saved", SelectPreset::SeenUnmarked),
+                    sel("None", SelectPreset::None),
+                    EntryKind::Separator,
+                    EntryKind::Command("Cancel".to_string(), EntryId::InoInk(InoInkEntry::CancelSelection)),
+                ];
+                // The menu opens upward from the footer and lists its entries bottom to top.
+                entries.reverse();
+                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                true
+            }
             Event::ToggleNear(ViewId::SortMenu, rect) if self.showing_cats => {
                 let current = context.inoink.category_sort();
                 let mut entries = vec![EntryKind::Message("Sort by".to_string(), None)];
@@ -1155,7 +1269,11 @@ impl View for InoInkHome {
                 true
             }
             Event::ToggleNear(ViewId::MainMenu, rect) => {
-                let entries = manage::main_menu_entries(context);
+                let mut entries = manage::main_menu_entries(context);
+                if !self.showing_cats && self.selecting.is_none() {
+                    let at = entries.iter().position(|e| matches!(e, EntryKind::Separator)).unwrap_or(entries.len());
+                    entries.insert(at, EntryKind::Command("Select articles".to_string(), EntryId::InoInk(InoInkEntry::Select(SelectPreset::None))));
+                }
                 self.toggle_menu(ViewId::MainMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
@@ -1172,7 +1290,10 @@ impl View for InoInkHome {
                 true
             }
             Event::Toggle(ViewId::SearchBar) => {
-                if self.prompt.is_some() {
+                if self.selecting.is_some() {
+                    self.selecting = None;
+                    self.load_page(hub, rq, context);
+                } else if self.prompt.is_some() {
                     self.close_prompt(hub, rq, context);
                 } else if self.search.is_some() {
                     self.search = None;
@@ -1262,6 +1383,8 @@ impl View for InoInkHome {
                 true
             }
             Event::Reseed => {
+                // Back from an article or another view, or awake again: a new visit.
+                self.start_visit(context);
                 self.load_page(hub, rq, context);
                 if let Some(top) = self.children[TOP].downcast_mut::<TopBar>() {
                     top.reseed(rq, context);
@@ -1315,6 +1438,7 @@ impl View for InoInkHome {
         self.cursors = vec![None];
         self.cat_page = 0;
         self.end_only = false;
+        self.selecting = None;
         self.load_page(hub, rq, context);
         rq.add(RenderData::new(self.id, rect, UpdateMode::Full));
     }
