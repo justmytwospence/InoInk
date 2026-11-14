@@ -453,6 +453,7 @@ pub enum ViewId {
     TopBottomBars,
     TableOfContents,
     MessageNotif(Id),
+    UndoToast(Id),
     SubMenu(u8),
     ArticleMenu,
     TextPanel,

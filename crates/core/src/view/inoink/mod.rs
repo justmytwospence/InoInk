@@ -16,3 +16,4 @@ pub mod row;
 pub mod state;
 pub mod tab_bar;
 pub mod text_panel;
+pub mod undo_toast;

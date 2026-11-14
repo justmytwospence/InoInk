@@ -99,6 +99,9 @@ pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
         entries.push(EntryKind::Message(format!("Provisioning failed: {e}"), None));
     }
     entries.push(EntryKind::Message(context.inoink.status_text(), None));
+    if context.inoink.last_undo.is_some() {
+        entries.push(cmd("Undo last change", InoInkEntry::UndoDone));
+    }
     entries.push(cmd("Follow a feed...", InoInkEntry::Subscribe));
     entries.push(EntryKind::Separator);
     entries.push(EntryKind::SubMenu("Settings".into(), settings_entries(context)));
