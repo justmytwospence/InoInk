@@ -751,3 +751,14 @@ fn headline_tap_opens_ribbon_tap_saves_hold_shows_the_menu() {
     let bus = run(Gest::HoldFingerShort(Point::new(400, 80), 0));
     assert!(matches!(bus.front(), Some(Event::ToggleBookMenu(..))));
 }
+
+#[test]
+fn the_select_button_enters_and_leaves_selection_mode() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ToggleSelectMode)));
+    assert_eq!(home.selected_articles(), Some(vec![]), "nothing ticked");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ToggleSelectMode)));
+    assert_eq!(home.selected_articles(), None);
+}

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ArticleAction {
     ToggleStar,
-    /// Mark read and remove the star. Undoable.
+    /// Archive: mark read and remove the star. Undoable.
     Done,
     /// Mark read (or unread) without touching the star.
     ToggleRead,
@@ -40,6 +40,8 @@ pub enum InoInkEntry {
     OpenCategory(Collection),
     /// Enter selection mode (if needed) with this selection.
     Select(SelectPreset),
+    /// The top bar's select button: enter selection mode with nothing ticked, or leave it.
+    ToggleSelectMode,
     /// Ask to mark part of the list read (a confirmation follows).
     MarkRead(inoink::store::ListSpan),
     /// Confirmed: mark that part read now (unread, unsaved articles only; undoable).
@@ -159,7 +161,7 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             };
             let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
             let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
-            context.inoink.last_undo = Some((Undo::Done(undo), format!("Done: {}", inoink::util::shorten(&title, 40))));
+            context.inoink.last_undo = Some((Undo::Done(undo), format!("Archived: {}", inoink::util::shorten(&title, 40))));
             context.inoink.changed();
             // The Undo bar at the top of the list is the confirmation; no notification covers it.
             Ok(ActionOutcome { message: None, close: true })

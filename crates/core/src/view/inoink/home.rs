@@ -201,6 +201,7 @@ impl InoInkHome {
         let title = String::new();
         let top = TopBar::new(rect![rect.min.x, rect.min.y, rect.max.x, rect.min.y + small_height - small_thickness], Event::Toggle(ViewId::SearchBar), title, context)
             .with_home_layout(vec![
+                ("select", Event::Select(EntryId::InoInk(InoInkEntry::ToggleSelectMode))),
                 ("mark-read", Event::Select(EntryId::InoInk(InoInkEntry::MarkRead(ListSpan::All)))),
                 ("sync", Event::Select(EntryId::InoInk(InoInkEntry::SyncNow))),
             ]);
@@ -947,7 +948,7 @@ impl InoInkHome {
         let mut entries = vec![
             EntryKind::Command(if item.starred { "Remove from Read later" } else { "Save for later" }.to_string(), e(ArticleAction::ToggleStar)),
             EntryKind::Command(if item.read { "Mark unread" } else { "Mark read" }.to_string(), e(ArticleAction::ToggleRead)),
-            EntryKind::Command("Done".to_string(), e(ArticleAction::Done)),
+            EntryKind::Command("Archive".to_string(), e(ArticleAction::Done)),
         ];
         // Everything in Read later is saved, so these would never mark anything there.
         if !(self.search.is_none() && context.inoink.collection == Collection::Starred) {
@@ -1039,6 +1040,13 @@ impl InoInkHome {
                 self.reset(hub, rq, context);
             }
             InoInkEntry::Select(p) => self.start_selection(*p, hub, rq, context),
+            InoInkEntry::ToggleSelectMode => {
+                if self.selecting.take().is_some() {
+                    self.load_page(hub, rq, context);
+                } else {
+                    self.start_selection(SelectPreset::None, hub, rq, context);
+                }
+            }
             InoInkEntry::MarkRead(span) => {
                 if self.showing_cats {
                     self.notify("Open a list to mark it read", hub, rq, context);
@@ -1319,11 +1327,7 @@ impl View for InoInkHome {
                 true
             }
             Event::ToggleNear(ViewId::MainMenu, rect) => {
-                let mut entries = manage::main_menu_entries(context);
-                if !self.showing_cats && self.selecting.is_none() {
-                    let at = entries.iter().position(|e| matches!(e, EntryKind::Separator)).unwrap_or(entries.len());
-                    entries.insert(at, EntryKind::Command("Select articles".to_string(), EntryId::InoInk(InoInkEntry::Select(SelectPreset::None))));
-                }
+                let entries = manage::main_menu_entries(context);
                 self.toggle_menu(ViewId::MainMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }

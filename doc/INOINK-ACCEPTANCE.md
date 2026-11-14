@@ -87,7 +87,7 @@ that was merged.
 | Ten suspend/wake cycles; no sync starts while suspended | NOT RUN |
 | USB share and unshare; the database opens afterwards | NOT RUN |
 | Read downloaded articles and images with Wi-Fi off | NOT RUN |
-| Done offline, restart, reconnect: read and unstarred on inoreader.com | NOT RUN |
+| Archive offline, restart, reconnect: read and unstarred on inoreader.com | NOT RUN |
 | Mark read keeps the star | NOT RUN |
 | Rapid toggles of read/star/tags end in the final state | NOT RUN |
 | Star an old article elsewhere: it arrives and is cached | NOT RUN |
@@ -123,13 +123,14 @@ that was merged.
 | Mark-read button in the top bar asks, then marks the whole list read except saved articles; Undo restores | NOT RUN |
 | Mark read up to here / from here down follow the list's sort, include the held headline and skip saved articles | NOT RUN |
 | After a bulk mark-read a sync starts at once and new unread articles arrive | NOT RUN |
+| Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | NOT RUN |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
 | Saved headlines show only the ribbon | NOT RUN |
 | Selection mode: check boxes toggle without ghosting; hold selects a range; Read/Unread/Save/Unsave apply and Undo reverts; the footer labels fit in portrait and landscape | NOT RUN |
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
 | Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
-| Done (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
+| Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |
 | An article opened part-way shows the bar until the first page turn | NOT RUN |

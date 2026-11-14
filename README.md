@@ -19,13 +19,13 @@ public API and does not try to match the Inoreader website feature for feature; 
   and **Read later** (your starred articles, the reading queue). Each view remembers its own
   filter, grouping and sort. Search covers every downloaded article.
 - Tap a headline to read it; tap the bookmark ribbon at its right to save it for later (star it);
-  hold it for its menu (Save for later, Mark read, Done, **Mark read up to here**, **Mark read
+  hold it for its menu (Save for later, Mark read, Archive, **Mark read up to here**, **Mark read
   from here down**, Details, Select). The mark-read button in the top bar asks, then marks the
   whole list read. At the end of an unread list a card offers **Mark N read**: one tap marks what
   you saw and did not save. Saved articles are never marked read by these, every one can be undone,
   and InoInk sends it and fetches new articles right away. Unread headlines you have not seen
-  before carry a bar on the left; selection mode (Main menu > Select articles) marks or saves
-  many articles at once.
+  before carry a bar on the left; selection mode (the check-box button in the top bar) marks or
+  saves many articles at once.
 - A compact list that uses the full width: bold for unread, the source, a relative date
   ("3 h ago") and the reading time ("6 min read") on one line, with the saved mark and the
   offline mark stacked at the right.
@@ -40,9 +40,9 @@ public API and does not try to match the Inoreader website feature for feature; 
   that cannot be typeset appears as its LaTeX source.
 - Hacker News and Lobsters: link posts open as the full linked article, with the discussion one
   tap away (an Article | comments switch in the bar). Both are cached for offline reading.
-- **Done** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
+- **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
-- Reading flows: at the end of an article a card offers Done (or Mark read) and the next article
+- Reading flows: at the end of an article a card offers Archive (or Mark read) and the next article
   of the list, Keep, Comments, or Back to list; swiping or pressing forward again continues (a
   setting). A line under the article shows progress, time left and your place in the list.
 - Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
@@ -150,7 +150,7 @@ Then:
 - You land on **Newsfeed**, your unread articles. **Tap** a headline to read it, tap its
   **ribbon** at the right to save it for later, **hold** it for its menu.
 - In an article, turn pages by tapping the left or right third (or the page-turn buttons). Tap
-  the middle for the bar: **Done** marks the article read and removes its star, **Aa** changes
+  the middle for the bar: **Archive** marks the article read and removes its star, **Aa** changes
   the font and spacing, **Back** returns to the list.
 - **Categories** shows your folders and feeds; **Read later** is your starred articles.
 - To clear a list: the check-mark button in the top bar marks it all read (after asking), a
@@ -170,7 +170,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 
 - **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
   it, tapping the ribbon at its right saves it for later, and holding shows its menu (Mark read,
-  Done, Mark read up to here / from here down, Details, Select). In Categories, the title of a folder or feed switches between the
+  Archive, Mark read up to here / from here down, Details, Select). In Categories, the title of a folder or feed switches between the
   folder and its feeds.
 - **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
   sort, and on the Categories list the order of folders. On the right, the page and how many
@@ -181,7 +181,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   your changes a few seconds after you make them. Tap the sync icon to sync now; it shows a dot
   and turns while a sync runs. Main menu > Status shows the last sync, and Settings > Inoreader
   API budget today's requests.
-- **Article:** tap the middle of the page for the bar (Back, Aa, Star, Done, More) and the progress
+- **Article:** tap the middle of the page for the bar (Back, Aa, Star, Archive, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
   Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge

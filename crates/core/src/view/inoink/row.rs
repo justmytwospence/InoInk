@@ -243,14 +243,19 @@ impl View for ArticleRow {
             let cx = col_x;
             let cy = top + tlh / 2;
             let (x0, x1, y0, y1) = (cx - half_w, cx + half_w, cy - half_h, cy + half_h);
+            let notch = [Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w)];
             if self.item.starred {
                 fb.draw_rectangle(&rect![x0, y0, x1, y1], ink);
+                fb.draw_triangle(&notch, paper);
             } else {
+                // The outline: sides and top, then the notch's V as a band between two triangles.
                 let t = (scale_by_dpi(1.5, dpi) as i32).max(1);
-                fb.draw_rectangle(&rect![x0, y0, x1, y1], if self.active { ink } else { GRAY03 });
-                fb.draw_rectangle(&rect![x0 + t, y0 + t, x1 - t, y1 - t], paper);
+                let line = if self.active { ink } else { GRAY03 };
+                fb.draw_rectangle(&rect![x0, y0, x1, y1], line);
+                fb.draw_rectangle(&rect![x0 + t, y0 + t, x1 - t, y1], paper);
+                fb.draw_triangle(&[Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w - 2 * t)], line);
+                fb.draw_triangle(&notch, paper);
             }
-            fb.draw_triangle(&[Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w)], paper);
         }
 
         // Meta line: source, relative date, reading time, offline mark.
