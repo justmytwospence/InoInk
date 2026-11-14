@@ -4,7 +4,7 @@
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
 use inoink::store::FullText;
-use crate::settings::{ButtonScheme, HeadlineTap, QueueTitles, RotationLock};
+use crate::settings::{ButtonScheme, QueueTitles, RotationLock};
 use crate::view::inoink::actions::{InoInkEntry, SAVE_FAILED};
 use crate::view::{EntryId, EntryKind};
 use inoink::model::*;
@@ -115,13 +115,6 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
     let s = &context.settings.inoink;
     let radio = |label: &str, e: InoInkEntry, on: bool| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(e), on);
     let mut entries = vec![
-        EntryKind::SubMenu(
-            "Headlines".into(),
-            vec![
-                radio("Tap opens, hold saves for later", InoInkEntry::SetHeadlineTap(HeadlineTap::Open), s.list_tap == HeadlineTap::Open),
-                radio("Tap saves for later, hold opens", InoInkEntry::SetHeadlineTap(HeadlineTap::Star), s.list_tap == HeadlineTap::Star),
-            ],
-        ),
         EntryKind::SubMenu(
             "Previous and next titles".into(),
             vec![

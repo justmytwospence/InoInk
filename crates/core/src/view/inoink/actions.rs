@@ -4,7 +4,6 @@
 use crate::context::Context;
 use inoink::content::relocate;
 use inoink::model::*;
-use crate::settings::HeadlineTap;
 use crate::view::inoink::state::{OpenMode, Tab, Undo};
 use inoink::runtime::Command;
 use std::path::PathBuf;
@@ -41,6 +40,12 @@ pub enum InoInkEntry {
     OpenCategory(Collection),
     /// Enter selection mode (if needed) with this selection.
     Select(SelectPreset),
+    /// Ask to mark part of the list read (a confirmation follows).
+    MarkRead(inoink::store::ListSpan),
+    /// Confirmed: mark that part read now (unread, unsaved articles only; undoable).
+    ConfirmMarkRead(inoink::store::ListSpan),
+    /// The end-of-list card: mark what was seen and not saved, at once.
+    MarkSeenRead,
     /// Selection mode: tick or untick one article.
     ToggleSelected(ArticleId),
     /// Hold in selection mode: select from the last tapped row to this one (on this page).
@@ -73,7 +78,6 @@ pub enum InoInkEntry {
     CacheBudget(u64),
     UnreadDays(i64),
     OpenDetails(ArticleId),
-    SetHeadlineTap(HeadlineTap),
     SetQueueTitles(crate::settings::QueueTitles),
     /// A feed's choice of loading the original page's text for its articles.
     SetFullText(String, inoink::store::FullText),
@@ -196,6 +200,9 @@ pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkA
     };
     context.inoink.last_undo = Some((Undo::Bulk(sel.id), label));
     context.inoink.changed();
+    if action == BulkAction::MarkRead {
+        context.inoink.request_refill();
+    }
     Ok(n)
 }
 

@@ -861,9 +861,13 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     let mut t = VecDeque::new();
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("01-newsfeed"));
-    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::HoldFingerShort(pt!(w / 2, row_y(2)), 0))));
+    t.push_back(TourStep::Tap(w - (48.0 * dpi) as i32, row_y(2)));
     t.push_back(TourStep::Wait(600));
-    t.push_back(TourStep::Shot("02-saved-by-hold"));
+    t.push_back(TourStep::Shot("02-saved-by-tap"));
+    t.push_back(TourStep::Send(Event::Gesture(GestureEvent::HoldFingerShort(pt!(w / 2, row_y(3)), 0))));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("02b-row-menu"));
+    t.push_back(select(InoInkEntry::CancelSelection));
     t.push_back(select(InoInkEntry::Tab(Tab::Categories)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("03-categories"));

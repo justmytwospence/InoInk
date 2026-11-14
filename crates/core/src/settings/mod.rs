@@ -545,8 +545,6 @@ pub struct InoInkSettings {
     pub pinned_folders: Vec<String>,
     /// Opening an article never marks it read unless this is set.
     pub mark_read_on_open: bool,
-    /// What tapping a headline does in the Newsfeed and Categories (holding does the other).
-    pub list_tap: HeadlineTap,
     /// Where the previous and next articles are named while reading.
     pub queue_titles: QueueTitles,
 }
@@ -561,15 +559,6 @@ pub enum QueueTitles {
     Always,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum HeadlineTap {
-    /// Tap opens the article; hold saves it for later (stars it).
-    Open,
-    /// Tap saves it for later; hold opens it.
-    Star,
-}
-
 impl Default for InoInkSettings {
     fn default() -> Self {
         InoInkSettings {
@@ -578,7 +567,6 @@ impl Default for InoInkSettings {
             recent_unread_days: 30,
             pinned_folders: Vec::new(),
             mark_read_on_open: false,
-            list_tap: HeadlineTap::Open,
             queue_titles: QueueTitles::WithBar,
         }
     }

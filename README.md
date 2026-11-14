@@ -18,10 +18,14 @@ public API and does not try to match the Inoreader website feature for feature; 
   (folders in your Inoreader order, by name or by most unread, then tags and the other streams)
   and **Read later** (your starred articles, the reading queue). Each view remembers its own
   filter, grouping and sort. Search covers every downloaded article.
-- Tap a headline to read it; hold it to save it for later (star it). Settings can swap the two.
-  At the end of an unread list a card offers **Mark N read**: it selects what you saw and did not
-  save, for one tap on Read. Unread headlines you have not seen before carry a bar on the left;
-  any list can switch to selection mode to mark or save many articles at once, with Undo.
+- Tap a headline to read it; tap the bookmark ribbon at its right to save it for later (star it);
+  hold it for its menu (Save for later, Mark read, Done, **Mark read up to here**, **Mark read
+  from here down**, Details, Select). The mark-read button in the top bar asks, then marks the
+  whole list read. At the end of an unread list a card offers **Mark N read**: one tap marks what
+  you saw and did not save. Saved articles are never marked read by these, every one can be undone,
+  and InoInk sends it and fetches new articles right away. Unread headlines you have not seen
+  before carry a bar on the left; selection mode (Main menu > Select articles) marks or saves
+  many articles at once.
 - A compact list that uses the full width: bold for unread, the source, a relative date
   ("3 h ago") and the reading time ("6 min read") on one line, with the saved mark and the
   offline mark stacked at the right.
@@ -143,13 +147,15 @@ Then:
 
 ### First five minutes
 
-- You land on **Newsfeed**, your unread articles. **Tap** a headline to read it; **hold** it to
-  save it for later (star it).
+- You land on **Newsfeed**, your unread articles. **Tap** a headline to read it, tap its
+  **ribbon** at the right to save it for later, **hold** it for its menu.
 - In an article, turn pages by tapping the left or right third (or the page-turn buttons). Tap
   the middle for the bar: **Done** marks the article read and removes its star, **Aa** changes
   the font and spacing, **Back** returns to the list.
 - **Categories** shows your folders and feeds; **Read later** is your starred articles.
-- At the end of an unread list, **Mark N read** clears what you skimmed in one tap.
+- To clear a list: the check-mark button in the top bar marks it all read (after asking), a
+  held headline's menu offers **Mark read up to here** and **from here down**, and at the end of
+  an unread list **Mark N read** clears what you skimmed in one tap. Saved articles stay unread.
 - Changes go to Inoreader on their own when Wi-Fi is on. To quit, use the main menu (≡ > Quit),
   and always quit before plugging the Kobo into a computer.
 
@@ -163,8 +169,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 ## Using it
 
 - **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
-  it and holding saves it for later (Settings can swap them); long-press a row in Read later for
-  Mark read, Done and Details. In Categories, the title of a folder or feed switches between the
+  it, tapping the ribbon at its right saves it for later, and holding shows its menu (Mark read,
+  Done, Mark read up to here / from here down, Details, Select). In Categories, the title of a folder or feed switches between the
   folder and its feeds.
 - **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
   sort, and on the Categories list the order of folders. On the right, the page and how many

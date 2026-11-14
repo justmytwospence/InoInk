@@ -1,6 +1,7 @@
 //! One line of the article list. Each mark has one meaning: a bar on the left edge for a new
-//! headline (unread, not seen before this visit), a bold title for unread, a bookmark ribbon for
-//! saved for later, a dot beside the meta line for offline, and in selection mode a check box.
+//! headline (unread, not seen before this visit), a bold title for unread, a bookmark ribbon at
+//! the right (filled when saved for later, an outline otherwise; tapping it saves or unsaves),
+//! a dot beside the meta line for offline, and in selection mode a check box.
 
 use crate::chrono::{DateTime, Datelike, Local, TimeZone};
 use crate::color::{BLACK, GRAY03, TEXT_INVERTED_HARD, TEXT_NORMAL, WHITE};
@@ -30,17 +31,20 @@ pub struct ArticleRow {
 /// What a tap and a hold on a row do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RowMode {
-    /// Tap opens, hold shows the menu (Read later, search).
+    /// Tap opens, a tap on the ribbon at the right saves or unsaves, hold shows the menu.
     OpenMenu,
-    /// Tap opens, hold saves for later.
-    OpenSave,
-    /// Tap saves for later, hold opens.
-    SaveOpen,
     /// Selection mode: tap toggles the check box, hold selects a range.
     Select,
 }
 
+/// Width of the zone at the right edge whose tap saves or unsaves (at 300 dpi).
+const SAVE_ZONE: f32 = 96.0;
+
 impl ArticleRow {
+    fn in_save_zone(&self, p: Point) -> bool {
+        p.x >= self.rect.max.x - scale_by_dpi(SAVE_ZONE, CURRENT_DEVICE.dpi) as i32
+    }
+
     pub fn new(rect: Rectangle, item: ArticleSummary, index: usize, mode: RowMode, selected: bool) -> ArticleRow {
         ArticleRow { id: ID_FEEDER.next(), rect, children: Vec::new(), item, index, active: false, mode, selected }
     }
@@ -136,7 +140,7 @@ impl View for ArticleRow {
                 true
             }
             Event::Gesture(GestureEvent::Tap(center)) if self.rect.includes(center) => {
-                if self.mode == RowMode::SaveOpen {
+                if self.in_save_zone(center) {
                     bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar));
                 } else {
                     self.open(bus, rq);
@@ -144,15 +148,8 @@ impl View for ArticleRow {
                 true
             }
             Event::Gesture(GestureEvent::HoldFingerShort(center, ..)) if self.rect.includes(center) => {
-                match self.mode {
-                    RowMode::OpenMenu => {
-                        let pt = Point::new(center.x, self.rect.center().y);
-                        bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
-                    }
-                    RowMode::OpenSave => bus.push_back(Event::ArticleAction(self.item.id, ArticleAction::ToggleStar)),
-                    RowMode::SaveOpen => self.open(bus, rq),
-                    RowMode::Select => {}
-                }
+                let pt = Point::new(center.x, self.rect.center().y);
+                bus.push_back(Event::ToggleBookMenu(Rectangle::from_point(pt), self.index));
                 true
             }
             Event::Invalid(..) => {
@@ -240,12 +237,19 @@ impl View for ArticleRow {
             }
         }
 
-        // Saved for later: a bookmark ribbon at the right of the title, above the offline mark.
-        if self.item.starred {
+        // A bookmark ribbon at the right of the title, above the offline mark: filled when saved
+        // for later, an outline otherwise (tapping it toggles).
+        if self.item.starred || !select {
             let cx = col_x;
             let cy = top + tlh / 2;
             let (x0, x1, y0, y1) = (cx - half_w, cx + half_w, cy - half_h, cy + half_h);
-            fb.draw_rectangle(&rect![x0, y0, x1, y1], ink);
+            if self.item.starred {
+                fb.draw_rectangle(&rect![x0, y0, x1, y1], ink);
+            } else {
+                let t = (scale_by_dpi(1.5, dpi) as i32).max(1);
+                fb.draw_rectangle(&rect![x0, y0, x1, y1], if self.active { ink } else { GRAY03 });
+                fb.draw_rectangle(&rect![x0 + t, y0 + t, x1 - t, y1 - t], paper);
+            }
             fb.draw_triangle(&[Point::new(x0, y1), Point::new(x1, y1), Point::new(cx, y1 - half_w)], paper);
         }
 

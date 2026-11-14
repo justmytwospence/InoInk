@@ -13,7 +13,11 @@ use plato_core::framebuffer::Pixmap;
 use plato_core::settings::Settings;
 use plato_core::view::inoink::actions::*;
 use plato_core::view::inoink::home::InoInkHome;
-use plato_core::view::inoink::row::ArticleRow;
+use plato_core::view::inoink::row::{ArticleRow, RowMode};
+use plato_core::geom::{Point, Rectangle};
+use plato_core::gesture::GestureEvent as Gest;
+use inoink::store::ListSpan;
+use plato_core::view::EntryKind;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use plato_core::geom::{CycleDir, Dir};
 use plato_core::settings::{ButtonScheme, QueueTitles};
@@ -299,6 +303,7 @@ fn selection_toggles_ranges_and_applies_with_undo() {
     let ticked: Vec<u64> = home.children()[4].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).filter(|r| r.is_selected()).map(|r| r.item.id.0).collect();
     assert_eq!(ticked, vec![4, 2], "the rows show it");
     sel(&mut home, &mut e, InoInkEntry::BulkApply(BulkAction::MarkRead));
+    assert_eq!(e.context.inoink.refills, 1, "a bulk mark-read asks for a refill");
     {
         let st = e.context.inoink.store().unwrap();
         assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
@@ -644,4 +649,105 @@ fn no_prefetch_without_a_sync_worker() {
     let mut e = env();
     let _reader = open(&mut e, &[4, 3, 2], false, 3);
     assert!(e.context.inoink.prefetched.is_empty());
+}
+
+fn has_dialog(home: &InoInkHome) -> bool {
+    locate_by_id(home, ViewId::ConfirmDialog).is_some()
+}
+
+#[test]
+fn mark_all_read_asks_first_and_skips_saved() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::MarkRead(ListSpan::All))));
+    assert!(has_dialog(&home), "it asks first");
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(3), &Membership::Read).unwrap());
+    assert_eq!(home.selected_articles(), None, "no selection mode");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkRead(ListSpan::All))));
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap(), "saved stays unread");
+    assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Marked 2 read"));
+    assert_eq!(e.context.inoink.refills, 1);
+}
+
+#[test]
+fn mark_read_up_to_and_from_here_follow_the_list() {
+    let mut e = env();
+    e.context.inoink.store_mut().unwrap().upsert_article(&rec(5, 500_000_000, false), 0).unwrap();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(rows(&home), vec![5, 4, 3, 2, 1]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkRead(ListSpan::UpTo(ArticleId(4))))));
+    {
+        let st = e.context.inoink.store().unwrap();
+        assert!(st.effective(ArticleId(5), &Membership::Read).unwrap());
+        assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+        assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
+    }
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmMarkRead(ListSpan::From(ArticleId(4))))));
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(5), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
+}
+
+#[test]
+fn the_end_card_marks_in_one_tap() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::MarkSeenRead)));
+    assert!(!has_dialog(&home));
+    assert_eq!(home.selected_articles(), None);
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert_eq!(e.context.inoink.refills, 1);
+}
+
+#[test]
+fn row_menu_offers_mark_read_up_to_here_except_in_read_later() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let item = e.context.inoink.store().unwrap().query_articles(&ArticleQuery { collection: Some(Collection::All), limit: 1, ..Default::default() }).unwrap().items[0].clone();
+    let labels = |home: &InoInkHome, e: &Env| -> Vec<String> {
+        home.row_menu_entries(&item, &e.context).into_iter().filter_map(|k| if let EntryKind::Command(l, _) = k { Some(l) } else { None }).collect()
+    };
+    let l = labels(&home, &e);
+    assert!(l.contains(&"Mark read up to here".to_string()) && l.contains(&"Mark read from here down".to_string()), "{l:?}");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    let l = labels(&home, &e);
+    assert!(!l.contains(&"Mark read up to here".to_string()) && !l.contains(&"Mark read from here down".to_string()), "{l:?}");
+}
+
+#[test]
+fn headline_tap_opens_ribbon_tap_saves_hold_shows_the_menu() {
+    let e = env();
+    let item = e.context.inoink.store().unwrap().query_articles(&ArticleQuery { collection: Some(Collection::All), limit: 1, ..Default::default() }).unwrap().items[0].clone();
+    let id = item.id;
+    let rect = Rectangle::new(Point::new(0, 0), Point::new(1264, 163));
+    let mut row = ArticleRow::new(rect, item, 0, RowMode::OpenMenu, false);
+    let mut e = e;
+    let mut run = |g: GestureEvent| {
+        let mut bus = VecDeque::new();
+        let mut rq = RenderQueue::new();
+        row.handle_event(&Event::Gesture(g), &e.tx, &mut bus, &mut rq, &mut e.context);
+        bus
+    };
+    let bus = run(Gest::Tap(Point::new(rect.max.x - 5, 80)));
+    assert!(matches!(bus.front(), Some(Event::ArticleAction(i, ArticleAction::ToggleStar)) if *i == id));
+    let bus = run(Gest::Tap(Point::new(400, 80)));
+    assert!(matches!(bus.front(), Some(Event::OpenArticle(i)) if *i == id));
+    let bus = run(Gest::HoldFingerShort(Point::new(400, 80), 0));
+    assert!(matches!(bus.front(), Some(Event::ToggleBookMenu(..))));
 }

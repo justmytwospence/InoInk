@@ -29,6 +29,16 @@ pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 /// Maximum number of articles a single bulk selection may hold.
 pub const BULK_LIMIT: usize = 1000;
 
+/// Which part of a list a bulk mark-read covers, in the list's order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListSpan {
+    All,
+    /// From the top through this article.
+    UpTo(ArticleId),
+    /// From this article to the end.
+    From(ArticleId),
+}
+
 const FLAG_KEYS: [&str; 4] = ["read", "starred", "like", "broadcast"];
 
 /// An article as received from the API, ready to be stored.
@@ -851,6 +861,44 @@ impl Store {
         all.extend(args);
         let n: i64 = self.conn.query_row(&sql, rusqlite::params_from_iter(all.iter()), |r| r.get(0))?;
         Ok(n.max(0) as usize)
+    }
+
+    /// The unread, unsaved articles of `q`'s list in its order (ignoring `q.after` and
+    /// `q.limit`), limited to `span`, at most `max`. Empty when `span` names an article that is
+    /// not in the list. Changes nothing.
+    pub fn unread_unsaved_ids(&self, q: &ArticleQuery, span: ListSpan, max: usize) -> Result<Vec<ArticleId>> {
+        let target = match span {
+            ListSpan::All => None,
+            ListSpan::UpTo(id) | ListSpan::From(id) => Some(id),
+        };
+        let mut inside = !matches!(span, ListSpan::From(_));
+        let mut found = matches!(span, ListSpan::All);
+        let mut out = Vec::new();
+        let mut q = q.clone();
+        q.limit = 200;
+        q.after = None;
+        'scan: loop {
+            let page = self.query_articles(&q)?;
+            for item in &page.items {
+                if Some(item.id) == target {
+                    found = true;
+                    if matches!(span, ListSpan::From(_)) {
+                        inside = true;
+                    }
+                }
+                if inside && !item.read && !item.starred && out.len() < max {
+                    out.push(item.id);
+                }
+                if matches!(span, ListSpan::UpTo(_)) && Some(item.id) == target {
+                    break 'scan;
+                }
+            }
+            match page.next {
+                Some(c) if !(out.len() >= max && !matches!(span, ListSpan::UpTo(_))) => q.after = Some(c),
+                _ => break,
+            }
+        }
+        Ok(if found { out } else { Vec::new() })
     }
 
     /// The ids of a query in its order, at most `max`. Changes nothing.
