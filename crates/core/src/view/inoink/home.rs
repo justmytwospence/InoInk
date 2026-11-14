@@ -800,6 +800,15 @@ impl InoInkHome {
             self.load_page(hub, rq, context);
             return;
         }
+        // The Undo bar belongs to the page the change was made on: turning the page dismisses it
+        // (the next page still starts after the last headline shown).
+        let can_turn = match dir {
+            CycleDir::Next => self.next.is_some() || self.next_is_end,
+            CycleDir::Previous => self.page > 0 || self.end_only,
+        };
+        if can_turn {
+            context.inoink.last_undo = None;
+        }
         match dir {
             CycleDir::Next => {
                 if let Some(c) = self.next.clone() {

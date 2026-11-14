@@ -762,3 +762,20 @@ fn the_select_button_enters_and_leaves_selection_mode() {
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ToggleSelectMode)));
     assert_eq!(home.selected_articles(), None);
 }
+
+#[test]
+fn turning_the_page_dismisses_the_undo_bar() {
+    let mut e = env();
+    for i in 10..30u64 {
+        e.context.inoink.store_mut().unwrap().upsert_article(&rec(i, (i as i64) * 1_000_000_000, false), 0).unwrap();
+    }
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
+    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Archived: Article 29"));
+    let last_on_first = *rows(&home).last().unwrap();
+    send(&mut home, &mut e, Event::Page(CycleDir::Next));
+    assert!(e.context.inoink.last_undo.is_none(), "the bar stays on the page it was made on");
+    assert_eq!(rows(&home)[0], last_on_first - 1, "the next page starts after the last headline shown");
+}

@@ -196,8 +196,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
-- After **Archive**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Follow a feed, Settings (what a tap does, where the previous and next titles show, offline
+- After **Archive** or a bulk change, an Undo bar sits at the top of the list until you undo it,
+  turn the page or make another such change.
+- Main menu: Follow a feed, Settings (where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,
