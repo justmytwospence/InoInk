@@ -97,6 +97,8 @@ pub struct InoInk {
     pub queue: Option<ReadingQueue>,
     /// The most recent Done or bulk action and the Undo bar's label, offered until superseded.
     pub last_undo: Option<(Undo, String)>,
+    /// An undo box is owed: shown the next time the list draws.
+    pub show_undo: bool,
     /// Refills requested after bulk mark-reads (the worker fetches at once).
     pub refills: u32,
     /// A one-line message for the next redraw of the list.
@@ -159,6 +161,7 @@ impl InoInk {
             show_categories: true,
             queue: None,
             last_undo: None,
+            show_undo: false,
             refills: 0,
             notice: None,
             opening: None,

@@ -128,7 +128,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   tick everything from the last ticked headline on this page, and page as usual. The footer offers
   Read, Unread, Save, Unsave and Select (add this page, whole list, seen not saved, none, cancel);
   the cross at the top left cancels. A change applies to exactly the ticked articles, and the
-  Undo bar reverts it.
+  Undo reverts it.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
   search, select articles (check box), mark this list read (circled check mark; asks first, saved
   articles stay unread), sync,
@@ -145,7 +145,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the
   page shown, while each can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
 - On the last page of an unread list a card says "Mark N read": one tap marks the articles of
-  this list you were shown (in any visit) that are still unread and not saved, and the Undo bar
+  this list you were shown (in any visit) that are still unread and not saved, and Undo
   reverts it. Nothing is marked read by turning pages. After any bulk mark-read (this card, the
   top-bar button, up to / from here, or Read in selection mode) InoInk sends the change and
   fetches new articles at once instead of waiting for the usual 15 minutes.
@@ -196,8 +196,8 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
-- After **Archive** or a bulk change, an Undo bar sits at the top of the list until you undo it,
-  turn the page or make another such change.
+- After **Archive** or a bulk change, a box above the footer offers **Undo** for a few seconds (turning
+  the page closes it); Main menu > Undo last change undoes it until the next such change.
 - Main menu: Follow a feed, Settings (where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a

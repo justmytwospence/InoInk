@@ -27,6 +27,8 @@ use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
 use plato_core::view::inoink::state::{InoInk, ReadingQueue, Tab};
 use plato_core::view::ViewId;
+use plato_core::view::common::locate;
+use plato_core::view::inoink::undo_toast::UndoToast;
 use plato_core::view::{EntryId, Event, RenderQueue, View};
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
@@ -764,18 +766,39 @@ fn the_select_button_enters_and_leaves_selection_mode() {
 }
 
 #[test]
-fn turning_the_page_dismisses_the_undo_bar() {
+fn turning_the_page_closes_the_undo_box() {
     let mut e = env();
     for i in 10..30u64 {
         e.context.inoink.store_mut().unwrap().upsert_article(&rec(i, (i as i64) * 1_000_000_000, false), 0).unwrap();
     }
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let before = rows(&home).len();
     send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
     assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Archived: Article 29"));
+    assert!(locate::<UndoToast>(&home).is_some(), "the box shows");
+    assert_eq!(rows(&home).len(), before, "and takes no list row");
     let last_on_first = *rows(&home).last().unwrap();
     send(&mut home, &mut e, Event::Page(CycleDir::Next));
-    assert!(e.context.inoink.last_undo.is_none(), "the bar stays on the page it was made on");
+    assert!(locate::<UndoToast>(&home).is_none(), "a page turn closes it");
+    assert!(e.context.inoink.last_undo.is_some(), "the change stays undoable");
     assert_eq!(rows(&home)[0], last_on_first - 1, "the next page starts after the last headline shown");
+}
+
+#[test]
+fn undo_box_undoes_and_the_main_menu_keeps_it() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let has_undo = |e: &Env| plato_core::view::inoink::manage::main_menu_entries(&e.context).into_iter().any(|k| matches!(k, EntryKind::Command(l, _) if l == "Undo last change"));
+    assert!(!has_undo(&e));
+    send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
+    assert!(has_undo(&e));
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
+    assert!(locate::<UndoToast>(&home).is_none());
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!has_undo(&e));
 }
