@@ -38,6 +38,9 @@ pub enum Command {
     /// A local change was committed to the store.
     Changed,
     SyncNow,
+    /// After a bulk mark-read: send it and fetch now, regardless of the minimum interval,
+    /// unless paused (quota) or sharing USB.
+    Refill,
     Browse {
         collection: Collection,
         continuation: Option<String>,
@@ -221,6 +224,7 @@ impl Worker {
                 self.paused = false;
                 self.pending = Some((Reason::Explicit, Instant::now()));
             }
+            Command::Refill => self.schedule(Reason::Explicit, Duration::ZERO),
             Command::Browse { collection, continuation } => {
                 if self.usb {
                     self.send(Update::BrowseFailed("storage is being shared".into()));

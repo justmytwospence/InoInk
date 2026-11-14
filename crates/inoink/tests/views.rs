@@ -123,3 +123,20 @@ fn format_time_left_cases() {
     assert_eq!(format_time_left(230 * 65), "1 h 5 min left");
     assert_eq!(format_time_left(230 * 120), "2 h left");
 }
+
+#[test]
+fn unread_unsaved_ids_cover_all_up_to_and_from() {
+    let mut s = store();
+    s.upsert_article(&rec(5, 50, "b", &[]), 0).unwrap();
+    // Newest first: 5, 4 (saved, read), 3, 2 (read), 1 (saved).
+    let q = ArticleQuery { collection: Some(Collection::All), unread_only: false, limit: 2, ..Default::default() };
+    let ids = |span, max| s.unread_unsaved_ids(&q, span, max).unwrap().iter().map(|i| i.0).collect::<Vec<_>>();
+    assert_eq!(ids(ListSpan::All, 1000), vec![5, 3]);
+    assert_eq!(ids(ListSpan::UpTo(ArticleId(3)), 1000), vec![5, 3]);
+    assert_eq!(ids(ListSpan::UpTo(ArticleId(4)), 1000), vec![5]);
+    assert_eq!(ids(ListSpan::From(ArticleId(4)), 1000), vec![3]);
+    assert_eq!(ids(ListSpan::From(ArticleId(3)), 1000), vec![3]);
+    assert_eq!(ids(ListSpan::UpTo(ArticleId(99)), 1000), Vec::<u64>::new());
+    assert_eq!(ids(ListSpan::From(ArticleId(99)), 1000), Vec::<u64>::new());
+    assert_eq!(ids(ListSpan::All, 1), vec![5]);
+}

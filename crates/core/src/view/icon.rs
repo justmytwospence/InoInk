@@ -74,6 +74,7 @@ const EMBEDDED_ICONS: &[(&str, &[u8])] = &[
     ("sync-2", include_bytes!("../../../../icons/sync-2.svg")),
     ("sync-3", include_bytes!("../../../../icons/sync-3.svg")),
     ("mark-read", include_bytes!("../../../../icons/mark-read.svg")),
+    ("select", include_bytes!("../../../../icons/select.svg")),
     ("tag", include_bytes!("../../../../icons/tag.svg")),
     ("wifi", include_bytes!("../../../../icons/wifi.svg")),
     ("wifi-connecting", include_bytes!("../../../../icons/wifi-connecting.svg")),

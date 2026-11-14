@@ -114,22 +114,25 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   **Categories** lists your folders in Inoreader's order (with the unread count on the device),
   then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
   **Read later** is your starred articles. The numbers in the tabs are counts on the device.
-- In the Newsfeed and in categories, **tap a headline to read it** and **hold it to save it for
-  later** (it gets a bookmark at the right of the title). Main menu > Settings > Headlines swaps
-  these. In Read later, holding a headline shows its menu.
+- **Tap a headline to read it.** Each headline has a bookmark ribbon at the right of its title
+  (an outline, filled once saved): **tap it to save for later** or remove the save. **Hold a
+  headline for its menu**: Save for later, Mark read, Archive, Mark read up to here, Mark read from
+  here down (both include that headline and follow the list's order; not shown in Read later),
+  Details and Select.
 - A bar along the left edge marks an unread headline this Kobo has not shown you before. It stays
   while you are in the list and is gone the next time you come back (after an article, waking, or
   switching lists). Seen is kept on the Kobo only; Inoreader and your other devices do not know
   about it. The numbers in tabs and folders still count unread articles.
-- **Selection mode** marks or saves many articles at once. Enter it from the circled check mark
-  (the whole list is selected), the "Mark N read" card, a headline's menu (in Read later and
-  search: hold > Select) or Main menu > Select articles. Tap a headline to tick it, hold one to
+- **Selection mode** marks or saves many articles at once. Enter it from the check-box button in the
+  top bar (press it again to leave) or a headline's menu (Select). Tap a headline to tick it, hold one to
   tick everything from the last ticked headline on this page, and page as usual. The footer offers
   Read, Unread, Save, Unsave and Select (add this page, whole list, seen not saved, none, cancel);
   the cross at the top left cancels. A change applies to exactly the ticked articles, and the
   Undo bar reverts it.
 - The top bar keeps what you only read (clock, battery) on the left and every button on the right:
-  search, mark this list read (circled check mark; selects the whole list), sync, Wi-Fi, light, menu.
+  search, select articles (check box), mark this list read (circled check mark; asks first, saved
+  articles stay unread), sync,
+  Wi-Fi, light, menu.
   The sync icon shows a dot and turns while a sync runs; Main menu > Status shows the last sync.
 - InoInk syncs when it starts, wakes or gets a network connection (at most every 15 minutes), and
   sends your changes a few seconds after you make them; there is no timer keeping the Kobo awake.
@@ -141,9 +144,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   beginning.
 - A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the
   page shown, while each can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
-- On the last page of an unread list a card says "Mark N read": it selects the articles of this
-  list you were shown (in any visit) that are still unread and not saved; tap Read to mark them.
-  Nothing is marked read by turning pages.
+- On the last page of an unread list a card says "Mark N read": one tap marks the articles of
+  this list you were shown (in any visit) that are still unread and not saved, and the Undo bar
+  reverts it. Nothing is marked read by turning pages. After any bulk mark-read (this card, the
+  top-bar button, up to / from here, or Read in selection mode) InoInk sends the change and
+  fetches new articles at once instead of waiting for the usual 15 minutes.
 - The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, new first,
   unread first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
@@ -156,7 +161,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
-  Back, Aa, Star, Done, More, with a line below showing progress, time left and your place in the
+  Back, Aa, Star, Archive, More, with a line below showing progress, time left and your place in the
   list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
@@ -164,7 +169,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Swipe left or right to turn pages. Swipe up, page past the last page or hold the forward button
   for the next article of the list; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
-  articles never marks one read: use Done or Mark read. After the last article of the list you are
+  articles never marks one read: use Archive or Mark read. After the last article of the list you are
   back at the list. With the bar showing, a row above the footer names the previous (left) and next
   (right) articles; tap one to open it. The article's title stays in the top margin of every page after the first. Straight quotes,
   `--` and `...` in articles are set as curly quotes, dashes and ellipses, and lines are hyphenated
@@ -187,12 +192,13 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 - Items from Hacker News and Lobsters feeds are link posts: InoInk downloads the linked page and
   extracts its text itself (no credentials, not an Inoreader feature), and caches the thread from
   the site's public JSON. The bar shows an Article | N comments switch (also a link at the end
-  of the article); More has Refresh comments. Star, Done and Read apply to the one item.
+  of the article); More has Refresh comments. Star, Archive and Read apply to the one item.
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
-- After **Done**, an Undo bar sits at the top of the list until you undo it or finish another article.
-- Main menu: Follow a feed, Settings (what a tap does, where the previous and next titles show, offline
+- After **Archive** or a bulk change, an Undo bar sits at the top of the list until you undo it,
+  turn the page or make another such change.
+- Main menu: Follow a feed, Settings (where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,

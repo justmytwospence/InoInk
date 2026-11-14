@@ -4,7 +4,6 @@
 use crate::context::Context;
 use inoink::content::relocate;
 use inoink::model::*;
-use crate::settings::HeadlineTap;
 use crate::view::inoink::state::{OpenMode, Tab, Undo};
 use inoink::runtime::Command;
 use std::path::PathBuf;
@@ -12,7 +11,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ArticleAction {
     ToggleStar,
-    /// Mark read and remove the star. Undoable.
+    /// Archive: mark read and remove the star. Undoable.
     Done,
     /// Mark read (or unread) without touching the star.
     ToggleRead,
@@ -41,6 +40,14 @@ pub enum InoInkEntry {
     OpenCategory(Collection),
     /// Enter selection mode (if needed) with this selection.
     Select(SelectPreset),
+    /// The top bar's select button: enter selection mode with nothing ticked, or leave it.
+    ToggleSelectMode,
+    /// Ask to mark part of the list read (a confirmation follows).
+    MarkRead(inoink::store::ListSpan),
+    /// Confirmed: mark that part read now (unread, unsaved articles only; undoable).
+    ConfirmMarkRead(inoink::store::ListSpan),
+    /// The end-of-list card: mark what was seen and not saved, at once.
+    MarkSeenRead,
     /// Selection mode: tick or untick one article.
     ToggleSelected(ArticleId),
     /// Hold in selection mode: select from the last tapped row to this one (on this page).
@@ -73,7 +80,6 @@ pub enum InoInkEntry {
     CacheBudget(u64),
     UnreadDays(i64),
     OpenDetails(ArticleId),
-    SetHeadlineTap(HeadlineTap),
     SetQueueTitles(crate::settings::QueueTitles),
     /// A feed's choice of loading the original page's text for its articles.
     SetFullText(String, inoink::store::FullText),
@@ -155,7 +161,7 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             };
             let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
             let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
-            context.inoink.last_undo = Some((Undo::Done(undo), format!("Done: {}", inoink::util::shorten(&title, 40))));
+            context.inoink.last_undo = Some((Undo::Done(undo), format!("Archived: {}", inoink::util::shorten(&title, 40))));
             context.inoink.changed();
             // The Undo bar at the top of the list is the confirmation; no notification covers it.
             Ok(ActionOutcome { message: None, close: true })
@@ -196,6 +202,9 @@ pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkA
     };
     context.inoink.last_undo = Some((Undo::Bulk(sel.id), label));
     context.inoink.changed();
+    if action == BulkAction::MarkRead {
+        context.inoink.request_refill();
+    }
     Ok(n)
 }
 

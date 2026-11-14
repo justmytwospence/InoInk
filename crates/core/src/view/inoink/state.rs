@@ -97,6 +97,8 @@ pub struct InoInk {
     pub queue: Option<ReadingQueue>,
     /// The most recent Done or bulk action and the Undo bar's label, offered until superseded.
     pub last_undo: Option<(Undo, String)>,
+    /// Refills requested after bulk mark-reads (the worker fetches at once).
+    pub refills: u32,
     /// A one-line message for the next redraw of the list.
     pub notice: Option<String>,
     /// An article waiting for its content to be fetched online.
@@ -157,6 +159,7 @@ impl InoInk {
             show_categories: true,
             queue: None,
             last_undo: None,
+            refills: 0,
             notice: None,
             opening: None,
             opening_at: None,
@@ -321,6 +324,12 @@ impl InoInk {
         if let Some(h) = &self.handle {
             h.changed();
         }
+    }
+
+    /// Asks the worker to send pending changes and fetch the next articles now.
+    pub fn request_refill(&mut self) {
+        self.refills += 1;
+        self.submit(runtime::Command::Refill);
     }
 
     pub fn submit(&self, cmd: runtime::Command) {

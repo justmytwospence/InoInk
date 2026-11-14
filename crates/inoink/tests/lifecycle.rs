@@ -223,6 +223,20 @@ fn local_changes_are_debounced_into_one_request_batch() {
 }
 
 #[test]
+fn a_refill_sends_changes_and_fetches_at_once() {
+    let e = env(1, 5);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(10)).len(), 1);
+    e.fake.clear_log();
+    let mut ui = e.ui_store();
+    ui.apply_intent(ArticleId(1), &Membership::Read, true).unwrap();
+    e.h().submit(Command::Refill);
+    let cycles = e.wait_cycles(1, Duration::from_secs(5));
+    assert_eq!(cycles.len(), 1);
+    assert_eq!(e.fake.count("edit-tag"), 1, "the change is sent");
+    assert!(e.fake.count("/stream/items/ids") >= 1, "and the next articles are fetched");
+}
+
+#[test]
 fn usb_sharing_closes_the_database_completely_and_reopens_afterwards() {
     let mut e = env(2, 4);
     assert_eq!(e.wait_cycles(1, Duration::from_secs(10)).len(), 1);

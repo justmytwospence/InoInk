@@ -18,9 +18,9 @@ document tests inside the build container, and the install/launcher tests).
 | API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (24) | PASS |
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging, skipping unchanged listings, organization refresh on change | `crates/inoink/tests/sync_faults.rs` (32) | PASS |
 | Content and cache: teaser pages replaced by the original text (per-feed learning), lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (33) | PASS |
-| Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (9) | PASS |
+| Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (10) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (36), `font_crop.rs` (2), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (43), `font_crop.rs` (2), in the container | PASS |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (29) |
@@ -87,7 +87,7 @@ that was merged.
 | Ten suspend/wake cycles; no sync starts while suspended | NOT RUN |
 | USB share and unshare; the database opens afterwards | NOT RUN |
 | Read downloaded articles and images with Wi-Fi off | NOT RUN |
-| Done offline, restart, reconnect: read and unstarred on inoreader.com | NOT RUN |
+| Archive offline, restart, reconnect: read and unstarred on inoreader.com | NOT RUN |
 | Mark read keeps the star | NOT RUN |
 | Rapid toggles of read/star/tags end in the final state | NOT RUN |
 | Star an old article elsewhere: it arrives and is cached | NOT RUN |
@@ -118,15 +118,19 @@ that was merged.
 | Wi-Fi icon shows off, connecting and online; tapping it toggles Wi-Fi | NOT RUN |
 | Light panel: on/off, brightness and warmth steppers and sliders; the edge slide still works | NOT RUN |
 | Tabs and counts (Newsfeed, Categories, Read later) agree with the lists | NOT RUN |
-| Tap-to-save in the Newsfeed; hold opens; the setting swaps them | NOT RUN |
-| End of unread list: "Mark N read" selects only what was seen and not starred; Read marks them | NOT RUN |
+| Tap opens a headline; tapping the ribbon at the right saves or unsaves it; hold opens the menu; the outlined ribbon reads clearly without ghosting | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| End of unread list: "Mark N read" marks only what was seen and not saved, at once, with Undo | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Mark-read button in the top bar asks, then marks the whole list read except saved articles; Undo restores | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Mark read up to here / from here down follow the list's sort, include the held headline and skip saved articles | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
 | Saved headlines show only the ribbon | NOT RUN |
 | Selection mode: check boxes toggle without ghosting; hold selects a range; Read/Unread/Save/Unsave apply and Undo reverts; the footer labels fit in portrait and landscape | NOT RUN |
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
 | Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
-| Done (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
+| Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |
 | An article opened part-way shows the bar until the first page turn | NOT RUN |
