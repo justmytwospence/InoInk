@@ -118,12 +118,12 @@ that was merged.
 | Wi-Fi icon shows off, connecting and online; tapping it toggles Wi-Fi | NOT RUN |
 | Light panel: on/off, brightness and warmth steppers and sliders; the edge slide still works | NOT RUN |
 | Tabs and counts (Newsfeed, Categories, Read later) agree with the lists | NOT RUN |
-| Tap opens a headline; tapping the ribbon at the right saves or unsaves it; hold opens the menu; the outlined ribbon reads clearly without ghosting | NOT RUN |
-| End of unread list: "Mark N read" marks only what was seen and not saved, at once, with Undo | NOT RUN |
-| Mark-read button in the top bar asks, then marks the whole list read except saved articles; Undo restores | NOT RUN |
-| Mark read up to here / from here down follow the list's sort, include the held headline and skip saved articles | NOT RUN |
-| After a bulk mark-read a sync starts at once and new unread articles arrive | NOT RUN |
-| Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | NOT RUN |
+| Tap opens a headline; tapping the ribbon at the right saves or unsaves it; hold opens the menu; the outlined ribbon reads clearly without ghosting | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| End of unread list: "Mark N read" marks only what was seen and not saved, at once, with Undo | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Mark-read button in the top bar asks, then marks the whole list read except saved articles; Undo restores | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Mark read up to here / from here down follow the list's sort, include the held headline and skip saved articles | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
 | Saved headlines show only the ribbon | NOT RUN |
 | Selection mode: check boxes toggle without ghosting; hold selects a range; Read/Unread/Save/Unsave apply and Undo reverts; the footer labels fit in portrait and landscape | NOT RUN |
