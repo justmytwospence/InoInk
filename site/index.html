@@ -70,15 +70,18 @@
     </article>
     <article>
       <h3>One article after another</h3>
-      <p>Swipe up for the next article in the list and down for the previous one, which reopens
-        where you left it; the neighbours download while you read. Nothing is marked read until
-        you say so. At the end of the newsfeed, mark everything you skimmed as read in one tap (saved articles stay unread).</p>
+      <p>Page past the end for a small popup: mark the article read, unstar it or keep it unread,
+        then go on to the next one or back to the list, whichever you prefer. Swipe up or down to
+        move between articles directly; the previous one reopens where you left it, and the
+        neighbours download while you read. Nothing is marked read until you say so. At the end of the newsfeed, mark everything you skimmed as read in one tap (saved articles stay unread).</p>
     </article>
     <article>
       <h3>The whole link, not the teaser</h3>
-      <p>Feeds that send only a teaser open as the full article, and InoInk learns which feeds do.
-        Hacker News and Lobsters posts open as the linked article, with the discussion one tap
-        away. Tap any link for a clean reading view; hold it for a QR code to open on your phone.</p>
+      <p>Feeds that send only a teaser open as the full article, and InoInk learns which feeds do;
+        Load original page swaps any article for the full page without leaving it. Hacker News and
+        Lobsters posts open as the linked article, with the discussion one tap away and threaded
+        for e-ink: a thin line down each reply branch, two indents at most, and a Skip link from
+        thread to thread. Tap any link for a clean reading view; hold it for a QR code to open on your phone.</p>
     </article>
     <article>
       <h3>Your account, directly</h3>
@@ -89,12 +92,14 @@
     <article>
       <h3>Kobo conveniences</h3>
       <p>Starts with the light and Wi-Fi you had, a bottom light panel and an edge slide for
-        brightness, page-turn buttons, and the normal Kobo interface back when you quit.</p>
+        brightness, page-turn buttons, and the article's title as a big back button. Quitting
+        brings the normal Kobo interface back; on MediaTek models such as the Libra Colour that
+        means restarting the Kobo when the Wi-Fi was used.</p>
     </article>
     <article>
       <h3>Organise from the couch</h3>
       <p>Tags, likes, broadcast, following feeds, folder management, monitoring searches and
-        Send to Karakeep, as far as Inoreader's public API allows.</p>
+        Send to Karakeep (set up while you sign in), as far as Inoreader's public API allows.</p>
     </article>
   </div>
 </section>
@@ -108,8 +113,10 @@
     <figure class="device"><img loading="lazy" src="shots/03-categories.webp" alt="The Categories tab" width="720" height="960"><figcaption>Your folders in Inoreader's order, then tags and streams</figcaption></figure>
     <figure class="device"><img loading="lazy" src="shots/05-read-later.webp" alt="The Read later tab" width="720" height="960"><figcaption>Read later: your starred articles</figcaption></figure>
     <figure class="device"><img loading="lazy" src="shots/06c-selection-menu.webp" alt="Selecting text to highlight" width="720" height="960"><figcaption>Hold a word to highlight it or add a note</figcaption></figure>
-    <figure class="device"><img loading="lazy" src="shots/07-article-bar.webp" alt="An article with its bar showing" width="720" height="960"><figcaption>Tap the middle for the bar: Archive, star, the next article</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/07-article-bar.webp" alt="An article with its bar showing" width="720" height="960"><figcaption>Tap the middle for the bar; tap the title to go back</figcaption></figure>
     <figure class="device"><img loading="lazy" src="shots/09-next-article.webp" alt="An article with images" width="720" height="960"><figcaption>Colour images, cached for offline reading</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/09b-article-end.webp" alt="The end-of-article popup" width="720" height="960"><figcaption>At the end: mark read, unstar or keep unread, then on to the next</figcaption></figure>
+    <figure class="device"><img loading="lazy" src="shots/15-linked-comments.webp" alt="A Hacker News discussion with thread lines" width="720" height="960"><figcaption>Discussions threaded for e-ink, one tap from the article</figcaption></figure>
     <figure class="device"><img loading="lazy" src="shots/10-qr.webp" alt="A QR code for a link" width="720" height="960"><figcaption>A QR code to continue on your phone</figcaption></figure>
     <figure class="device"><img loading="lazy" src="shots/11-light-panel.webp" alt="The light panel" width="720" height="960"><figcaption>Brightness and warmth from the bottom panel</figcaption></figure>
   </div>
@@ -135,7 +142,8 @@
         <li><strong>Tap</strong> a headline to read it, tap its <strong>ribbon</strong> to save it for later, <strong>hold</strong> it for its menu
           (mark read up to here, Archive, ...).</li>
         <li>Tap the sides of a page (or the page-turn buttons) to turn it, the middle for the bar:
-          <strong>Archive</strong> marks the article read and unstars it.</li>
+          tap the title to go back, <strong>Archive</strong> marks the article read and unstars it.
+          Paging past the end asks what to do with it.</li>
         <li>Changes reach Inoreader on their own over Wi-Fi. Quit from the main menu, and always
           before connecting the Kobo by USB.</li>
       </ul>
@@ -154,7 +162,8 @@
           <code>xattr -d com.apple.quarantine inoink-cli-macos-arm64</code> (the helper is not signed
           by Apple), then<br>
           <code>./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader</code><br>
-          It asks for your App key and opens Inoreader in your browser to approve.</li>
+          It asks for your App key and opens Inoreader in your browser to approve.
+          It then offers to set up Karakeep too (press Enter to skip).</li>
         <li>Eject and open InoInk again. It syncs, and you are reading.</li>
       </ol>
       <p>The <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-SETUP.md">setup guide</a>
@@ -172,7 +181,7 @@
       <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-ACCEPTANCE.md">What has been checked, and how.</a></li>
     <li><strong>Leaves your Kobo alone.</strong> It only touches its own folder (and one NickelMenu
       file). Books, settings and your Kobo account are untouched, and the normal interface comes
-      back when you quit.</li>
+      back when you quit (on MediaTek models, by restarting the Kobo if the Wi-Fi was used).</li>
     <li><strong>Public API only.</strong> InoInk uses Inoreader's documented API and does not try
       to copy the website feature for feature. Annotations made on the Kobo stay on the Kobo
       (or go to your notes by export) because Inoreader offers no way to write them.</li>

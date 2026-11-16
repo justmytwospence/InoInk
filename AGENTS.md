@@ -39,7 +39,7 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
 
 - `crates/inoink`: renderer-independent library (model, SQLite store, Inoreader API client,
   content pipeline, cache, sync worker). No UI dependency; testable without hardware.
-- `crates/inoink-cli`: computer-side helper (`authorize`, `provision`, `fixtures`, `verify-cache`).
+- `crates/inoink-cli`: computer-side helper (`authorize`, `karakeep`, `highlights`, `provision`, `fixtures`, `verify-cache`, `acceptance`, and `snapshot-login` / `snapshot` for the desktop preview).
 - `crates/core`, `crates/plato`, `crates/emulator`: inherited renderer, device and app code.
 
 ## Commands

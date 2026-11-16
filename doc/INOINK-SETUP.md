@@ -175,15 +175,13 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   search, select articles (check box), mark this list read (circled check mark; asks first, saved
   articles stay unread), sync,
   Wi-Fi, light, menu.
-  The sync icon shows a dot and turns while a sync runs; Main menu > Status shows the last sync.
+  The sync icon shows a dot and turns while a sync runs; the main menu and Main menu > Status show when the last sync was (Synced just now, 5 min ago, 2 h ago, yesterday, then the date, such as Nov 14).
 - InoInk syncs when it starts, wakes or gets a network connection (at most every 15 minutes), and
   sends your changes a few seconds after you make them; there is no timer keeping the Kobo awake.
   A sync with nothing new costs one Inoreader request. Settings > Inoreader API budget shows
   today's reads and writes against the limits Inoreader reports, when they reset and how many
   requests the last sync used.
 - Math and diagrams: formulas from KaTeX, MathJax, MathML and plain LaTeX are typeset on the Kobo (sized with the text, offline once downloaded), and SVG images are shown. A formula that cannot be typeset appears as its LaTeX source. Formulas appear in articles downloaded after updating; Load original page re-downloads one. Tapping a formula enlarges it.
-- Swiping back on the first page of an article opens the previous article of the list at its
-  beginning.
 - A thin bar along the bottom of an article shows where you are: one segment per page, dark up to the
   page shown, while each can be at least 6 mm wide (so landscape fits more than portrait, up to 20), otherwise a line.
 - On the last page of an unread list a card says "Mark N read": one tap marks the articles of
@@ -203,11 +201,12 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of categories.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
-  Back, Aa, Star, Archive, More, with a line below showing progress, time left and your place in the
+  the arrow and the article's title at the left (tap either to go back to the list), then Aa, Star,
+  Archive and More (link posts also get a comments icon before Aa), with a line below showing progress, time left and your place in the
   list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
-  page.
+  page (the article switches to the full page in place, from the top, when it arrives).
 - Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup:
   Mark read (keeps the star), Unstar (Remove from Read later in that list; Undo is in the main
   menu) or Keep unread, and a Then Next article | Back to list choice that is remembered. In the
@@ -248,7 +247,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
-- After **Archive** or a bulk change, the list updates without a notification. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
+- Short messages appear one at a time, centred just below the top bar; a new one replaces the one showing. After **Archive** or a bulk change, the list updates without a message. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
 - Main menu: Follow a feed, Settings (where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
