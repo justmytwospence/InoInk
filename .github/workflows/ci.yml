@@ -43,6 +43,7 @@ jobs:
       - run: cargo test --locked -p inoink -p inoink-cli
       - run: cargo clippy --locked -p inoink -p inoink-cli --all-targets -- -D warnings
       - run: sh tests/package.sh
+      - run: sh tests/preview-macos.sh
 
   core:
     name: core
@@ -54,6 +55,7 @@ jobs:
       - uses: ./.github/actions/free-disk
       - uses: ./.github/actions/dev-image
       - run: scripts/container-run.sh cargo test --locked -p plato-core --tests
+      - run: scripts/container-run.sh cargo test --locked -p emulator -- --test-threads=1
 
   kobo:
     name: kobo

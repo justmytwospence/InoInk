@@ -79,6 +79,8 @@ impl ReadingQueue {
 
 pub struct InoInk {
     pub data_dir: PathBuf,
+    /// Snapshot previews never connect to Inoreader.
+    pub sandbox: bool,
     pub account: String,
     /// The UI's connection. `None` while USB storage is shared.
     pub store: Option<Store>,
@@ -129,6 +131,11 @@ impl InoInk {
     /// [`Event::Sync`]. `online` is false for the emulator's offline fixtures.
     pub fn open(settings: &InoInkSettings, hub: Sender<Event>, online: bool) -> Result<InoInk, String> {
         let dir = settings.data_dir.clone();
+        // Treat even an invalid marker as offline-only, before touching credentials or the DB.
+        let sandbox = inoink::snapshot::is_sandbox(&dir);
+        if sandbox && online {
+            return Err("This preview sandbox is offline-only.".into());
+        }
         std::fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
         let mut provision_error = None;
         if online {
@@ -140,15 +147,16 @@ impl InoInk {
                 provision_error = Some(format!("Karakeep setup failed: {e}"));
             }
         }
-        let share = inoink::share::load_config(&dir).unwrap_or_default();
+        let share = if sandbox { Default::default() } else { inoink::share::load_config(&dir).unwrap_or_default() };
         let creds_store = FileCredentials::new(&dir);
-        let creds = creds_store.load_credentials().ok().flatten();
+        let creds = if sandbox { None } else { creds_store.load_credentials().ok().flatten() };
         let account = creds.as_ref().map(|c| c.user_id.clone()).filter(|u| !u.is_empty()).unwrap_or_else(|| "local".to_string());
         let db = dir.join(DB_FILE);
         let store = Store::open(&db, &account).map_err(|e| format!("can't open the database: {e}"))?;
         let cache = Cache::new(&dir.join("cache"), &account, cache_config(settings));
         let mut me = InoInk {
             data_dir: dir.clone(),
+            sandbox,
             account: account.clone(),
             store: Some(store),
             handle: None,
@@ -393,6 +401,9 @@ impl InoInk {
 
     /// The status line shown in the list footer.
     pub fn status_text(&self) -> String {
+        if self.sandbox {
+            return "Snapshot sandbox · local changes only".into();
+        }
         let pending = self.pending();
         let base = match &self.status {
             SyncStatus::Syncing => "Syncing".to_string(),

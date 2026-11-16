@@ -9,6 +9,7 @@ pub mod highlight;
 pub mod model;
 pub mod runtime;
 pub mod share;
+pub mod snapshot;
 pub mod store;
 pub mod sync;
 pub mod util;

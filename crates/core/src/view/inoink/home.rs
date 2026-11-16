@@ -1112,7 +1112,9 @@ impl InoInkHome {
                 self.reset(hub, rq, context);
             }
             InoInkEntry::SyncNow => {
-                if context.inoink.handle.is_some() {
+                if context.inoink.sandbox {
+                    self.notify("Offline snapshot. Refresh from the Mac preview launcher.", hub, rq, context);
+                } else if context.inoink.handle.is_some() {
                     // The sync button shows the progress.
                     context.inoink.submit(inoink::runtime::Command::SyncNow);
                 } else {

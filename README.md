@@ -214,6 +214,53 @@ the Release workflow builds release versions.
 the desktop emulator and writes screenshots to `target/inoink-emulator-shots`. Create the sample
 data first with `cargo run -p inoink-cli -- fixtures --output target/inoink-fixtures`.
 
+### Interactive desktop preview (Apple Silicon Mac)
+
+With Homebrew, Rust (see `rust-toolchain.toml`) and Xcode command-line tools installed, run:
+
+```sh
+scripts/preview-macos.sh
+```
+
+The first run installs missing Homebrew libraries and builds the pinned MuPDF renderer; later
+runs reuse those libraries and incrementally rebuild your Rust changes. No Docker or Kobo is
+needed. The native window shows the UI at half size (632x840), using coverage averaging to retain
+fine rules when reduced. Layout and saved screenshots retain the Libra Colour's full 1264x1680
+device-resolution pixels.
+
+By default the preview uses offline sample articles, not your Inoreader account. Changes and
+settings persist in `target/macos-preview/state`; build caches stay separately under
+`target/macos-preview`.
+
+```sh
+scripts/preview-macos.sh --reset       # reset only sample data, settings and screenshots
+scripts/preview-macos.sh --scale 0.4   # use a smaller window
+scripts/preview-macos.sh --build-only  # prepare/build without opening a window
+scripts/preview-macos.sh --inoreader   # use a sandbox snapshot of your real articles
+scripts/preview-macos.sh --inoreader --refresh  # replace local experiments with a fresh snapshot
+```
+
+The Inoreader mode asks for a **dedicated read-only authorization** on first use; a separate
+read-only application is recommended. It downloads up to 100 recent unread and 100 saved
+articles, with subscriptions and folders, to `target/macos-preview/inoreader/state`. Downloading
+uses Inoreader API quota and may request article pages and images from publishers. Counts can
+reflect your whole account even though only a subset of articles is cached. This is not a full
+account export.
+
+After download, the preview runs offline: marking articles read, starring, archiving and Undo
+change **only the local sandbox**. Relaunching keeps those experiments; `--refresh` replaces
+them with a new snapshot. Credentials are stored separately under
+`target/macos-preview/inoreader/auth`, never inside the preview data. See
+[setup](doc/INOINK-SETUP.md#real-article-desktop-sandbox) for authorization and security details.
+
+Click, hold and drag to tap, long-press and swipe. **B/F** simulate page buttons, **[ / ]** rotate,
+**S** saves a full-resolution PNG in the selected preview's `state/screenshots`, and **Escape** or
+closing the window quits. Relaunch after editing code to try the new build. The preview does not
+simulate e-ink ghosting, refresh timing or physical hardware; device acceptance before merging
+still applies. Only one preview/build runs at a time. After a forced kill, a stale lock is left
+untouched: confirm no preview or build is running before manually removing the lock directory
+printed by the launcher.
+
 ## Contributing and releases
 
 Changes go through pull requests to `main`, and each one is tried on a real Kobo before it is

@@ -1,5 +1,7 @@
 //! Computer-side helper for InoInk: authorize with Inoreader, provision a Kobo, build fixture
-//! data and check a cache. Secrets are never taken from command-line arguments.
+//! data, download offline snapshots and check a cache. Secrets are never taken from command-line arguments.
+
+mod snapshot;
 
 use inoink::api::auth::{authorize_url, exchange_code, parse_callback, AppConfig};
 use inoink::api::{ApiClient, Clock, SystemClock, UreqTransport};
@@ -22,6 +24,10 @@ const USAGE: &str = "inoink-cli <command>
       INOINK_CLIENT_SECRET environment variable or a hidden prompt. With --device the encrypted
       credentials are written to the mounted Kobo; with --out they are written to FILE
       (plaintext: delete it after provisioning).
+  snapshot-login --auth DIR
+      Authorize a separate read-only account for offline snapshots.
+  snapshot --auth DIR --output DIR
+      Download a bounded offline snapshot using separate read-only credentials.
   provision --credentials FILE --device MOUNT
       Encrypt previously authorized credentials for the Kobo's key.
   karakeep --url URL --device MOUNT
@@ -600,6 +606,8 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("authorize") => authorize(&args[1..]),
+        Some("snapshot-login") => snapshot::login(&args[1..]),
+        Some("snapshot") => snapshot::run(&args[1..]),
         Some("provision") => provision(&args[1..]),
         Some("karakeep") => karakeep(&args[1..]),
         Some("fixtures") => fixtures(&args[1..]),

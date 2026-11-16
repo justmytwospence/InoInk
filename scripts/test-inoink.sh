@@ -3,9 +3,11 @@
 # document tests (in the build container) and the install/launcher tests.
 set -eu
 cd "$(dirname "$0")/.."
+sh tests/preview-macos.sh
 cargo fmt -p inoink -p inoink-cli -- --check
 cargo test --locked -p inoink -p inoink-cli
 cargo clippy --locked -p inoink -p inoink-cli --all-targets -- -D warnings
 scripts/container-run.sh cargo test --locked -p plato-core --tests
+scripts/container-run.sh cargo test --locked -p emulator -- --test-threads=1
 sh tests/package.sh "$@"
 echo "All checks passed."
