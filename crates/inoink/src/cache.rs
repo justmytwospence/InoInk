@@ -101,6 +101,7 @@ pub struct VerifyReport {
 pub struct Cache {
     dir: PathBuf,
     cfg: CacheConfig,
+    diagnostics: bool,
 }
 
 fn io_err(e: std::io::Error) -> Error {
@@ -179,7 +180,13 @@ impl Cache {
     /// `root` is the cache directory; `account` selects the per-account subdirectory.
     pub fn new(root: &Path, account: &str, cfg: CacheConfig) -> Cache {
         let dir = root.join(&sha256_hex(account.as_bytes())[..16]);
-        Cache { dir, cfg }
+        Cache { dir, cfg, diagnostics: true }
+    }
+
+    /// Enables or disables cache diagnostics on stderr. Enabled by default.
+    pub fn with_diagnostics(mut self, enabled: bool) -> Self {
+        self.diagnostics = enabled;
+        self
     }
 
     pub fn config(&self) -> &CacheConfig {
@@ -383,7 +390,11 @@ impl Cache {
                     thread = Some(t);
                 }
                 Err(Error::Storage(m)) => return Err(Error::Storage(m)),
-                Err(e) => eprintln!("discussion {}: {e}", d.url()),
+                Err(e) => {
+                    if self.diagnostics {
+                        eprintln!("discussion {}: {e}", d.url());
+                    }
+                }
             }
         }
 
@@ -572,7 +583,9 @@ impl Cache {
                             }
                             Err(why) => {
                                 formulas_failed.fetch_add(1, Ordering::Relaxed);
-                                eprintln!("math: {why}");
+                                if self.diagnostics {
+                                    eprintln!("math: {why}");
+                                }
                                 Err(DownloadError::Permanent(why))
                             }
                         }
@@ -614,7 +627,7 @@ impl Cache {
             }
         });
         let n = formulas.load(Ordering::Relaxed);
-        if n > 0 {
+        if n > 0 && self.diagnostics {
             eprintln!(
                 "math: {n} formulas typeset in {} ms, {} not understood",
                 formula_ms.load(Ordering::Relaxed),

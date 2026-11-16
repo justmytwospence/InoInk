@@ -34,6 +34,34 @@ Requirements on the computer: Docker, `curl`, `jq`. `scripts/build-inoink.sh --t
 builds the emulator; `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures`
 replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`.
 
+## Real-article desktop sandbox
+
+On an Apple Silicon Mac, `scripts/preview-macos.sh --inoreader` opens a local, offline preview
+of your real Inoreader articles. The first run asks for an application client ID, client secret
+and its registered callback URI without echoing them, then opens the Inoreader consent page.
+Use a dedicated application registered for read-only access when possible; this keeps the Kobo's
+authorization separate. The preview requests only `read` scope and rejects write-capable tokens.
+Never paste credentials or callback addresses into chat, a shell command, or an issue.
+
+It downloads up to 100 recent unread and 100 saved articles, along with subscriptions, folders,
+annotations and cached content. This is a sample, not an account export; folder counts can
+represent your entire account while the snapshot contains only part of it. Refreshes consume
+Inoreader API quota; article pages, discussions and images may also be fetched from publishers.
+OAuth tokens may be refreshed when downloading.
+
+The preview then runs offline. Read, star, Archive and Undo change only the local copy and persist
+between launches. `scripts/preview-macos.sh --inoreader --refresh` replaces those experiments
+with a fresh snapshot; it does not affect the separate synthetic preview. Do not provision the
+sandbox data directory onto a Kobo or enable online access for it.
+
+The read-only credentials are kept separately in
+`target/macos-preview/inoreader/auth/credentials.json`, protected by directory mode 0700 and
+file mode 0600; they are plaintext local credentials, so protect your Mac account and backups.
+The sandbox database, cached articles, settings and screenshots live in
+`target/macos-preview/inoreader/state`. After confirming no preview or download is running, you
+can remove `target/macos-preview/inoreader` to discard both snapshot and preview authorization.
+Do not delete the auth directory while a refresh is in progress.
+
 ## Development and releases
 
 1. Work on a branch and open a pull request against `main`. Its title is the commit message

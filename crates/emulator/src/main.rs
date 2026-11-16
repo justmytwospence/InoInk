@@ -1,6 +1,9 @@
-use std::mem;
+mod framebuffer;
+
+use std::cell::Cell;
+use std::rc::Rc;
+use std::path::Path;
 use std::thread;
-use std::fs::File;
 use std::sync::mpsc;
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -8,11 +11,8 @@ use plato_core::anyhow::{Error, Context as ResultExt};
 use plato_core::chrono::Local;
 use sdl2::event::Event as SdlEvent;
 use sdl2::keyboard::{Scancode, Keycode, Mod};
-use sdl2::render::{WindowCanvas, BlendMode};
-use sdl2::pixels::{Color as SdlColor, PixelFormatEnum};
+use framebuffer::{FBCanvas, SharedGeometry, window_size, window_to_device};
 use sdl2::mouse::MouseState;
-use sdl2::rect::Point as SdlPoint;
-use sdl2::rect::Rect as SdlRect;
 use plato_core::framebuffer::{Framebuffer, UpdateMode};
 use plato_core::input::{DeviceEvent, FingerStatus, ButtonCode, ButtonStatus};
 use plato_core::document::sys_info_as_html;
@@ -37,7 +37,6 @@ use plato_core::view::common::{toggle_input_history_menu, toggle_keyboard_layout
 use plato_core::helpers::{load_toml, save_toml};
 use plato_core::settings::{Settings, settings_path, IntermKind};
 use plato_core::geom::{Rectangle, Axis, Dir};
-use plato_core::color::Color;
 use plato_core::gesture::{GestureEvent, gesture_events};
 use plato_core::device::CURRENT_DEVICE;
 use plato_core::battery::{Battery, FakeBattery};
@@ -46,7 +45,6 @@ use plato_core::lightsensor::LightSensor;
 use plato_core::font::Fonts;
 use plato_core::context::Context;
 use plato_core::pt;
-use plato_core::png;
 
 pub const APP_NAME: &str = "InoInk";
 const DEFAULT_ROTATION: i8 = 1;
@@ -58,21 +56,49 @@ pub struct Options {
     online: bool,
     tour: bool,
     shots: Option<String>,
+    scale: f64,
 }
 
-fn parse_options() -> Options {
-    let mut o = Options { data: None, online: false, tour: false, shots: None };
-    let mut args = std::env::args().skip(1);
+fn parse_scale(value: &str) -> Result<f64, Error> {
+    let scale = value.parse::<f64>()
+        .map_err(|_| plato_core::anyhow::format_err!("invalid --scale {:?}: expected a finite number from 0.1 through 2.0", value))?;
+    if !scale.is_finite() || !(0.1..=2.0).contains(&scale) {
+        return Err(plato_core::anyhow::format_err!("invalid --scale {:?}: expected a finite number from 0.1 through 2.0", value));
+    }
+    Ok(scale)
+}
+
+fn parse_options() -> Result<Options, Error> {
+    parse_options_from(std::env::args().skip(1))
+}
+
+fn parse_options_from(mut args: impl Iterator<Item = String>) -> Result<Options, Error> {
+    let mut o = Options { data: None, online: false, tour: false, shots: None, scale: 1.0 };
     while let Some(a) = args.next() {
         match a.as_str() {
             "--data" => o.data = args.next(),
             "--online" => o.online = true,
             "--scripted-tour" => o.tour = true,
             "--screenshots" => o.shots = args.next(),
+            "--scale" => {
+                let value = args.next().ok_or_else(|| plato_core::anyhow::format_err!("--scale requires a number from 0.1 through 2.0"))?;
+                o.scale = parse_scale(&value)?;
+            },
             _ => {}
         }
     }
-    o
+    Ok(o)
+}
+
+fn save_screenshot(fb: &dyn Framebuffer, directory: Option<&str>, name: &str) -> Result<(), Error> {
+    let path = if let Some(dir) = directory {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("can't create screenshot directory {}", dir))?;
+        Path::new(dir).join(name)
+    } else {
+        name.into()
+    };
+    fb.save(path.to_str().context("screenshot path is not UTF-8")?)
 }
 
 pub fn build_context(fb: Box<dyn Framebuffer>, opts: &Options, hub: &mpsc::Sender<Event>) -> Result<Context, Error> {
@@ -98,22 +124,23 @@ fn seconds(timestamp: u32) -> f64 {
 }
 
 #[inline]
-pub fn device_event(event: SdlEvent) -> Option<DeviceEvent> {
+pub fn device_event(event: SdlEvent, geometry: &SharedGeometry) -> Option<DeviceEvent> {
+    let (window, logical) = geometry.get();
     match event {
         SdlEvent::MouseButtonDown { timestamp, x, y, .. } =>
             Some(DeviceEvent::Finger { id: 0,
                                        status: FingerStatus::Down,
-                                       position: pt!(x, y),
+                                       position: window_to_device(x, y, window, logical),
                                        time: seconds(timestamp) }),
         SdlEvent::MouseButtonUp { timestamp, x, y, .. } =>
             Some(DeviceEvent::Finger { id: 0,
                                        status: FingerStatus::Up,
-                                       position: pt!(x, y),
+                                       position: window_to_device(x, y, window, logical),
                                        time: seconds(timestamp) }),
         SdlEvent::MouseMotion { timestamp, x, y, .. } =>
             Some(DeviceEvent::Finger { id: 0,
                                        status: FingerStatus::Motion,
-                                       position: pt!(x, y),
+                                       position: window_to_device(x, y, window, logical),
                                        time: seconds(timestamp) }),
         _ => None,
     }
@@ -132,143 +159,25 @@ fn code_from_key(key: Scancode) -> Option<ButtonCode> {
     }
 }
 
-struct FBCanvas(WindowCanvas);
-
-impl Framebuffer for FBCanvas {
-    fn set_pixel(&mut self, x: u32, y: u32, color: Color) {
-        let [red, green, blue] = color.rgb();
-        self.0.set_draw_color(SdlColor::RGB(red, green, blue));
-        self.0.draw_point(SdlPoint::new(x as i32, y as i32)).unwrap();
-    }
-
-    fn set_blended_pixel(&mut self, x: u32, y: u32, color: Color, alpha: f32) {
-        let [red, green, blue] = color.rgb();
-        self.0.set_draw_color(SdlColor::RGBA(red, green, blue, (alpha * 255.0) as u8));
-        self.0.draw_point(SdlPoint::new(x as i32, y as i32)).unwrap();
-    }
-
-    fn invert_region(&mut self, rect: &Rectangle) {
-        let width = rect.width();
-        let s_rect = Some(SdlRect::new(rect.min.x, rect.min.y,
-                                       width, rect.height()));
-        if let Ok(data) = self.0.read_pixels(s_rect, PixelFormatEnum::RGB24) {
-            for y in rect.min.y..rect.max.y {
-                let v = (y - rect.min.y) as u32;
-                for x in rect.min.x..rect.max.x {
-                    let u = (x - rect.min.x) as u32;
-                    let addr = 3 * (v * width + u);
-                    let red = data[addr as usize];
-                    let green = data[(addr+1) as usize];
-                    let blue = data[(addr+2) as usize];
-                    let mut color = Color::Rgb(red, green, blue);
-                    color.invert();
-                    self.set_pixel(x as u32, y as u32, color);
-                }
-            }
-        }
-    }
-
-    fn shift_region(&mut self, rect: &Rectangle, drift: u8) {
-        let width = rect.width();
-        let s_rect = Some(SdlRect::new(rect.min.x, rect.min.y,
-                                       width, rect.height()));
-        if let Ok(data) = self.0.read_pixels(s_rect, PixelFormatEnum::RGB24) {
-            for y in rect.min.y..rect.max.y {
-                let v = (y - rect.min.y) as u32;
-                for x in rect.min.x..rect.max.x {
-                    let u = (x - rect.min.x) as u32;
-                    let addr = 3 * (v * width + u);
-                    let red = data[addr as usize];
-                    let green = data[(addr+1) as usize];
-                    let blue = data[(addr+2) as usize];
-                    let mut color = Color::Rgb(red, green, blue);
-                    color.shift(drift);
-                    self.set_pixel(x as u32, y as u32, color);
-                }
-            }
-        }
-    }
-
-    fn update(&mut self, _rect: &Rectangle, _mode: UpdateMode) -> Result<u32, Error> {
-        self.0.present();
-        Ok(Local::now().timestamp_subsec_millis())
-    }
-
-    fn wait(&self, _tok: u32) -> Result<i32, Error> {
-        Ok(1)
-    }
-
-    fn save(&self, path: &str) -> Result<(), Error> {
-        let (width, height) = self.dims();
-        let file = File::create(path).with_context(|| format!("can't create output file {}", path))?;
-        let mut encoder = png::Encoder::new(file, width, height);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_color(png::ColorType::Rgb);
-        let mut writer = encoder.write_header().with_context(|| format!("can't write PNG header for {}", path))?;
-        let data = self.0.read_pixels(self.0.viewport(), PixelFormatEnum::RGB24).unwrap_or_default();
-        writer.write_image_data(&data).with_context(|| format!("can't write PNG data to {}", path))?;
-        Ok(())
-    }
-
-    fn rotation(&self) -> i8 {
-        DEFAULT_ROTATION
-    }
-
-    fn set_rotation(&mut self, n: i8) -> Result<(u32, u32), Error> {
-        let (mut width, mut height) = self.dims();
-        if (width < height && n % 2 == 0) || (width > height && n % 2 == 1) {
-            mem::swap(&mut width, &mut height);
-        }
-        self.0.window_mut().set_size(width, height).ok();
-        Ok((width, height))
-    }
-
-    fn set_monochrome(&mut self, _enable: bool) {
-    }
-
-    fn set_dithered(&mut self, _enable: bool) {
-    }
-
-    fn set_inverted(&mut self, _enable: bool) {
-    }
-
-    fn monochrome(&self) -> bool {
-        false
-    }
-
-    fn dithered(&self) -> bool {
-        false
-    }
-
-    fn inverted(&self) -> bool {
-        false
-    }
-
-    fn width(&self) -> u32 {
-        self.0.window().size().0
-    }
-
-    fn height(&self) -> u32 {
-        self.0.window().size().1
-    }
-}
-
 fn main() -> Result<(), Error> {
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
+    let opts = parse_options()?;
+    let sdl_context = sdl2::init().map_err(Error::msg)?;
+    let video_subsystem = sdl_context.video().map_err(Error::msg)?;
     let (width, height) = CURRENT_DEVICE.dims;
+    let (physical_width, physical_height) = window_size(width, height, opts.scale);
+    if physical_width == 0 || physical_height == 0 {
+        return Err(plato_core::anyhow::format_err!("--scale produces a zero-sized emulator window"));
+    }
     let window = video_subsystem
-                 .window("InoInk Emulator", width, height)
+                 .window("InoInk Emulator", physical_width, physical_height)
                  .position_centered()
-                 .build()
-                 .unwrap();
+                 .build()?;
 
-    let mut fb = window.into_canvas().software().build().unwrap();
-    fb.set_blend_mode(BlendMode::Blend);
-
-    let opts = parse_options();
+    let canvas = window.into_canvas().software().build()?;
+    let geometry: SharedGeometry = Rc::new(Cell::new(((0, 0), (0, 0))));
+    let fb = FBCanvas::new(canvas, width, height, opts.scale, Rc::clone(&geometry));
     let (tx, rx) = mpsc::channel();
-    let mut context = build_context(Box::new(FBCanvas(fb)), &opts, &tx)?;
+    let mut context = build_context(Box::new(fb), &opts, &tx)?;
 
     context.load_dictionaries();
     context.load_keyboard_layouts();
@@ -371,9 +280,8 @@ fn main() -> Result<(), Error> {
                                 },
                                 Scancode::I | Scancode::O => {
                                     let mouse_state = MouseState::new(&event_pump);
-                                    let x = mouse_state.x() as i32;
-                                    let y = mouse_state.y() as i32;
-                                    let center = pt!(x, y);
+                                    let (window, logical) = geometry.get();
+                                    let center = window_to_device(mouse_state.x(), mouse_state.y(), window, logical);
                                     if scancode == Scancode::I {
                                         tx.send(Event::Gesture(GestureEvent::Spread { center,
                                                                                       factor: 2.0,
@@ -414,7 +322,7 @@ fn main() -> Result<(), Error> {
                     }
                 },
                 _ => {
-                    if let Some(dev_evt) = device_event(sdl_evt) {
+                    if let Some(dev_evt) = device_event(sdl_evt, &geometry) {
                         ty.send(dev_evt).ok();
                     }
                 },
@@ -739,7 +647,7 @@ fn main() -> Result<(), Error> {
                 },
                 Event::Select(EntryId::TakeScreenshot) => {
                     let name = Local::now().format("screenshot-%Y%m%d_%H%M%S.png");
-                    let msg = match context.fb.save(&name.to_string()) {
+                    let msg = match save_screenshot(context.fb.as_ref(), opts.shots.as_deref(), &name.to_string()) {
                         Err(e) => format!("Couldn't take screenshot: {}).", e),
                         Ok(_) => format!("Saved {}.", name),
                     };
@@ -926,6 +834,144 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(select(InoInkEntry::Tab(Tab::Newsfeed)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("13-end-of-unread"));
+    t.push_back(TourStep::Send(Event::OpenArticle(ArticleId(1005))));
+    t.push_back(TourStep::Wait(1000));
+    t.push_back(TourStep::Send(Event::Toggle(ViewId::TopBottomBars)));
+    t.push_back(TourStep::Wait(400));
+    t.push_back(TourStep::Shot("14-linked-article-tabs"));
+    t.push_back(TourStep::Send(Event::ShowDocument(ArticleId(1005), plato_core::view::inoink::actions::DocKind::Comments)));
+    t.push_back(TourStep::Wait(1000));
+    t.push_back(TourStep::Send(Event::Toggle(ViewId::TopBottomBars)));
+    t.push_back(TourStep::Wait(400));
+    t.push_back(TourStep::Shot("15-linked-comments-tabs"));
     t.push_back(TourStep::Quit);
     t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plato_core::framebuffer::Pixmap;
+    use sdl2::mouse::MouseButton;
+
+    fn options(args: &[&str]) -> Result<Options, Error> {
+        parse_options_from(args.iter().map(|arg| arg.to_string()))
+    }
+
+    #[test]
+    fn scale_defaults_and_existing_options() -> Result<(), Error> {
+        assert_eq!(options(&[])?.scale, 1.0);
+        let opts = options(&[
+            "--data",
+            "sample data",
+            "--online",
+            "--scripted-tour",
+            "--screenshots",
+            "sample shots",
+            "--scale",
+            "0.5",
+        ])?;
+        assert_eq!(opts.scale, 0.5);
+        assert_eq!(opts.data.as_deref(), Some("sample data"));
+        assert_eq!(opts.shots.as_deref(), Some("sample shots"));
+        assert!(opts.online && opts.tour);
+        for value in ["0.1", "0.5", "1", "2.0"] {
+            assert!(parse_scale(value).is_ok(), "{}", value);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_scale_is_an_error() {
+        for value in [
+            "", "invalid", "NaN", "inf", "-inf", "Infinity", "1e999", "0", "-0", "-1", "0.099",
+            "2.001", "--online",
+        ] {
+            let error = parse_scale(value).unwrap_err().to_string();
+            assert!(error.contains("--scale"), "{}", error);
+            assert!(options(&["--scale", value]).is_err(), "{}", value);
+        }
+        let error = options(&["--scale"]).err().unwrap().to_string();
+        assert!(error.contains("--scale requires"), "{}", error);
+    }
+
+    #[test]
+    fn mouse_events_use_shared_geometry() {
+        let geometry = Rc::new(Cell::new(((632, 840), (1264, 1680))));
+        let events = [
+            SdlEvent::MouseButtonDown {
+                timestamp: 1000,
+                window_id: 0,
+                which: 0,
+                mouse_btn: MouseButton::Left,
+                clicks: 1,
+                x: 631,
+                y: 839,
+            },
+            SdlEvent::MouseButtonUp {
+                timestamp: 1000,
+                window_id: 0,
+                which: 0,
+                mouse_btn: MouseButton::Left,
+                clicks: 1,
+                x: 631,
+                y: 839,
+            },
+            SdlEvent::MouseMotion {
+                timestamp: 1000,
+                window_id: 0,
+                which: 0,
+                mousestate: MouseState::from_sdl_state(0),
+                x: 631,
+                y: 839,
+                xrel: 1,
+                yrel: 1,
+            },
+        ];
+        for (event, expected_status) in
+            events
+                .into_iter()
+                .zip([FingerStatus::Down, FingerStatus::Up, FingerStatus::Motion])
+        {
+            match device_event(event.clone(), &geometry).unwrap() {
+                DeviceEvent::Finger {
+                    position,
+                    status,
+                    time,
+                    ..
+                } => {
+                    assert_eq!(position, pt!(1262, 1678));
+                    assert_eq!(status, expected_status);
+                    assert_eq!(time, 1.0);
+                }
+                other => panic!("unexpected event: {:?}", other),
+            }
+            geometry.set(((840, 632), (1680, 1264)));
+            match device_event(event, &geometry).unwrap() {
+                DeviceEvent::Finger { position, .. } => assert_eq!(position, pt!(1262, 1263)),
+                other => panic!("unexpected event: {:?}", other),
+            }
+            geometry.set(((632, 840), (1264, 1680)));
+        }
+    }
+
+    #[test]
+    fn manual_screenshot_uses_requested_directory() -> Result<(), Error> {
+        let root = std::env::temp_dir().join(format!("inoink-manual-shots-{}", std::process::id()));
+        let directory = root.join("isolated shots");
+        let name = "screenshot-20000101_000000.png";
+        let fb = Pixmap::new(1264, 1680, 3);
+        save_screenshot(&fb, directory.to_str(), name)?;
+        let saved = Pixmap::from_png(directory.join(name))?;
+        assert_eq!(saved.dims(), (1264, 1680));
+        assert!(!root.join(name).exists());
+        // With no override, the old path is passed through unchanged.
+        let legacy_path = root.join("legacy.png");
+        save_screenshot(&fb, None, legacy_path.to_str().unwrap())?;
+        assert!(legacy_path.is_file());
+        let blocked = directory.join(name);
+        assert!(save_screenshot(&fb, blocked.to_str(), name).is_err());
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
 }

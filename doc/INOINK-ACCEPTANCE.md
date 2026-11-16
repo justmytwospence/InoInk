@@ -2,7 +2,7 @@
 
 Three kinds of evidence are kept apart. **Automated** means unit, integration and fault tests run
 on the development computer with a simulated Inoreader. **Emulator** means the desktop build under
-SDL's dummy video driver. **Device** means a physical Kobo Libra Colour. Emulator results are never
+SDL's dummy video driver or the native interactive preview. **Device** means a physical Kobo Libra Colour. Emulator results are never
 evidence about hardware.
 
 Status words: PASS (done, evidence named), NOT RUN (not performed), N/A.
@@ -20,11 +20,11 @@ document tests inside the build container, and the install/launcher tests).
 | Content and cache: teaser pages replaced by the original text (per-feed learning), lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (33) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (10) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (3), `inoink_views.rs` (43), `font_crop.rs` (2), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (4), `inoink_views.rs` (50), `font_crop.rs` (2), in the container | PASS |
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
-| Inherited Plato unit tests | `crates/core` | PASS (29) |
+| Inherited Plato unit tests | `crates/core` | PASS (38) |
 
 ## Build and package (computer only)
 
@@ -51,6 +51,49 @@ and the highlight is then in the database (`inoink-cli highlights --data target/
 Result: PASS (15 screenshots inspected on 2026-11-12). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
+
+### Native macOS interactive preview
+
+`scripts/preview-macos.sh` builds the emulator natively on Apple Silicon macOS, with cached
+MuPDF 1.27.0 and Homebrew libraries. It opens a half-size window backed by the full 1264x1680
+Libra Colour framebuffer, with mouse input mapped into device coordinates. It uses offline
+fixtures and keeps mutable data, settings and screenshots under `target/macos-preview/state`;
+`--reset` resets only that state. Native dependencies and incremental Cargo artifacts are
+cached separately under `target/macos-preview`.
+
+| Check | Result |
+|---|---|
+| Native dependency preparation and emulator/CLI build on macOS arm64 | PASS 2026-11-15 (macOS 27.2, build 26B123; Rust 1.99.1; Apple clang 21; MuPDF 1.27.0; SDL2-compat 2.32.74); repeated build reuses native cache |
+| Native dummy-driver tours at scales 0.5 and 1.0; full-resolution home/article/menu screenshots | PASS 2026-11-15 (macOS 27.2 arm64): 16 PNGs per tour at 1264x1680; home/article/menu inspected; article PNG identical between scales |
+| Portable launcher tests and emulator framebuffer/input regression tests | PASS 2026-11-15: launcher tests on macOS and container Linux; 7 emulator tests in the container |
+| Reduced preview windows area-average pixels so one-pixel lines stay visible (even/odd phases, noninteger ratios, real SDL canvas readback); 1.0 exact, 2.0 nearest | PASS 2026-11-15: 10 emulator tests in the container |
+| Native dummy-driver tours at scales 0.5 and 0.4 with link-post `14-linked-article-tabs` and `15-linked-comments-tabs` | PASS 2026-11-15 (macOS arm64): 18 PNGs per tour at 1264x1680; comments icon in both states inspected, no clipped or clashing controls |
+| Comments icon looks right in the visible reduced window | NOT RUN (human visual check) |
+| Visible window fits; click/hold/drag and B/F navigate; menu Undo works | NOT RUN (human interaction) |
+| Rotation keeps input aligned; S saves a full-resolution screenshot; Escape/window close quits | NOT RUN (human interaction) |
+| Relaunch retains sample changes/settings; `--reset` restores fresh state | NOT RUN (human interaction) |
+
+The native article screenshot was also compared visually with the existing Linux-container
+Libra Colour tour: layout and content match, with no observed clipping or corruption. The native
+and container PNGs are not byte-identical; native library/rasterization differences are not a
+hardware fidelity guarantee.
+
+These checks do not establish e-ink refresh timing, ghosting, colour accuracy, physical touch,
+page-button behavior, suspend or other device integration.
+
+### Real-article snapshot sandbox
+
+The opt-in `--inoreader` preview uses a separately authorized read-only snapshot and runs the UI
+offline. Automated endpoint-denial and sandbox tests use simulated accounts; they do not prove
+behavior against the live service. OAuth token refresh and publisher image/article requests may
+occur while downloading, but article and account state must not be changed.
+
+| Check | Result |
+|---|---|
+| Read-only endpoint/scope enforcement, bounded download, isolated credentials, offline UI and launcher cancellation | PASS (automated mocks, core view tests and terminal tests; `scripts/test-inoink.sh`, macOS and container Linux) |
+| Live read-only authorization and snapshot retrieval on macOS | NOT RUN |
+| Mark read, star, Archive and Undo in preview; compare actual Inoreader state | NOT RUN (human interaction) |
+| Relaunch preserves local experiments; refresh replaces them without affecting account | NOT RUN (human interaction) |
 
 ### Screen geometries
 

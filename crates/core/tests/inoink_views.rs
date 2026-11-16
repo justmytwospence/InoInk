@@ -105,6 +105,68 @@ fn send(home: &mut InoInkHome, env: &mut Env, e: Event) {
 }
 
 #[test]
+fn sandbox_refuses_online_and_ignores_local_credentials_and_sharing() {
+    let e = env();
+    let dir = &e.context.inoink.data_dir;
+    std::fs::write(dir.join("preview-sandbox.json"), "not json").unwrap();
+    std::fs::write(dir.join("credentials.json"), "invalid").unwrap();
+    std::fs::write(dir.join("share.json"), "invalid").unwrap();
+    let error = match InoInk::open(&e.context.settings.inoink, e.tx.clone(), true) {
+        Err(error) => error,
+        Ok(_) => panic!("sandbox must reject online startup"),
+    };
+    assert_eq!(error, "This preview sandbox is offline-only.");
+    assert!(!dir.join("device.key").exists());
+    let offline = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
+    assert!(offline.sandbox);
+    assert_eq!(offline.account, "local");
+    assert!(offline.handle.is_none());
+    assert!(offline.share.karakeep.is_none());
+
+    // Valid credentials for a different account must also be ignored.
+    std::fs::write(dir.join("credentials.json"), r#"{"client_id":"x","client_secret":"x","redirect_uri":"https://example.com","access_token":"x","refresh_token":"x","expires_at":0,"scope":"read","user_id":"other"}"#).unwrap();
+    std::fs::write(dir.join("share.json"), r#"{"karakeep":{"url":"https://example.com","api_key":"x"}}"#).unwrap();
+    let offline = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
+    assert_eq!(offline.account, "local");
+    assert!(offline.handle.is_none());
+    assert!(offline.share.karakeep.is_none());
+    assert!(offline.store().unwrap().effective(ArticleId(1), &Membership::Starred).unwrap());
+}
+
+#[test]
+fn sandbox_actions_persist_locally_and_sync_stays_offline() {
+    let mut e = env();
+    std::fs::write(e.context.inoink.data_dir.join("preview-sandbox.json"), "{}").unwrap();
+    e.context.inoink = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Done).unwrap();
+    undo_done(&mut e.context).unwrap();
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Starred).unwrap());
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Done).unwrap();
+    apply_article_action(&mut e.context, ArticleId(3), &ArticleAction::ToggleStar).unwrap();
+    apply_article_action(&mut e.context, ArticleId(2), &ArticleAction::ToggleRead).unwrap();
+    apply_bulk_action(&mut e.context, &[ArticleId(4)], BulkAction::MarkRead).unwrap();
+    undo_done(&mut e.context).unwrap();
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    assert_eq!(e.context.inoink.status_text(), "Snapshot sandbox · local changes only");
+    assert!(!e.context.inoink.status_text().contains("to send"));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::SyncNow)));
+    assert!(locate::<Notification>(&home).is_some());
+    send(&mut home, &mut e, Event::Reseed);
+    assert!(e.context.inoink.handle.is_none());
+    e.context.inoink = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
+    assert!(e.context.inoink.handle.is_none());
+    let store = e.context.inoink.store().unwrap();
+    assert!(store.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!store.effective(ArticleId(1), &Membership::Starred).unwrap());
+    assert!(store.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(store.effective(ArticleId(3), &Membership::Starred).unwrap());
+    assert!(!store.effective(ArticleId(4), &Membership::Read).unwrap());
+}
+
+#[test]
 fn opens_on_the_newsfeed_with_unread_only() {
     let mut e = env();
     assert_eq!(e.context.inoink.tab, Tab::Newsfeed);
