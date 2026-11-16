@@ -19,8 +19,13 @@ document tests inside the build container, and the install/launcher tests).
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging, skipping unchanged listings, organization refresh on change | `crates/inoink/tests/sync_faults.rs` (32) | PASS |
 | Content and cache: teaser pages replaced by the original text (per-feed learning), lazy/responsive/relative images, order and captions, sanitizing, malformed markup, tables/code, normalization and limits, decode bombs, bad MIME, SSRF and redirects, retries, concurrency, cancellation, leases, recovery of interrupted writes, symlinks, rooted paths, eviction and protection, plan priorities, low space, extraction, formulas (KaTeX, MathJax 2/3, MathML, Wikipedia, raw TeX, fallbacks), SVG rasterizing | `crates/inoink/tests/content_cache.rs` (33) | PASS |
 | Lifecycle: UI reads/writes stay fast during slow sync, suspend cancels and quiesces, hung network does not hold suspend, no timers when idle, flapping network coalesced, debounce, USB closes the database fully and reopens, pending work survives shutdown, browse/open online | `crates/inoink/tests/lifecycle.rs` (10) | PASS |
+| Discussions: Hacker News and Lobsters detection, thread parsing (tree order, depths, flat lists), well-formed comments page, nesting capped at two indents with parent names, OP, reply counts, Skip links, comment ages | `crates/inoink/tests/discussion.rs` (6) | PASS |
+| Link reading views: text and title extraction, https and HTML only, short-text reporting, og:title, prepared article shape | `crates/inoink/tests/web_page.rs` (5) | PASS |
+| Karakeep: queue lifecycle and dedupe, request shape, status mapping, encrypted config round trip, flush stops on retry | `crates/inoink/tests/share.rs` (5) | PASS |
+| List views: counts, query order and cap, unread per folder, folder ordering, per-collection defaults, word counts, time left, mark read up to / from here | `crates/inoink/tests/views.rs` (8) | PASS |
+| Preview snapshot: exact read-only allowlist, forbidden writes never reach the network, read scope only, token rotation, bounded and atomic publication, no partial or unreadable snapshots, no private URLs logged | `crates/inoink/tests/snapshot.rs` (23), `crates/inoink-cli/tests/snapshot_pty.rs` (2) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (4), `inoink_views.rs` (50), `font_crop.rs` (2), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode, end-of-article popup and its remembered choice, one toast at a time, back by title, running headers (title, thread), left borders across pages | `crates/core/tests/inoink_document.rs` (5), `inoink_views.rs` (61), `font_crop.rs` (2), in the container | PASS |
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
@@ -41,14 +46,14 @@ document tests inside the build container, and the install/launcher tests).
 
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
-the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
+the Newsfeed with its end-of-list card; saving by tap; a headline's menu; Categories and a folder; Read later; an
 article with the bar, the next article's title and the page indicator; the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
-panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
+panel; the main menu; the Newsfeed after saving; a Hacker News link post as the article (`14-linked-article-tabs`) and its comments with thread lines (`15-linked-comments-tabs`). Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
 tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
 and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
-Result: PASS (15 screenshots inspected on 2026-11-12). Not covered by the tour (tested headlessly
+Result: PASS (19 screenshots inspected on 2026-11-16). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
@@ -123,7 +128,7 @@ that was merged.
 |---|---|
 | Launch from NickelMenu; quit restores Nickel (normal exit and after a forced error) | NOT RUN |
 | Launch shows "Opening InoInk" at once; the `startup:` lines in `inoink.log` show the list arriving no later than before | NOT RUN |
-| Quit shows "Closing InoInk" ("Restarting the Kobo" on MediaTek) at once; an open article keeps its position | NOT RUN |
+| Quit shows "Closing InoInk" at once ("Restarting the Kobo" when a MediaTek Kobo reboots); an open article keeps its position | NOT RUN |
 | Physical page buttons and touch navigation | NOT RUN |
 | Colour images render in articles and in the enlargement view | NOT RUN |
 | Frontlight and warmth | NOT RUN |

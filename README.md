@@ -1,7 +1,7 @@
 # InoInk
 
-An unofficial, standalone [Inoreader](https://www.inoreader.com) reader for the **Kobo Libra
-Colour**, built on the [Plato](https://github.com/baskerville/plato) document reader. It talks to
+An unofficial, standalone [Inoreader](https://www.inoreader.com) reader for **Kobo
+e-readers** (developed on a Kobo Libra Colour), built on the [Plato](https://github.com/baskerville/plato) document reader. It talks to
 your Inoreader account directly, keeps articles and their images for offline reading, and sends
 your changes back when it can. There is no server, browser extension or read-later service in
 between.
@@ -39,7 +39,9 @@ public API and does not try to match the Inoreader website feature for feature; 
   and SVG images are shown. A formula
   that cannot be typeset appears as its LaTeX source.
 - Hacker News and Lobsters: link posts open as the full linked article, with the discussion one
-  tap away (an Article | comments switch in the bar). Both are cached for offline reading.
+  tap away (an Article | comments switch in the bar). Both are cached for offline reading. The comments are threaded for e-ink: a thin line down
+  each reply branch, two indents at most (deeper replies name whom they answer), ⁂ and Skip ›
+  between threads, and the thread you are in named in the top margin.
 - **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
 - Reading flows: paging past the end of an article opens a small popup: Mark read, Unstar (Remove
@@ -151,8 +153,9 @@ Then:
 - You land on **Newsfeed**, your unread articles. **Tap** a headline to read it, tap its
   **ribbon** at the right to save it for later, **hold** it for its menu.
 - In an article, turn pages by tapping the left or right third (or the page-turn buttons). Tap
-  the middle for the bar: **Archive** marks the article read and removes its star, **Aa** changes
-  the font and spacing, **Back** returns to the list.
+  the middle for the bar: tap the article's title (or the arrow) to return to the list,
+  **Archive** marks the article read and removes its star, **Aa** changes the font and spacing.
+  Paging past the last page opens a small popup to mark it read, unstar it or keep it unread.
 - **Categories** shows your folders and feeds; **Read later** is your starred articles.
 - To clear a list: the check-mark button in the top bar marks it all read (after asking), a
   held headline's menu offers **Mark read up to here** and **from here down**, and at the end of
@@ -180,9 +183,9 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   page shown is dark.
 - **Sync:** InoInk syncs on its own when it starts, wakes or gets a network connection, and sends
   your changes a few seconds after you make them. Tap the sync icon to sync now; it shows a dot
-  and turns while a sync runs. Main menu > Status shows the last sync, and Settings > Inoreader
+  and turns while a sync runs. the main menu shows when the last sync was ("Synced 5 min ago"), and Settings > Inoreader
   API budget today's requests.
-- **Article:** tap the middle of the page for the bar (Back, Aa, Star, Archive, More) and the progress
+- **Article:** tap the middle of the page for the bar (the arrow and the title go back; Aa, Star, Archive, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
   Karakeep, Show QR code, Details, Load original page (the article switches to it when it arrives). Tap an image to enlarge it.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
@@ -190,9 +193,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
 - **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
   sets it up (or answer the prompt during `authorize`); see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
+- **Messages:** short notes appear one at a time, centred below the top bar. Archive and bulk
+  changes update the list without one; Main menu > Undo last change reverts them.
 - **USB:** quit InoInk before connecting to a computer.
-- **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting restarts the Kobo (about half a minute). Restarting
-  only the Kobo interface can crash these MediaTek models; see
+- **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting after the Wi-Fi was used restarts the Kobo (about half a minute), because restarting
+  only the Kobo interface can then crash it. With the Wi-Fi off from start to quit, it returns to
+  the Kobo interface directly. The menu says which: Quit, or Quit (the Kobo restarts). See
   [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#quitting).
 
 ## Build from source
@@ -292,8 +298,9 @@ alone release nothing. `scripts/version.sh next` shows what merging now would pu
 
 - `crates/inoink`: the Inoreader library (database, API client, content pipeline, cache, sync).
   It has no user-interface dependency.
-- `crates/inoink-cli`: the computer-side helper (`authorize`, `provision`, `fixtures`,
-  `verify-cache`, `acceptance`).
+- `crates/inoink-cli`: the computer-side helper (`authorize`, `karakeep`,
+  `highlights`, `provision`, `fixtures`, `verify-cache`, `acceptance`, and `snapshot-login` /
+  `snapshot` for the desktop preview).
 - `crates/core`, `crates/plato`, `crates/emulator`: Plato's renderer, device layer and app,
   with the InoInk interface in `crates/core/src/view/inoink`.
 
