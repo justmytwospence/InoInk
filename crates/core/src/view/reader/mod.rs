@@ -3050,8 +3050,7 @@ impl Reader {
                 let title = self.article_title(context);
                 let switch = self.article.as_ref().and_then(|a| {
                     let row = context.inoink.store().and_then(|s| s.discussion(id).ok().flatten())?;
-                    let label = if row.fetched == 0 { "Comments".to_string() } else { inoink::content::discussion::count_text(row.comment_count) };
-                    Some((a.kind, label))
+                    Some((a.kind, if row.fetched == 0 { None } else { Some(row.comment_count) }))
                 });
                 ArticleBar::new(bar_rect, id, title, starred, switch, context)
             };

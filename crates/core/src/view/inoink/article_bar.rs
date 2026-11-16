@@ -1,4 +1,4 @@
-//! The reader's only chrome: Back, the title, Star, Done and More.
+//! The reader's chrome: Back, the title, Comments (link posts), Aa, Star, Done and More.
 
 use crate::context::Context;
 use crate::framebuffer::Framebuffer;
@@ -12,7 +12,7 @@ use crate::view::label::Label;
 use crate::color::{BLACK, WHITE};
 use crate::device::CURRENT_DEVICE;
 use crate::font::{font_from_style, NORMAL_STYLE};
-use crate::geom::{BorderSpec, Point};
+use crate::geom::Point;
 use crate::unit::scale_by_dpi;
 use crate::view::THICKNESS_SMALL;
 use crate::view::{Align, Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
@@ -27,7 +27,7 @@ pub struct ArticleBar {
 }
 
 impl ArticleBar {
-    pub fn new(rect: Rectangle, article: ArticleId, title: String, starred: bool, switch: Option<(DocKind, String)>, _context: &mut Context) -> ArticleBar {
+    pub fn new(rect: Rectangle, article: ArticleId, title: String, starred: bool, switch: Option<(DocKind, Option<u32>)>, _context: &mut Context) -> ArticleBar {
         let id = ID_FEEDER.next();
         let side = rect.height() as i32;
         let mut children: Vec<Box<dyn View>> = Vec::new();
@@ -37,20 +37,24 @@ impl ArticleBar {
         let star_rect = rect![rect.max.x - 3 * side, rect.min.y, rect.max.x - 2 * side, rect.max.y];
         let aa_rect = rect![rect.max.x - 4 * side, rect.min.y, rect.max.x - 3 * side, rect.max.y];
         let title_rect = rect![rect.min.x + side, rect.min.y, aa_rect.min.x, rect.max.y];
+        let mut comments_button = None;
         match switch {
-            Some((current, comments)) => {
-                // A link post: an Article | comments switch replaces the title.
-                let w = (title_rect.width() as i32).min(side * 6);
-                let cx = (title_rect.min.x + title_rect.max.x) / 2;
-                let r = rect![cx - w / 2, title_rect.min.y, cx + w / 2, title_rect.max.y];
-                children.push(Box::new(DocSwitch::new(r, article, current, comments)));
+            Some((current, count)) => {
+                let comments_rect = rect![(aa_rect.min.x - side * 3 / 2).max(rect.min.x + side), rect.min.y, aa_rect.min.x, rect.max.y];
+                comments_button = Some(CommentsButton::new(comments_rect, article, current, count));
+                let title_rect = rect![rect.min.x + side, rect.min.y, comments_rect.min.x, rect.max.y];
+                let text = if current == DocKind::Comments { "Comments".to_string() } else { title };
+                children.push(Box::new(Label::new(title_rect, text, Align::Center).cap_centered()));
             }
-            None => children.push(Box::new(Label::new(title_rect, title, Align::Center))),
+            None => children.push(Box::new(Label::new(title_rect, title, Align::Center).cap_centered())),
         }
         children.push(Box::new(Icon::new(if starred { "bookmark-filled" } else { "bookmark" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
         children.push(Box::new(Icon::new("archive", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
         children.push(Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
-        children.push(Box::new(Label::new(aa_rect, "Aa".to_string(), Align::Center).event(Some(Event::Toggle(ViewId::TextPanel)))));
+        children.push(Box::new(Label::new(aa_rect, "Aa".to_string(), Align::Center).cap_centered().event(Some(Event::Toggle(ViewId::TextPanel)))));
+        if let Some(button) = comments_button {
+            children.push(Box::new(button));
+        }
         ArticleBar { id, rect, children, article }
     }
 
@@ -61,7 +65,7 @@ impl ArticleBar {
         let title_rect = rect![rect.min.x + side, rect.min.y, more_rect.min.x, rect.max.y];
         let children: Vec<Box<dyn View>> = vec![
             Box::new(Icon::new("back", rect![rect.min, rect.min + side], Event::Back)),
-            Box::new(Label::new(title_rect, title, Align::Center)),
+            Box::new(Label::new(title_rect, title, Align::Center).cap_centered()),
             Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::LinkMenu, more_rect))),
         ];
         ArticleBar { id: ID_FEEDER.next(), rect, children, article: ArticleId(0) }
@@ -119,62 +123,78 @@ impl View for ArticleBar {
     }
 }
 
-/// "Article | 12 comments": the half that is not showing switches documents when tapped.
-pub struct DocSwitch {
+#[cfg(test)]
+mod tests {
+    use super::comments_count_label;
+    use crate::view::icon::ICONS_PIXMAPS;
+
+    #[test]
+    fn count_labels() {
+        for (count, expected) in [(None, None), (Some(0), Some("0")), (Some(1), Some("1")), (Some(999), Some("999")), (Some(1000), Some("999+")), (Some(u32::MAX), Some("999+"))] {
+            assert_eq!(comments_count_label(count).as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn comment_icons_resolve() {
+        assert!(ICONS_PIXMAPS.contains_key("comments") && ICONS_PIXMAPS.contains_key("article"));
+    }
+}
+
+pub(crate) fn comments_count_label(count: Option<u32>) -> Option<String> {
+    count.map(|n| if n <= 999 { n.to_string() } else { "999+".to_string() })
+}
+
+/// On the article, the comments icon with its count opens the comments; on the comments, an
+/// article icon returns to the article.
+pub struct CommentsButton {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     article: ArticleId,
     current: DocKind,
-    comments: String,
+    count: Option<u32>,
 }
 
-impl DocSwitch {
-    pub fn new(rect: Rectangle, article: ArticleId, current: DocKind, comments: String) -> DocSwitch {
-        DocSwitch { id: ID_FEEDER.next(), rect, children: Vec::new(), article, current, comments }
-    }
-
-    fn halves(&self) -> (Rectangle, Rectangle) {
-        let inset = self.rect.height() as i32 / 6;
-        let mid = (self.rect.min.x + self.rect.max.x) / 2;
-        (
-            rect![self.rect.min.x, self.rect.min.y + inset, mid, self.rect.max.y - inset],
-            rect![mid, self.rect.min.y + inset, self.rect.max.x, self.rect.max.y - inset],
-        )
+impl CommentsButton {
+    pub fn new(rect: Rectangle, article: ArticleId, current: DocKind, count: Option<u32>) -> CommentsButton {
+        CommentsButton { id: ID_FEEDER.next(), rect, children: Vec::new(), article, current, count }
     }
 }
 
-impl View for DocSwitch {
+impl View for CommentsButton {
     fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
             Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
-                let (left, right) = self.halves();
-                if self.current == DocKind::Comments && left.includes(c) {
-                    bus.push_back(Event::ShowDocument(self.article, DocKind::Article));
-                } else if self.current == DocKind::Article && right.includes(c) {
-                    bus.push_back(Event::ShowDocument(self.article, DocKind::Comments));
-                }
+                let other = if self.current == DocKind::Comments { DocKind::Article } else { DocKind::Comments };
+                bus.push_back(Event::ShowDocument(self.article, other));
                 true
             }
             Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
+            Event::Device(DeviceEvent::Finger { position, .. }) if self.rect.includes(position) => true,
             _ => false,
         }
     }
 
     fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
         let dpi = CURRENT_DEVICE.dpi;
-        let (left, right) = self.halves();
         fb.draw_rectangle(&self.rect, WHITE);
+        // On the comments the button returns to the article: an article icon, no count.
+        let on_comments = self.current == DocKind::Comments;
+        let Some(pixmap) = ICONS_PIXMAPS.get(if on_comments { "article" } else { "comments" }) else { return };
+        let gap = scale_by_dpi(8.0, dpi) as i32;
         let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-        for (half, text, active) in [(left, "Article", self.current == DocKind::Article), (right, self.comments.as_str(), self.current == DocKind::Comments)] {
-            fb.draw_rectangle(&half, if active { BLACK } else { WHITE });
-            let plan = font.plan(text, Some(half.width() as i32), None);
-            let x = half.min.x + (half.width() as i32 - plan.width) / 2;
-            let y = half.min.y + (half.height() as i32 + font.x_heights.0 as i32) / 2;
-            font.render(fb, if active { WHITE } else { BLACK }, &plan, Point::new(x, y));
+        let icon_w = pixmap.width as i32;
+        let label = if on_comments { None } else { comments_count_label(self.count) };
+        let plan = label.as_ref().map(|l| font.plan(l, Some((self.rect.width() as i32 - icon_w - gap).max(0)), None));
+        let w = icon_w + plan.as_ref().map_or(0, |p| gap + p.width);
+        let x0 = (self.rect.min.x + (self.rect.width() as i32 - w) / 2).max(self.rect.min.x);
+        let y = self.rect.min.y + (self.rect.height() as i32 - pixmap.height as i32) / 2;
+        fb.draw_blended_pixmap(pixmap, Point::new(x0, y), BLACK);
+        if let Some(plan) = plan {
+            let baseline = self.rect.min.y + (self.rect.height() as i32 + font.x_heights.1 as i32) / 2;
+            font.render(fb, BLACK, &plan, Point::new(x0 + icon_w + gap, baseline));
         }
-        let both = rect![left.min.x, left.min.y, right.max.x, right.max.y];
-        fb.draw_rectangle_outline(&both, &BorderSpec { thickness: scale_by_dpi(THICKNESS_SMALL, dpi) as u16, color: BLACK });
     }
 
     fn rect(&self) -> &Rectangle {
