@@ -3715,12 +3715,14 @@ impl View for Reader {
                 context.inoink.apply(u);
                 let mine = self.article.as_ref().map(|a| a.id);
                 match u {
-                    inoink::runtime::Update::Extracted(id, r) if Some(*id) == mine => {
-                        let m = match r {
-                            Ok(_) => "Original page loaded. Reopen the article to read it.".to_string(),
-                            Err(why) => format!("Could not load the original page: {why}"),
-                        };
-                        self.notify(&m, hub, rq, context);
+                    inoink::runtime::Update::Extracted(id, r) if Some(*id) == mine => match r {
+                        // Swap in the original page's text, from its start.
+                        Ok(_) if self.is_article() => {
+                            context.inoink.open_at_start = true;
+                            hub.send(Event::ShowDocument(*id, crate::view::inoink::actions::DocKind::Article)).ok();
+                        },
+                        Ok(_) => (),
+                        Err(why) => self.notify(&format!("Could not load the original page: {why}"), hub, rq, context),
                     },
                     inoink::runtime::Update::CommentsRefreshed(id, Err(why)) if Some(*id) == mine => {
                         self.notify(&format!("Could not load the comments: {why}"), hub, rq, context);

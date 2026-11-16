@@ -195,6 +195,7 @@ that was merged.
 | Highlight, add a note, edit and remove in an article; they survive leaving and restarting | NOT RUN |
 | An Inoreader annotation is underlined at the right place, and holding it shows its note | NOT RUN |
 | Highlights are kept after Load original page | NOT RUN |
+| Load original page on a teaser swaps the text in place, from the top, without reopening the article | NOT RUN |
 | Inline and display formulas: right size and baseline, follow font size changes | NOT RUN |
 | A math-heavy article caches in reasonable time (`math:` line in inoink.log) | NOT RUN |
 | SVG images show in articles | NOT RUN |

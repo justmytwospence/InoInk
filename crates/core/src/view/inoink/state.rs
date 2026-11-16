@@ -113,6 +113,8 @@ pub struct InoInk {
     pub opening_page: Option<String>,
     /// The next article opened starts on its last page (paging back from the first page of the following one).
     pub open_at_end: bool,
+    /// The next article opened starts on its first page (its text was just replaced).
+    pub open_at_start: bool,
     /// Services links can be sent to (Karakeep).
     pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
@@ -174,6 +176,7 @@ impl InoInk {
             prefetched: std::collections::HashSet::new(),
             opening_page: None,
             open_at_end: false,
+            open_at_start: false,
             share,
             opening_comments: None,
             settings: settings.clone(),

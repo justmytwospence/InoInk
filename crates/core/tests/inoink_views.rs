@@ -592,6 +592,26 @@ fn no_titles_row_without_neighbours() {
 }
 
 #[test]
+fn an_extracted_original_reopens_the_article_at_the_start() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    sent(&e);
+    let hash = e.context.inoink.store().unwrap().latest_version(ArticleId(4)).unwrap().unwrap().hash;
+    let pos = ReadingPosition { content_hash: hash, offset: 7, anchor: String::new(), font_size: None };
+    e.context.inoink.store_mut().unwrap().save_position(ArticleId(4), &pos).unwrap();
+    drive(&mut reader, &mut e, Event::Sync(inoink::runtime::Update::Extracted(ArticleId(4), Ok(DownloadState::Complete))));
+    let evts = sent(&e);
+    assert!(evts.iter().any(|ev| matches!(ev, Event::ShowDocument(ArticleId(4), DocKind::Article))));
+    assert!(!reader.children().iter().any(|c| c.is::<Notification>()), "no toast");
+    assert!(e.context.inoink.open_at_start);
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(4)) else { panic!("cached") };
+    assert_eq!(a.offset, None, "starts at the top of the new text");
+    assert!(!e.context.inoink.open_at_start, "the flag is taken");
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(4)) else { panic!("cached") };
+    assert_eq!(a.offset, Some(7), "later opens resume");
+}
+
+#[test]
 fn swiping_back_on_the_first_page_opens_the_previous_article_on_its_last_page() {
     let mut e = env();
     e.context.inoink.queue = Some(ReadingQueue { ids: vec![ArticleId(4), ArticleId(3)], read_later: false, label: "Newsfeed".into() });

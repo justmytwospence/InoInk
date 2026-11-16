@@ -183,7 +183,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   API budget today's requests.
 - **Article:** tap the middle of the page for the bar (Back, Aa, Star, Archive, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
-  Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.
+  Karakeep, Show QR code, Details, Load original page (the article switches to it when it arrives). Tap an image to enlarge it.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
   also changes brightness.
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.

@@ -241,6 +241,7 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
         let _ = s.mark_seen(&[id], inoink::util::now_usec());
     }
     let at_end = std::mem::take(&mut context.inoink.open_at_end);
+    let at_start = std::mem::take(&mut context.inoink.open_at_start);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {
         return fetch_for_open(context, id);
@@ -254,6 +255,8 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
         let _ = store.lease(id, v.version);
         if at_end {
             offset = Some(usize::MAX);
+        } else if at_start {
+            // New text (the original page): the old position means nothing in it.
         } else if let Ok(Some(pos)) = store.position(id) {
             offset = if pos.content_hash == v.hash {
                 Some(pos.offset as usize)
