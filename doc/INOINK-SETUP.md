@@ -191,13 +191,14 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   (adds the site or feed to your subscriptions).
 - Items from Hacker News and Lobsters feeds are link posts: InoInk downloads the linked page and
   extracts its text itself (no credentials, not an Inoreader feature), and caches the thread from
-  the site's public JSON. The bar shows an Article | N comments switch (also a link at the end
-  of the article); More has Refresh comments. Star, Archive and Read apply to the one item.
+  the site's public JSON. The bar shows a comments icon with the count (0 when there are none; just
+  the icon before it is fetched). Tap it to read the comments; there it becomes an article icon that returns to the article.
+  There is also a link at the end of the article; More has Refresh comments. Star, Archive and Read
+  apply to the one item.
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
-- After **Archive** or a bulk change, an Undo bar sits at the top of the list until you undo it,
-  turn the page or make another such change.
+- After **Archive** or a bulk change, the list updates without a notification. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
 - Main menu: Follow a feed, Settings (where the previous and next titles show, offline
   storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a

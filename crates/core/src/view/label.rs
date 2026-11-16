@@ -16,6 +16,7 @@ pub struct Label {
     event: Option<Event>,
     hold_event: Option<Event>,
     bold: bool,
+    cap_centered: bool,
 }
 
 impl Label {
@@ -29,12 +30,19 @@ impl Label {
             event: None,
             hold_event: None,
             bold: false,
+            cap_centered: false,
         }
     }
 
     /// Bold title text, centred on the capital height.
     pub fn bold(mut self) -> Label {
         self.bold = true;
+        self
+    }
+
+    /// Regular text centred on the capital height, to line up with icons beside it.
+    pub fn cap_centered(mut self) -> Label {
+        self.cap_centered = true;
         self
     }
 
@@ -81,7 +89,7 @@ impl View for Label {
         fb.draw_rectangle(&self.rect, TEXT_NORMAL[0]);
 
         let font = font_from_style(fonts, if self.bold { &TITLE_STYLE } else { &NORMAL_STYLE }, dpi);
-        let x_height = if self.bold { font.x_heights.1 as i32 } else { font.x_heights.0 as i32 };
+        let x_height = if self.bold || self.cap_centered { font.x_heights.1 as i32 } else { font.x_heights.0 as i32 };
         let padding = font.em() as i32;
         let max_width = self.rect.width() as i32 - if self.bold { padding / 2 } else { padding };
 

@@ -21,7 +21,7 @@ use plato_core::view::EntryKind;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use plato_core::geom::{CycleDir, Dir};
 use plato_core::settings::{ButtonScheme, QueueTitles};
-use plato_core::view::inoink::article_bar::ArticleBar;
+use plato_core::view::inoink::article_bar::{ArticleBar, CommentsButton};
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
@@ -743,6 +743,84 @@ fn row_menu_offers_mark_read_up_to_here_except_in_read_later() {
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
     let l = labels(&home, &e);
     assert!(!l.contains(&"Mark read up to here".to_string()) && !l.contains(&"Mark read from here down".to_string()), "{l:?}");
+}
+
+#[test]
+fn comments_button_toggles_documents() {
+    let mut e = env();
+    let rect = Rectangle::new(Point::new(100, 20), Point::new(280, 140));
+    for current in [DocKind::Article, DocKind::Comments] {
+        let other = if current == DocKind::Article { DocKind::Comments } else { DocKind::Article };
+        let mut button = CommentsButton::new(rect, ArticleId(42), current, Some(3));
+        for y in [20, 80, 139] {
+            let mut bus = VecDeque::new();
+            let mut rq = RenderQueue::new();
+            assert!(button.handle_event(&Event::Gesture(Gest::Tap(Point::new(150, y))), &e.tx, &mut bus, &mut rq, &mut e.context));
+            assert!(matches!(bus.pop_front(), Some(Event::ShowDocument(ArticleId(42), k)) if k == other));
+            assert!(bus.is_empty());
+        }
+        let mut bus = VecDeque::new();
+        let mut rq = RenderQueue::new();
+        assert!(button.handle_event(&Event::Gesture(Gest::HoldFingerShort(Point::new(150, 80), 0)), &e.tx, &mut bus, &mut rq, &mut e.context));
+        assert!(!button.handle_event(&Event::Gesture(Gest::Tap(Point::new(99, 80))), &e.tx, &mut bus, &mut rq, &mut e.context));
+        assert!(bus.is_empty());
+    }
+}
+
+#[test]
+fn comments_button_shows_count_and_article_return() {
+    let mut e = env();
+    let rect = Rectangle::new(Point::new(50, 20), Point::new(230, 140));
+    let render = |e: &mut Env, current: DocKind, count: Option<u32>, image: &mut Pixmap| {
+        CommentsButton::new(rect, ArticleId(42), current, count).render(image, rect, &mut e.context.fonts);
+    };
+    let dark = |image: &Pixmap| (0..160).flat_map(|y| (0..300).map(move |x| (x, y))).filter(|&(x, y)| image.get_pixel(x, y).gray() < 128).count();
+    let mut outline = Pixmap::new(300, 160, 3);
+    render(&mut e, DocKind::Article, Some(42), &mut outline);
+    let mut back = Pixmap::new(300, 160, 3);
+    render(&mut e, DocKind::Comments, Some(42), &mut back);
+    let mut back_no_count = Pixmap::new(300, 160, 3);
+    render(&mut e, DocKind::Comments, None, &mut back_no_count);
+    let mut bare = Pixmap::new(300, 160, 3);
+    render(&mut e, DocKind::Article, None, &mut bare);
+    for img in [&outline, &back, &bare] {
+        for y in 0..160 {
+            for x in 0..300 {
+                if !rect.includes(Point::new(x as i32, y as i32)) {
+                    assert_eq!(img.get_pixel(x, y).gray(), 255, "write outside at {x},{y}");
+                }
+            }
+        }
+    }
+    assert!(dark(&outline) > dark(&bare), "the count adds ink");
+    assert!(dark(&bare) > 0 && dark(&back) > 0);
+    assert_eq!(back.data, back_no_count.data, "the article button shows no count");
+    assert_ne!(back.data, bare.data, "a different icon on the comments");
+    render(&mut e, DocKind::Comments, Some(42), &mut outline);
+    assert_eq!(outline.data, back.data, "switching clears the old state");
+}
+
+#[test]
+fn article_bar_layout_with_comments() {
+    let mut e = env();
+    for width in [1264, 1680, 758] {
+        let bar_rect = Rectangle::new(Point::new(0, 10), Point::new(width, 131));
+        let side = bar_rect.height() as i32;
+        for count in [None, Some(0), Some(1), Some(42), Some(12345)] {
+            for current in [DocKind::Article, DocKind::Comments] {
+                let mut bar = ArticleBar::new(bar_rect, ArticleId(42), "Title".into(), false, Some((current, count)), &mut e.context);
+                let button = bar.children().last().unwrap().downcast_ref::<CommentsButton>().expect("button is last");
+                let aa = bar.children()[bar.children().len() - 2].rect();
+                assert_eq!(button.rect().max.x, aa.min.x);
+                assert!(button.rect().min.x >= side);
+                assert_eq!(bar.children()[1].rect().max.x, button.rect().min.x);
+                assert!(bar.children()[2].downcast_ref::<plato_core::view::icon::Icon>().is_some_and(|i| i.name == "bookmark"));
+                let mut rq = RenderQueue::new();
+                bar.set_starred(true, &mut rq);
+                assert!(bar.children()[2].downcast_ref::<plato_core::view::icon::Icon>().is_some_and(|i| i.name == "bookmark-filled"));
+            }
+        }
+    }
 }
 
 #[test]
