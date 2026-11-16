@@ -16,7 +16,7 @@ use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, V
 use crate::view::{BORDER_RADIUS_LARGE, BORDER_RADIUS_MEDIUM, THICKNESS_LARGE, THICKNESS_MEDIUM};
 
 const TITLE: &str = "End of article";
-const THEN: &str = "Then:";
+const THEN: &str = "Then";
 const SEGMENTS: [(&str, AfterEnd); 2] = [("Next article", AfterEnd::Next), ("Back to list", AfterEnd::List)];
 
 pub struct ArticleEnd {

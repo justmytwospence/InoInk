@@ -26,6 +26,12 @@ pub struct ArticleBar {
     article: ArticleId,
 }
 
+/// The title beside the back arrow, left-aligned. Tapping it goes back too: a far bigger target
+/// than the arrow alone.
+fn title_label(rect: Rectangle, text: String) -> Label {
+    Label::new(rect, text, Align::Left(0)).cap_centered().event(Some(Event::Back))
+}
+
 impl ArticleBar {
     pub fn new(rect: Rectangle, article: ArticleId, title: String, starred: bool, switch: Option<(DocKind, Option<u32>)>, _context: &mut Context) -> ArticleBar {
         let id = ID_FEEDER.next();
@@ -44,9 +50,9 @@ impl ArticleBar {
                 comments_button = Some(CommentsButton::new(comments_rect, article, current, count));
                 let title_rect = rect![rect.min.x + side, rect.min.y, comments_rect.min.x, rect.max.y];
                 let text = if current == DocKind::Comments { "Comments".to_string() } else { title };
-                children.push(Box::new(Label::new(title_rect, text, Align::Center).cap_centered()));
+                children.push(Box::new(title_label(title_rect, text)));
             }
-            None => children.push(Box::new(Label::new(title_rect, title, Align::Center).cap_centered())),
+            None => children.push(Box::new(title_label(title_rect, title))),
         }
         children.push(Box::new(Icon::new(if starred { "bookmark-filled" } else { "bookmark" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
         children.push(Box::new(Icon::new("archive", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
@@ -65,7 +71,7 @@ impl ArticleBar {
         let title_rect = rect![rect.min.x + side, rect.min.y, more_rect.min.x, rect.max.y];
         let children: Vec<Box<dyn View>> = vec![
             Box::new(Icon::new("back", rect![rect.min, rect.min + side], Event::Back)),
-            Box::new(Label::new(title_rect, title, Align::Center).cap_centered()),
+            Box::new(title_label(title_rect, title)),
             Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::LinkMenu, more_rect))),
         ];
         ArticleBar { id: ID_FEEDER.next(), rect, children, article: ArticleId(0) }
