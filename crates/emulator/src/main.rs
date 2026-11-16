@@ -178,6 +178,9 @@ fn main() -> Result<(), Error> {
     let fb = FBCanvas::new(canvas, width, height, opts.scale, Rc::clone(&geometry));
     let (tx, rx) = mpsc::channel();
     let mut context = build_context(Box::new(fb), &opts, &tx)?;
+    // Live mode uses the computer's own network, which is up from the start.
+    context.online = opts.online;
+    context.settings.wifi = opts.online || context.settings.wifi;
 
     context.load_dictionaries();
     context.load_keyboard_layouts();
@@ -645,6 +648,17 @@ fn main() -> Result<(), Error> {
                 Event::Notify(msg) => {
                     show_notification(view.as_mut(), msg, &tx, &mut rq, &mut context);
                 },
+                Event::Device(DeviceEvent::NetUp) if opts.online && !context.online => {
+                    context.online = true;
+                    context.inoink.lifecycle(plato_core::inoink::runtime::Lifecycle::NetworkUp);
+                    tx.send(Event::NetworkChanged).ok();
+                    if view.is::<InoInkHome>() {
+                        handle_event(view.as_mut(), &evt, &tx, &mut bus, &mut rq, &mut context);
+                    } else if let Some(home) = history.get_mut(0).filter(|view| view.is::<InoInkHome>()) {
+                        let (tx, _rx) = mpsc::channel();
+                        home.handle_event(&evt, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut context);
+                    }
+                },
                 Event::Device(DeviceEvent::NetUp) if !view.is::<InoInkHome>() => {
                     if let Some(home) = history.get_mut(0).filter(|view| view.is::<InoInkHome>()) {
                         let (tx, _rx) = mpsc::channel();
@@ -662,6 +676,9 @@ fn main() -> Result<(), Error> {
                             });
                         } else {
                             context.online = false;
+                            if opts.online {
+                                context.inoink.lifecycle(plato_core::inoink::runtime::Lifecycle::NetworkDown);
+                            }
                         }
                     }
                 },

@@ -239,6 +239,7 @@ scripts/preview-macos.sh --scale 0.4   # use a smaller window
 scripts/preview-macos.sh --build-only  # prepare/build without opening a window
 scripts/preview-macos.sh --inoreader   # use a sandbox snapshot of your real articles
 scripts/preview-macos.sh --inoreader --refresh  # replace local experiments with a fresh snapshot
+scripts/preview-macos.sh --live        # your real account, syncing (changes reach Inoreader)
 ```
 
 The Inoreader mode asks for a **dedicated read-only authorization** on first use; a separate

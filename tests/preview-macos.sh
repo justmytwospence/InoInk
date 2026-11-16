@@ -151,7 +151,7 @@ FAKE_OS=Linux run --build-only && fail 'unsupported OS' || :
 unset FAKE_OS
 FAKE_ARCH=x86_64 run --build-only && fail 'unsupported architecture' || :
 unset FAKE_ARCH
-for args in '--scale' '--scale nan' '--scale 0' '--scale 2.1' '--wat' '--reset --build-only' '--refresh' '--inoreader --refresh --build-only' '--inoreader --reset'; do
+for args in '--scale' '--scale nan' '--scale 0' '--scale 2.1' '--wat' '--reset --build-only' '--refresh' '--inoreader --refresh --build-only' '--inoreader --reset' '--live --inoreader' '--live --reset'; do
  # Intentional split of fixed test cases.
  # shellcheck disable=SC2086
  status=0; run $args || status=$?; [ "$status" = 2 ] || fail "invalid arguments: $args"
