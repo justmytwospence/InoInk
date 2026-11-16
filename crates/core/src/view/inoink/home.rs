@@ -360,7 +360,7 @@ impl InoInkHome {
         self.next_is_end = false;
         let opts = Self::effective_options(context);
         let applies = self.end_card_applies(context);
-        let units = 2 * self.rows - if context.inoink.last_undo.is_some() { 2 } else { 0 };
+        let units = 2 * self.rows;
         if self.end_only {
             self.end_count = self.count_unmarked(context);
             if self.end_count == 0 || !applies {
@@ -450,13 +450,12 @@ impl InoInkHome {
     }
 
     /// How many pages the whole current list takes, laid out as `load_articles` lays out one
-    /// page: a header costs one unit, an article two, a page has `2 * rows` units (two fewer
-    /// while the undo bar shows) and holds at most `rows` articles; an unread list ends with a
+    /// page: a header costs one unit, an article two, a page has `2 * rows` units and holds at most `rows` articles; an unread list ends with a
     /// card that needs two units. Keep this in step with `load_articles`.
     fn count_article_pages(&self, context: &Context) -> usize {
         let Some(store) = context.inoink.store() else { return 1 };
         let opts = Self::effective_options(context);
-        let units = (2 * self.rows).saturating_sub(if context.inoink.last_undo.is_some() { 2 } else { 0 });
+        let units = 2 * self.rows;
         let q = ArticleQuery { limit: 0, after: None, ..self.query(context, None, 0) };
         let n = store.count_articles(&q).unwrap_or(0);
         let mut headers: Vec<Option<String>> = Vec::new();
@@ -627,20 +626,6 @@ impl InoInkHome {
         let span = |from: i32, n: i32| -> i32 { unit_h[from as usize..(from + n) as usize].iter().sum() };
         let mut y = rect.min.y;
         let mut unit = 0i32;
-        if !self.showing_cats {
-            if let Some((_, label)) = context.inoink.last_undo.as_ref() {
-                // The undo bar takes the first row until superseded.
-                let h = span(0, 2);
-                let r = rect![rect.min.x, y, rect.max.x, y + h - small_thickness];
-                let label = label.clone();
-                let lbl = Label::new(rect![r.min.x, r.min.y, r.max.x - r.height() as i32 * 2, r.max.y], label, Align::Left(r.height() as i32 / 3));
-                list.children.push(Box::new(lbl));
-                list.children.push(Box::new(Label::new(rect![r.max.x - r.height() as i32 * 2, r.min.y, r.max.x, r.max.y], "Undo".to_string(), Align::Center).event(Some(Event::Select(EntryId::InoInk(InoInkEntry::UndoDone))))));
-                list.children.push(Box::new(Filler::new(rect![rect.min.x, r.max.y, rect.max.x, r.max.y + thickness], SEPARATOR_NORMAL)));
-                y += h;
-                unit = 2;
-            }
-        }
         for slot in &layout {
             let n = match slot {
                 Slot::Header(_) => 1,
@@ -799,15 +784,6 @@ impl InoInkHome {
             }
             self.load_page(hub, rq, context);
             return;
-        }
-        // The Undo bar belongs to the page the change was made on: turning the page dismisses it
-        // (the next page still starts after the last headline shown).
-        let can_turn = match dir {
-            CycleDir::Next => self.next.is_some() || self.next_is_end,
-            CycleDir::Previous => self.page > 0 || self.end_only,
-        };
-        if can_turn {
-            context.inoink.last_undo = None;
         }
         match dir {
             CycleDir::Next => {

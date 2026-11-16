@@ -20,7 +20,7 @@ use std::time::Duration;
 
 pub const DB_FILE: &str = "inoink.db";
 
-/// What the Undo bar reverts.
+/// What the Undo command reverts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Undo {
     Done(UndoId),
@@ -95,8 +95,8 @@ pub struct InoInk {
     pub show_categories: bool,
     /// The list the open article came from, for "next article".
     pub queue: Option<ReadingQueue>,
-    /// The most recent Done or bulk action and the Undo bar's label, offered until superseded.
-    pub last_undo: Option<(Undo, String)>,
+    /// The last successful Archive or bulk action, until superseded or undone.
+    pub last_undo: Option<Undo>,
     /// Refills requested after bulk mark-reads (the worker fetches at once).
     pub refills: u32,
     /// A one-line message for the next redraw of the list.

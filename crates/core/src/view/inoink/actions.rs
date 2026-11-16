@@ -155,15 +155,10 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             Ok(ActionOutcome::default())
         }
         ArticleAction::Done => {
-            let title = {
-                let store = context.inoink.store().ok_or(SAVE_FAILED)?;
-                store.article_record(id).ok().flatten().map(|r| r.title).unwrap_or_default()
-            };
             let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
             let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
-            context.inoink.last_undo = Some((Undo::Done(undo), format!("Archived: {}", inoink::util::shorten(&title, 40))));
+            context.inoink.last_undo = Some(Undo::Done(undo));
             context.inoink.changed();
-            // The Undo bar at the top of the list is the confirmation; no notification covers it.
             Ok(ActionOutcome { message: None, close: true })
         }
         ArticleAction::LoadOriginal => {
@@ -194,13 +189,7 @@ pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkA
     let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
     let sel = store.freeze_ids(ids).map_err(|_| SAVE_FAILED)?;
     let n = store.apply_bulk(&sel, action).map_err(|_| SAVE_FAILED)?;
-    let label = match action {
-        BulkAction::MarkRead => format!("Marked {n} read"),
-        BulkAction::MarkUnread => format!("Marked {n} unread"),
-        BulkAction::Star => format!("Saved {n} for later"),
-        BulkAction::Unstar => format!("Removed {n} from Read later"),
-    };
-    context.inoink.last_undo = Some((Undo::Bulk(sel.id), label));
+    context.inoink.last_undo = Some(Undo::Bulk(sel.id));
     context.inoink.changed();
     if action == BulkAction::MarkRead {
         context.inoink.request_refill();
@@ -210,7 +199,7 @@ pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkA
 
 /// Reverts the most recent Done or bulk action.
 pub fn undo_done(context: &mut Context) -> Result<ActionOutcome, String> {
-    let Some((undo, _)) = context.inoink.last_undo.clone() else {
+    let Some(undo) = context.inoink.last_undo else {
         return Ok(ActionOutcome::default());
     };
     let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
@@ -221,7 +210,7 @@ pub fn undo_done(context: &mut Context) -> Result<ActionOutcome, String> {
     .map_err(|_| SAVE_FAILED)?;
     context.inoink.last_undo = None;
     context.inoink.changed();
-    Ok(ActionOutcome { message: Some("Restored".into()), close: false })
+    Ok(ActionOutcome::default())
 }
 
 /// What is needed to show an article.

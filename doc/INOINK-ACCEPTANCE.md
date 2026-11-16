@@ -124,6 +124,7 @@ that was merged.
 | Mark read up to here / from here down follow the list's sort, include the held headline and skip saved articles | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
+| Archive and bulk Read/Unread/Save/Unsave update silently with rows unobscured; Main menu > Undo last change remains available after paging and returning from a reader, even after waiting beyond six seconds, and restores silently without a timer | NOT RUN |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
 | Saved headlines show only the ribbon | NOT RUN |
 | Selection mode: check boxes toggle without ghosting; hold selects a range; Read/Unread/Save/Unsave apply and Undo reverts; the footer labels fit in portrait and landscape | NOT RUN |
