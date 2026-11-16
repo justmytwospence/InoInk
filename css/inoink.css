@@ -156,18 +156,65 @@ p.inoink-switch {
 	font-weight: bold;
 }
 
+/* Comments pages cached before thread lines (until refreshed). */
+/* Comments: each author line sits tight on its comment, comments are spaced apart, and
+   top-level threads start with a gap (the renderer draws no rules; the hr is the jump target). Replies name the comment they answer, so the
+   indentation stops growing after four levels. */
 div.inoink-comment {
+	margin: 1.1em 0 0 0;
+}
+
+div.inoink-comment > p {
+	margin: 0.25em 0;
+}
+
+div.inoink-d1 { margin-left: 1.2em; }
+div.inoink-d2 { margin-left: 2.4em; }
+div.inoink-d3 { margin-left: 3.6em; }
+div.inoink-d4 { margin-left: 4.8em; }
+
+div.inoink-comment > p.inoink-cmeta {
+	font-size: 0.8em;
+	color: #444;
+	margin: 0 0 0.1em 0;
+}
+
+hr.inoink-thread {
+	margin: 1.6em 0 0.4em 0;
+}
+
+p.inoink-next {
+	font-size: 0.8em;
+	text-align: right;
+	margin: 0.6em 0 0 0;
+}
+
+/* Comments: a break before each thread, a sans header line on each comment, and a thin line
+   down the left of each reply branch (two indents at most). */
+p.inoink-sep {
+	text-align: center;
+	color: #666;
+	margin: 1.6em 0 0.4em 0;
+}
+
+div.inoink-c {
 	margin: 0.9em 0 0 0;
 }
 
-div.inoink-d1 { margin-left: 1em; }
-div.inoink-d2 { margin-left: 2em; }
-div.inoink-d3 { margin-left: 3em; }
-div.inoink-d4 { margin-left: 4em; }
-div.inoink-d5 { margin-left: 5em; }
+div.inoink-c > p {
+	margin: 0.3em 0;
+}
 
-p.inoink-cmeta {
-	font-size: 0.8em;
-	color: #444;
-	margin: 0 0 0.2em 0;
+div.inoink-c > p.inoink-cm {
+	font-family: sans-serif;
+	font-size: 0.72em;
+	color: #555;
+	margin: 0 0 0.15em 0;
+}
+
+div.inoink-replies {
+	margin: 0.3em 0 0 0.3em;
+	padding-left: 0.9em;
+	border-left-width: 1px;
+	border-left-color: #888;
 }

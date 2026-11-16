@@ -52,6 +52,8 @@ pub struct StyleData {
     pub height: i32,
     pub margin: Edge,
     pub padding: Edge,
+    pub border_left_width: i32,
+    pub border_left_color: Color,
     pub start_x: i32,
     pub end_x: i32,
     pub retain_whitespace: bool,
@@ -176,6 +178,8 @@ impl Default for StyleData {
             height: 0,
             margin: Edge::default(),
             padding: Edge::default(),
+            border_left_width: 0,
+            border_left_color: BLACK,
             start_x: 0,
             end_x: 0,
             retain_whitespace: false,
@@ -358,6 +362,8 @@ pub enum DrawCommand {
     Text(TextCommand),
     ExtraText(TextCommand),
     Image(ImageCommand),
+    /// A filled bar (the left border of a block).
+    Rule(RuleCommand),
     Marker(usize),
 }
 
@@ -377,6 +383,13 @@ pub struct TextCommand {
 }
 
 #[derive(Debug, Clone)]
+pub struct RuleCommand {
+    pub offset: usize,
+    pub rect: Rectangle,
+    pub color: Color,
+}
+
+#[derive(Debug, Clone)]
 pub struct ImageCommand {
     pub offset: usize,
     pub position: Point,
@@ -392,6 +405,7 @@ impl DrawCommand {
             DrawCommand::Text(TextCommand { offset, .. }) => offset,
             DrawCommand::ExtraText(TextCommand { offset, .. }) => offset,
             DrawCommand::Image(ImageCommand { offset, .. }) => offset,
+            DrawCommand::Rule(RuleCommand { offset, .. }) => offset,
             DrawCommand::Marker(offset) => offset,
         }
     }

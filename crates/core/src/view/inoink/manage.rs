@@ -109,7 +109,9 @@ pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
     entries.push(EntryKind::SubMenu("Status".into(), status_entries(context)));
     entries.push(EntryKind::Separator);
     entries.push(EntryKind::Command("About InoInk".into(), EntryId::About));
-    let quit = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Quit (the Kobo restarts)" } else { "Quit" };
+    // MediaTek Kobos reboot on quitting once the Wi-Fi was used (see the launcher).
+    let reboots = std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") && context.wifi_used;
+    let quit = if reboots { "Quit (the Kobo restarts)" } else { "Quit" };
     entries.push(EntryKind::Command(quit.into(), EntryId::Quit));
     entries
 }
@@ -314,14 +316,8 @@ pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&st
         InoInkEntry::SetFullText(feed, mode) => {
             let store = context.inoink.store().ok_or(SAVE_FAILED)?;
             store.set_full_text_mode(feed, *mode).map_err(|_| SAVE_FAILED.to_string())?;
-            Ok(Some(
-                match mode {
-                    FullText::Auto => "Full text: automatic",
-                    FullText::Always => "Full text: always",
-                    FullText::Never => "Full text: never",
-                }
-                .to_string(),
-            ))
+            // The radio button shows the new choice.
+            Ok(None)
         }
         _ => Ok(None),
     }

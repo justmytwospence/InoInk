@@ -60,6 +60,13 @@ file mode 0600; they are plaintext local credentials, so protect your Mac accoun
 The sandbox database, cached articles, settings and screenshots live in
 `target/macos-preview/inoreader/state`. After confirming no preview or download is running, you
 can remove `target/macos-preview/inoreader` to discard both snapshot and preview authorization.
+
+`scripts/preview-macos.sh --live` instead runs the preview against your real account, syncing like
+the Kobo: reading, starring and marking read reach Inoreader. On first use it signs in with
+`inoink-cli authorize` (app ID and redirect URI from `INOINK_CLIENT_ID` / `INOINK_REDIRECT_URI` or a
+prompt, the secret hidden) and keeps everything in `target/macos-preview/live`. Syncing counts
+against the app registration's daily request allowance, so register a separate app for the preview
+to leave the Kobo's untouched. Remove that directory to sign out.
 Do not delete the auth directory while a refresh is in progress.
 
 ## Development and releases
@@ -108,16 +115,23 @@ inoink-cli authorize \
    `.adds/inoink/data/provision/`. Eject and open InoInk: it imports and deletes the transfer
    file, then syncs. Tokens refresh on the device; the Kobo's browser is never needed.
 
+   It then offers to set up [Karakeep](#karakeep) as well: paste its address (or pass
+   `--karakeep-url https://...`), then the API key at the hidden prompt, or press Enter to skip.
+   A Karakeep problem never undoes the sign-in.
+
 Security note: the client secret has to live on the Kobo because Inoreader's documented token
 refresh needs it. The Kobo's storage is FAT with no file permissions, so anyone with the device
 can read it. Use a dedicated application registration you can revoke.
 
 ## Quitting
 
-On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting InoInk **reboots** the Kobo
-instead of restarting its interface directly. Restarting the interface after another app has used
-the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the device then reboots uncleanly
-and may show its setup screens. A clean reboot takes about half a minute and avoids that. To
+On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting InoInk after the Wi-Fi was
+used **reboots** the Kobo instead of restarting its interface directly. Restarting the interface
+after another app has used the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the
+device then reboots uncleanly and may show its setup screens. A clean reboot takes about half a
+minute and avoids that. When the Wi-Fi was off as InoInk started and stayed off, InoInk never
+touches the chip, and quitting returns to the Kobo interface directly, in a few seconds. The menu
+says which will happen: Quit, or Quit (the Kobo restarts). To
 restart the interface directly anyway, put `INOINK_RESTART_NICKEL=1` in
 `.adds/inoink/data/config.sh`.
 
@@ -194,8 +208,12 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page.
-- Swipe left or right to turn pages. Swipe up, page past the last page or hold the forward button
-  for the next article of the list; swipe down or hold the back button for the previous one (swipe directions follow Settings >
+- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup:
+  Mark read (keeps the star), Unstar (Remove from Read later in that list; Undo is in the main
+  menu) or Keep unread, and a Then Next article | Back to list choice that is remembered. In the
+  popup the forward button goes on to the next article without changing anything and the back
+  button closes it. Swipe up or hold the forward button
+  for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Archive or Mark read. After the last article of the list you are
   back at the list. With the bar showing, a row above the footer names the previous (left) and next
@@ -222,7 +240,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   the site's public JSON. The bar shows a comments icon with the count (0 when there are none; just
   the icon before it is fetched). Tap it to read the comments; there it becomes an article icon that returns to the article.
   There is also a link at the end of the article; More has Refresh comments. Star, Archive and Read
-  apply to the one item.
+  apply to the one item. On the comments page a thin line runs down the left of each reply branch,
+  two levels deep (deeper replies say whom they answer: "↳ alice"). Each thread starts with ⁂; its
+  first comment shows how many replies follow and Skip › jumps to the next thread. The top margin
+  names the thread you are in (Thread 3 of 12). Ages are as of the last refresh (More > Refresh
+  comments).
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
@@ -245,7 +267,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 
 Links and articles can be sent to [Karakeep](https://karakeep.app) (More menu, or by holding a
 link). They wait in a local queue and are sent as soon as the network allows; Karakeep's address
-and API key are set up from the computer, the same way as the Inoreader sign-in:
+and API key are set up from the computer, while signing in with `authorize` or later on their own:
 
 ```sh
 inoink-cli karakeep --url https://karakeep.example.com --device /Volumes/KOBOeReader

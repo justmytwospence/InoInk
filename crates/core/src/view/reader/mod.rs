@@ -42,9 +42,9 @@ use crate::view::search_bar::SearchBar;
 use crate::view::keyboard::Keyboard;
 use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
-use crate::view::notification::Notification;
+use crate::view::notification::show_notification;
 use crate::settings::{ButtonScheme, QueueTitles};
-use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
+use crate::settings::{guess_frontlight, AfterEnd, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
 use crate::settings::{HYPHEN_PENALTY, STRETCH_TOLERANCE};
 use crate::frontlight::LightLevels;
@@ -116,6 +116,8 @@ pub struct Reader {
     running_header: Option<String>,
     /// Location of the first page.
     first_location: Option<usize>,
+    /// Offsets of the comments page's thread anchors, for the running header.
+    thread_starts: Vec<usize>,
 }
 
 /// The article a reader is showing.
@@ -291,10 +293,8 @@ impl Reader {
     pub fn new_article(rect: Rectangle, article: &crate::view::inoink::actions::OpenArticle, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let mut doc = HtmlDocument::new(&article.path).map_err(|e| eprintln!("{}: {:#}.", article.path.display(), e)).ok()?;
         doc.set_viewer_stylesheet("css/inoink.css");
-        if article.kind == crate::view::inoink::actions::DocKind::Article {
-            // Room for the title in the top margin, clear of the text.
-            doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
-        }
+        // Room for the running header in the top margin, clear of the text.
+        doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
         let mut info = Info {
             file: FileInfo { path: article.path.clone(), kind: "html".to_string(), size: 0 },
             .. Default::default()
@@ -320,6 +320,23 @@ impl Reader {
         if reader.is_article() {
             reader.running_header = Some(reader.article_title(context));
             reader.first_location = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
+        }
+        if article.kind == crate::view::inoink::actions::DocKind::Comments {
+            // The top margin names the thread: find where each one starts, once.
+            let (first, starts) = {
+                let mut doc = reader.doc.lock().unwrap();
+                let first = doc.resolve_location(Location::Exact(0));
+                let mut starts = Vec::new();
+                for n in 1..=2000 {
+                    match doc.resolve_location(Location::LocalUri(0, format!("#inoink-t{n}"))) {
+                        Some(o) => starts.push(o),
+                        None => break,
+                    }
+                }
+                (first, starts)
+            };
+            reader.first_location = first;
+            reader.thread_starts = starts;
         }
         // Lay out the first page now so the first refresh shows the article, not a blank page.
         reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
@@ -641,6 +658,7 @@ impl Reader {
                 article_nav_at: None,
                 running_header: None,
                 first_location: None,
+                thread_starts: Vec::new(),
             })
         })
     }
@@ -717,6 +735,7 @@ impl Reader {
             article_nav_at: None,
             running_header: None,
             first_location: None,
+            thread_starts: Vec::new(),
         }
     }
 
@@ -1128,7 +1147,7 @@ impl Reader {
                     _ if self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Comments) => {},
                     CycleDir::Next if self.article.is_some() => {
                         self.finished = true;
-                        self.go_to_article(CycleDir::Next, hub, rq, context);
+                        self.show_article_end(rq, context);
                     },
                     CycleDir::Next => {
                         self.finished = true;
@@ -1139,9 +1158,8 @@ impl Reader {
                         };
                         match action {
                             FinishedAction::Notify => {
-                                let notif = Notification::new("No next page.".to_string(),
+                                show_notification(self, "No next page.".to_string(),
                                                               hub, rq, context);
-                                self.children.push(Box::new(notif) as Box<dyn View>);
                             },
                             FinishedAction::Close => {
                                 self.quit(context);
@@ -1162,9 +1180,8 @@ impl Reader {
                         }
                     },
                     CycleDir::Previous => {
-                        let notif = Notification::new("No previous page.".to_string(),
+                        show_notification(self, "No previous page.".to_string(),
                                                       hub, rq, context);
-                        self.children.push(Box::new(notif) as Box<dyn View>);
                     },
                 }
             },
@@ -3265,8 +3282,7 @@ impl Reader {
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        let notif = Notification::new(text.to_string(), hub, rq, context);
-        self.children.push(Box::new(notif) as Box<dyn View>);
+        show_notification(self, text.to_string(), hub, rq, context);
     }
 
     fn run_article_action(&mut self, action: &crate::view::inoink::actions::ArticleAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -3397,11 +3413,15 @@ impl Reader {
     }
 
     /// The title shown in the top margin of the current page, if any.
-    pub fn running_header(&self) -> Option<&str> {
+    pub fn running_header(&self) -> Option<String> {
         if Some(self.current_page) == self.first_location {
             return None;
         }
-        self.running_header.as_deref()
+        if !self.thread_starts.is_empty() {
+            let k = self.thread_starts.iter().filter(|&&s| s <= self.current_page).count();
+            return (k > 0).then(|| format!("Thread {k} of {}", self.thread_starts.len()));
+        }
+        self.running_header.clone()
     }
 
     /// The article's title in the top margin of every page, like a book's running header: it
@@ -3417,7 +3437,7 @@ impl Reader {
         }
         let font = crate::font::font_from_style(fonts, &crate::font::NORMAL_STYLE, dpi);
         let x_height = font.x_heights.0 as i32;
-        let plan = font.plan(title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
+        let plan = font.plan(&title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
         let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
         font.render(fb, BLACK, &plan, pt!(x, y + x_height / 2));
     }
@@ -3432,6 +3452,51 @@ impl Reader {
         self.quit(context);
         crate::view::inoink::actions::release_article(context, binding.id, binding.version);
         hub.send(Event::Back).ok();
+    }
+
+    /// The end-of-article popup (paging past the last page).
+    fn show_article_end(&mut self, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::article_end::ArticleEnd;
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        if locate_by_id(self, ViewId::ArticleEnd).is_some() {
+            return;
+        }
+        let flag = |m: inoink::model::Membership| context.inoink.store().and_then(|s| s.effective(id, &m).ok()).unwrap_or(false);
+        let starred = flag(inoink::model::Membership::Starred);
+        let read = flag(inoink::model::Membership::Read);
+        let read_later = context.inoink.queue.as_ref().map_or(false, |q| q.read_later);
+        let after = context.settings.inoink.after_end;
+        let popup = ArticleEnd::new(self.rect, starred, read_later, read, after, context);
+        rq.add(RenderData::new(popup.id(), *popup.rect(), UpdateMode::Gui));
+        self.children.push(Box::new(popup) as Box<dyn View>);
+    }
+
+    fn close_article_end(&mut self, rq: &mut RenderQueue) {
+        while let Some(index) = locate_by_id(self, ViewId::ArticleEnd) {
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+        }
+    }
+
+    /// Applies a choice of the end-of-article popup.
+    fn end_choice(&mut self, choice: crate::view::inoink::actions::EndChoice, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::actions::{apply_article_action, ArticleAction, EndChoice};
+        self.close_article_end(rq);
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        let action = match choice {
+            EndChoice::KeepUnread => return,
+            EndChoice::Skip => return self.go_to_article(CycleDir::Next, hub, rq, context),
+            EndChoice::MarkRead => ArticleAction::MarkRead,
+            EndChoice::Unstar => ArticleAction::Done,
+        };
+        // Not run_article_action: Done would close the reader whatever the setting says.
+        match apply_article_action(context, id, &action) {
+            Ok(_) => match context.settings.inoink.after_end {
+                AfterEnd::Next => self.go_to_article(CycleDir::Next, hub, rq, context),
+                AfterEnd::List => self.close_article(hub, context),
+            },
+            Err(m) => self.notify(&m, hub, rq, context),
+        }
     }
 
     /// The next or previous article of the list (swipe up/down, holding a page button, paging
@@ -3560,6 +3625,10 @@ impl Reader {
                 }
                 Some(true)
             }
+            Event::Close(ViewId::ArticleEnd) => {
+                self.close_article_end(rq);
+                Some(true)
+            }
             Event::Close(ViewId::QrView) => {
                 if let Some(index) = locate_by_id(self, ViewId::QrView) {
                     self.children.remove(index);
@@ -3568,6 +3637,10 @@ impl Reader {
                 Some(true)
             }
             Event::Select(EntryId::InoInk(ref e)) => match e {
+                InoInkEntry::ArticleEnd(choice) if article => {
+                    self.end_choice(*choice, hub, rq, context);
+                    Some(true)
+                }
                 InoInkEntry::QueueArticle(d) if article => {
                     self.go_to_article(*d, hub, rq, context);
                     Some(true)
@@ -3718,12 +3791,14 @@ impl View for Reader {
                 context.inoink.apply(u);
                 let mine = self.article.as_ref().map(|a| a.id);
                 match u {
-                    inoink::runtime::Update::Extracted(id, r) if Some(*id) == mine => {
-                        let m = match r {
-                            Ok(_) => "Original page loaded. Reopen the article to read it.".to_string(),
-                            Err(why) => format!("Could not load the original page: {why}"),
-                        };
-                        self.notify(&m, hub, rq, context);
+                    inoink::runtime::Update::Extracted(id, r) if Some(*id) == mine => match r {
+                        // Swap in the original page's text, from its start.
+                        Ok(_) if self.is_article() => {
+                            context.inoink.open_at_start = true;
+                            hub.send(Event::ShowDocument(*id, crate::view::inoink::actions::DocKind::Article)).ok();
+                        },
+                        Ok(_) => (),
+                        Err(why) => self.notify(&format!("Could not load the original page: {why}"), hub, rq, context),
                     },
                     inoink::runtime::Update::CommentsRefreshed(id, Err(why)) if Some(*id) == mine => {
                         self.notify(&format!("Could not load the comments: {why}"), hub, rq, context);
@@ -4192,8 +4267,8 @@ impl View for Reader {
                             } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
                                 hub.send(Event::RetryImage(name.to_string())).ok();
                             } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
-                                let notif = Notification::new(link.text.clone(), hub, rq, context);
-                                self.children.push(Box::new(notif) as Box<dyn View>);
+                                drop(doc);
+                                show_notification(self, link.text.clone(), hub, rq, context);
                             } else {
                                 eprintln!("Can't resolve URI: {}.", link.text);
                             }
@@ -4360,8 +4435,7 @@ impl View for Reader {
                             } else {
                                 format!("Note from Inoreader: {}", truncate_chars(&annot.note, 200))
                             };
-                            let notif = Notification::new(msg, hub, rq, context);
-                            self.children.push(Box::new(notif) as Box<dyn View>);
+                            show_notification(self, msg, hub, rq, context);
                         } else {
                             let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
                             self.toggle_annotation_menu(&annot, Rectangle::from_disk(center, radius), Some(true), rq, context);
@@ -4499,9 +4573,8 @@ impl View for Reader {
                         self.toggle_results_bar(true, rq, context);
                     },
                     None => {
-                        let notif = Notification::new("Invalid search query.".to_string(),
+                        show_notification(self, "Invalid search query.".to_string(),
                                                       hub, rq, context);
-                        self.children.push(Box::new(notif) as Box<dyn View>);
                     },
                 }
                 true
@@ -4773,9 +4846,8 @@ impl View for Reader {
                 let results_count = self.search.as_ref().map(|s| s.results_count)
                                         .unwrap_or(usize::MAX);
                 if results_count == 0 {
-                    let notif = Notification::new("No search results.".to_string(),
+                    show_notification(self, "No search results.".to_string(),
                                                   hub, rq, context);
-                    self.children.push(Box::new(notif) as Box<dyn View>);
                     self.toggle_search_bar(true, hub, rq, context);
                     hub.send(Event::Focus(Some(ViewId::ReaderSearchInput))).ok();
                 }
@@ -4823,9 +4895,8 @@ impl View for Reader {
                             self.search(text, query, hub, rq);
                         },
                         None => {
-                            let notif = Notification::new("Invalid search query.".to_string(),
+                            show_notification(self, "Invalid search query.".to_string(),
                                                           hub, rq, context);
-                            self.children.push(Box::new(notif) as Box<dyn View>);
                         },
                     }
                 }
@@ -4920,8 +4991,8 @@ impl View for Reader {
                     Err(e) => format!("{}", e),
                     Ok(()) => format!("Saved {}.", name),
                 };
-                let notif = Notification::new(msg, hub, rq, context);
-                self.children.push(Box::new(notif) as Box<dyn View>);
+                drop(doc);
+                show_notification(self, msg, hub, rq, context);
                 true
             },
             Event::Select(EntryId::ApplyCroppings(index, scheme)) => {
@@ -5183,6 +5254,10 @@ impl View for Reader {
     }
 
     fn resize(&mut self, rect: Rectangle, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        // The end-of-article popup is laid out for one orientation: rotating dismisses it.
+        if let Some(index) = locate_by_id(self, ViewId::ArticleEnd) {
+            self.children.remove(index);
+        }
         if !self.children.is_empty() {
             let dpi = CURRENT_DEVICE.dpi;
             let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;

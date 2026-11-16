@@ -38,7 +38,7 @@ use plato_core::inoink::runtime::Lifecycle;
 use plato_core::view::reader::Reader;
 use plato_core::view::dialog::Dialog;
 use plato_core::view::intermission::Intermission;
-use plato_core::view::notification::Notification;
+use plato_core::view::notification::show_notification;
 use plato_core::device::{CURRENT_DEVICE, Orientation, FrontlightKind};
 use plato_core::font::Fonts;
 use plato_core::rtc::Rtc;
@@ -198,6 +198,7 @@ fn resume(id: TaskId, tasks: &mut Vec<Task>, view: &mut dyn View, hub: &Sender<E
             context.frontlight.set_intensity(levels.intensity);
         }
         if context.settings.wifi {
+            context.wifi_used = true;
             Command::new("scripts/wifi-enable.sh")
                     .status()
                     .ok();
@@ -229,6 +230,19 @@ fn power_off(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut
     context.fb.update(interm.rect(), UpdateMode::Full).ok();
 }
 
+fn mediatek() -> bool {
+    std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx")
+}
+
+/// Tells the launcher InoInk never turned the Wi-Fi on. On MediaTek Kobos restarting the Kobo
+/// interface after the Wi-Fi chip was used can crash the kernel (koreader/koreader#12739), so the
+/// launcher reboots instead, unless this marker says the chip was never touched.
+fn quit_marker(context: &Context) {
+    if !context.wifi_used {
+        File::create("/tmp/inoink-nickel").ok();
+    }
+}
+
 /// Confirms Quit at once with a full-screen message, after leaving every view so open articles
 /// save their position.
 fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut Vec<UpdateData>, context: &mut Context) {
@@ -237,7 +251,7 @@ fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updatin
     while let Some(mut item) = history.pop() {
         item.view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
     }
-    let text = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Restarting the Kobo" } else { "Closing InoInk" };
+    let text = if mediatek() && context.wifi_used { "Restarting the Kobo" } else { "Closing InoInk" };
     let interm = Intermission::with_text(context.fb.rect(), text.to_string());
     wait_for_all(updating, context);
     interm.render(context.fb.as_mut(), *interm.rect(), &mut context.fonts);
@@ -276,6 +290,7 @@ fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
     }
     context.settings.wifi = enable;
     if context.settings.wifi {
+        context.wifi_used = true;
         tx.send(Event::NetworkChanged).ok();
         Command::new("scripts/wifi-enable.sh")
                 .status()
@@ -394,11 +409,14 @@ pub fn run() -> Result<(), Error> {
     eprintln!("wifi: starting {}", if wifi { "on" } else { "off" });
     context.settings.wifi = wifi;
     if context.settings.wifi {
+        context.wifi_used = true;
         Command::new("scripts/wifi-enable.sh").status().ok();
         watch_network(&tx);
-    } else {
+    } else if !mediatek() {
         Command::new("scripts/wifi-disable.sh").status().ok();
     }
+    // On MediaTek Kobos the Wi-Fi chip is left alone while it is off, so that quitting can restart
+    // the Kobo interface directly (see quit_marker).
 
     if context.settings.frontlight {
         let levels = context.settings.frontlight_levels;
@@ -557,9 +575,8 @@ pub fn run() -> Result<(), Error> {
                                 // Sharing the storage from here is not safe: Plato's script unmounts it
                                 // lazily while files are still open, and both sides then write to it.
                                 // The Kobo's own interface shares it properly.
-                                let notif = Notification::new("To connect to a computer, quit InoInk first (menu, Quit).".to_string(),
+                                show_notification(view.as_mut(), "To connect to a computer, quit InoInk first (menu, Quit).".to_string(),
                                                               &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
 
                                 inactive_since = Instant::now();
                             },
@@ -584,6 +601,7 @@ pub fn run() -> Result<(), Error> {
                                 context.settings = settings;
                             }
                             if context.settings.wifi {
+                                context.wifi_used = true;
                                 Command::new("scripts/wifi-enable.sh")
                                         .status()
                                         .ok();
@@ -658,9 +676,8 @@ pub fn run() -> Result<(), Error> {
                         exit_status = ExitStatus::PowerOff;
                         break;
                     } else if v < context.settings.battery.warn {
-                        let notif = Notification::new("The battery capacity is getting low.".to_string(),
+                        show_notification(view.as_mut(), "The battery capacity is getting low.".to_string(),
                                                       &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
                     }
                 }
             },
@@ -843,18 +860,15 @@ pub fn run() -> Result<(), Error> {
                         } else {
                             context.fb.set_dithered(dithered);
                             plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
-                            let notif = Notification::new("This article could not be opened".to_string(), &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), "This article could not be opened".to_string(), &tx, &mut rq, &mut context);
                             handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
                         }
                     },
                     OpenResult::Fetching => {
-                        let notif = Notification::new("Downloading the article".to_string(), &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), "Downloading the article".to_string(), &tx, &mut rq, &mut context);
                     },
                     OpenResult::Unavailable(why) => {
-                        let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                         handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
                     },
                 }
@@ -873,20 +887,17 @@ pub fn run() -> Result<(), Error> {
                                 rq.add(RenderData::new(view.id(), context.fb.rect(), UpdateMode::Full));
                             } else {
                                 plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
-                                let notif = Notification::new("This article could not be opened".to_string(), &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), "This article could not be opened".to_string(), &tx, &mut rq, &mut context);
                                 tx.send(Event::Back).ok();
                             }
                         },
                         OpenResult::Fetching => {
                             context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
                             context.inoink.opening_at = Some(std::time::Instant::now());
-                            let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), "Downloading the next article".to_string(), &tx, &mut rq, &mut context);
                         },
                         OpenResult::Unavailable(why) => {
-                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                         },
                     }
                 }
@@ -902,14 +913,12 @@ pub fn run() -> Result<(), Error> {
                 };
                 match why {
                     Some(m) => {
-                        let notif = Notification::new(m, &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), m, &tx, &mut rq, &mut context);
                     },
                     None => {
                         context.inoink.opening_page = Some(url.clone());
                         context.inoink.submit(plato_core::inoink::runtime::Command::FetchPage(url.clone()));
-                        let notif = Notification::new("Loading the page".to_string(), &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), "Loading the page".to_string(), &tx, &mut rq, &mut context);
                     },
                 }
             },
@@ -926,17 +935,14 @@ pub fn run() -> Result<(), Error> {
                                 view = next_view;
                                 rq.add(RenderData::new(view.id(), *view.rect(), UpdateMode::Full));
                             } else {
-                                let notif = Notification::new("This document could not be opened".to_string(), &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), "This document could not be opened".to_string(), &tx, &mut rq, &mut context);
                             }
                         },
                         OpenResult::Fetching => {
-                            let notif = Notification::new("Downloading the comments".to_string(), &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), "Downloading the comments".to_string(), &tx, &mut rq, &mut context);
                         },
                         OpenResult::Unavailable(why) => {
-                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                         },
                     }
                 }
@@ -989,8 +995,7 @@ pub fn run() -> Result<(), Error> {
                 }
                 if let plato_core::inoink::runtime::Update::Cycle(rep) = u {
                     if let Some(m) = plato_core::view::inoink::actions::share_message(rep) {
-                        let notif = Notification::new(m, &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), m, &tx, &mut rq, &mut context);
                     }
                 }
                 if let plato_core::inoink::runtime::Update::PageReady(url, r) = u {
@@ -1011,8 +1016,7 @@ pub fn run() -> Result<(), Error> {
                                 }
                             },
                             Err(why) => {
-                                let notif = Notification::new(format!("Could not open the page: {why}"), &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), format!("Could not open the page: {why}"), &tx, &mut rq, &mut context);
                             },
                         }
                     }
@@ -1021,8 +1025,7 @@ pub fn run() -> Result<(), Error> {
                     if context.inoink.opening.is_some_and(|(open, _)| open == *id) {
                         context.inoink.opening = None;
                         context.inoink.opening_at = None;
-                        let notif = Notification::new("This article could not be downloaded".to_string(), &tx, &mut rq, &mut context);
-                        view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                        show_notification(view.as_mut(), "This article could not be downloaded".to_string(), &tx, &mut rq, &mut context);
                         handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
                     }
                 }
@@ -1255,18 +1258,17 @@ pub fn run() -> Result<(), Error> {
                     Err(e) => format!("{}", e),
                     Ok(_) => format!("Saved {}.", name),
                 };
-                let notif = Notification::new(msg, &tx, &mut rq, &mut context);
-                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                show_notification(view.as_mut(), msg, &tx, &mut rq, &mut context);
             },
             Event::Notify(msg) => {
-                let notif = Notification::new(msg, &tx, &mut rq, &mut context);
-                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                show_notification(view.as_mut(), msg, &tx, &mut rq, &mut context);
             },
             Event::Select(EntryId::Reboot) => {
                 exit_status = ExitStatus::Reboot;
                 break;
             },
             Event::Select(EntryId::Quit) => {
+                quit_marker(&context);
                 show_quit_screen(view.as_mut(), &mut history, &mut updating, &mut context);
                 break;
             },

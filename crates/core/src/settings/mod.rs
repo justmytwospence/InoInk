@@ -547,6 +547,18 @@ pub struct InoInkSettings {
     pub mark_read_on_open: bool,
     /// Where the previous and next articles are named while reading.
     pub queue_titles: QueueTitles,
+    /// Where marking an article read (or unstarring it) at its end leads.
+    pub after_end: AfterEnd,
+}
+
+/// What follows Mark read or Unstar in the end-of-article popup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AfterEnd {
+    /// The next article of the list (back to the list after the last one).
+    Next,
+    /// Back to the list.
+    List,
 }
 
 /// Where the previous and next articles of the list are named while reading.
@@ -568,6 +580,7 @@ impl Default for InoInkSettings {
             pinned_folders: Vec::new(),
             mark_read_on_open: false,
             queue_titles: QueueTitles::WithBar,
+            after_end: AfterEnd::Next,
         }
     }
 }

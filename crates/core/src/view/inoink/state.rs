@@ -113,6 +113,8 @@ pub struct InoInk {
     pub opening_page: Option<String>,
     /// The next article opened starts on its last page (paging back from the first page of the following one).
     pub open_at_end: bool,
+    /// The next article opened starts on its first page (its text was just replaced).
+    pub open_at_start: bool,
     /// Services links can be sent to (Karakeep).
     pub share: inoink::share::ShareConfig,
     /// A link post whose comments are being fetched; they open when they arrive.
@@ -174,6 +176,7 @@ impl InoInk {
             prefetched: std::collections::HashSet::new(),
             opening_page: None,
             open_at_end: false,
+            open_at_start: false,
             share,
             opening_comments: None,
             settings: settings.clone(),
@@ -407,7 +410,7 @@ impl InoInk {
         let pending = self.pending();
         let base = match &self.status {
             SyncStatus::Syncing => "Syncing".to_string(),
-            SyncStatus::Idle { last_sync: Some(t) } => format!("Synced {}", clock_text(*t)),
+            SyncStatus::Idle { last_sync: Some(t) } => format!("Synced {}", ago_text(*t, inoink::util::now_secs())),
             SyncStatus::Idle { last_sync: None } => {
                 if self.handle.is_some() {
                     "Ready".to_string()
@@ -429,7 +432,39 @@ impl InoInk {
     }
 }
 
-fn clock_text(t: i64) -> String {
+/// How long ago `t` was, in words: "just now", "5 min ago", "2 h ago", "yesterday", then the date.
+pub fn ago_text(t: i64, now: i64) -> String {
     use chrono::TimeZone;
-    chrono::Local.timestamp_opt(t, 0).single().map(|d| d.format("%H:%M").to_string()).unwrap_or_default()
+    let d = now - t;
+    if d < 60 {
+        "just now".into()
+    } else if d < 3600 {
+        format!("{} min ago", d / 60)
+    } else if d < 86_400 {
+        format!("{} h ago", d / 3600)
+    } else if d < 172_800 {
+        "yesterday".into()
+    } else {
+        chrono::Local.timestamp_opt(t, 0).single().map(|d| d.format("%b %-d").to_string()).unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ago_text;
+
+    #[test]
+    fn ago_text_buckets() {
+        let now = 1_800_000_000;
+        assert_eq!(ago_text(now, now), "just now");
+        assert_eq!(ago_text(now + 5, now), "just now");
+        assert_eq!(ago_text(now - 59, now), "just now");
+        assert_eq!(ago_text(now - 60, now), "1 min ago");
+        assert_eq!(ago_text(now - 3599, now), "59 min ago");
+        assert_eq!(ago_text(now - 3600, now), "1 h ago");
+        assert_eq!(ago_text(now - 86_399, now), "23 h ago");
+        assert_eq!(ago_text(now - 86_400, now), "yesterday");
+        let older = ago_text(now - 172_800, now);
+        assert!(!older.ends_with("ago") && !older.is_empty(), "{older}");
+    }
 }

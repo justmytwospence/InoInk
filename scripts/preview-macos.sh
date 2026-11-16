@@ -1,15 +1,17 @@
 #!/bin/sh
-# Native, isolated offline preview for Apple Silicon Macs.
+# Native, isolated preview for Apple Silicon Macs: offline fixtures, an offline snapshot of real
+# articles (--inoreader), or the live Inoreader account with real sync (--live).
 set -eu
 
-usage() { echo 'Usage: scripts/preview-macos.sh [--reset] [--inoreader [--refresh]] [--scale NUMBER] [--build-only]'; }
+usage() { echo 'Usage: scripts/preview-macos.sh [--reset] [--inoreader [--refresh] | --live] [--scale NUMBER] [--build-only]'; }
 invalid() { echo "error: $*" >&2; usage >&2; exit 2; }
-reset=0 build_only=0 inoreader=0 refresh=0 scale=0.5
+reset=0 build_only=0 inoreader=0 refresh=0 live=0 scale=0.5
 while [ "$#" -gt 0 ]; do
  case $1 in
   --help) usage; exit 0 ;;
   --reset) reset=1 ;;
   --inoreader) inoreader=1 ;;
+  --live) live=1 ;;
   --refresh) refresh=1 ;;
   --build-only) build_only=1 ;;
   --scale) [ "$#" -ge 2 ] || invalid '--scale requires a number'; scale=$2; shift ;;
@@ -21,6 +23,8 @@ done
 [ "$refresh" = 0 ] || [ "$inoreader" = 1 ] || invalid '--refresh requires --inoreader'
 [ "$refresh" = 0 ] || [ "$build_only" = 0 ] || invalid '--refresh cannot be combined with --build-only'
 [ "$reset" = 0 ] || [ "$inoreader" = 0 ] || invalid '--reset cannot be combined with --inoreader; use --refresh'
+[ "$live" = 0 ] || [ "$inoreader" = 0 ] || invalid '--live cannot be combined with --inoreader'
+[ "$live" = 0 ] || [ "$reset" = 0 ] || invalid '--reset cannot be combined with --live'
 # Restrict syntax before numeric comparison, including NaN/Inf and awk expressions.
 case $scale in ''|*[!0-9.eE+-]*) invalid 'invalid scale' ;; esac
 printf '%s\n' "$scale" | awk 'BEGIN { ok=0 } /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/ { if ($0+0 >= 0.1 && $0+0 <= 2.0) ok=1 } END { exit !ok }' || invalid 'scale must be finite and between 0.1 and 2.0'
@@ -188,7 +192,23 @@ run_child() {
  if [ "$interrupted" != 0 ] && [ "$1" != emulate ]; then return "$interrupted"; fi
  return "$status"
 } 9<&0
-if [ "$inoreader" = 1 ]; then
+online=
+if [ "$live" = 1 ]; then
+ # The real account: changes made here sync to Inoreader, and syncing uses the app
+ # registration's daily request allowance (register a separate app to keep the Kobo's apart).
+ umask 077
+ STATE=$BASE/live
+ mkdir -p "$STATE/data"
+ echo 'Live preview: changes sync to your Inoreader account.'
+ if [ ! -f "$STATE/data/credentials.json" ]; then
+  client=${INOINK_CLIENT_ID:-}
+  redirect=${INOINK_REDIRECT_URI:-}
+  [ -n "$client" ] || { printf 'Inoreader app ID: '; read -r client; }
+  [ -n "$redirect" ] || { printf 'Registered redirect URI (for example http://localhost:8080/callback): '; read -r redirect; }
+  run_child "$bin/inoink-cli" authorize --client-id "$client" --redirect-uri "$redirect" --out "$STATE/data/credentials.json" || exit $?
+ fi
+ online=--online
+elif [ "$inoreader" = 1 ]; then
  umask 077
  REAL=$BASE/inoreader
  STATE=$REAL/state
@@ -237,7 +257,7 @@ echo 'Controls: mouse click/hold/drag; B/F pages; [/] rotate; S screenshot; Esca
 emulate() {
  unset SDL_VIDEODRIVER INOINK_CLIENT_ID INOINK_CLIENT_SECRET INOINK_REDIRECT_URI
  export PRODUCT=monza MODEL_NUMBER=390 INOINK_SETTINGS="$STATE/Settings.toml"
- exec "$bin/inoink-emulator" --data "$STATE/data" --scale "$scale" --screenshots "$STATE/screenshots"
+ exec "$bin/inoink-emulator" --data "$STATE/data" --scale "$scale" --screenshots "$STATE/screenshots" $online
 }
 status=0
 run_child emulate || status=$?

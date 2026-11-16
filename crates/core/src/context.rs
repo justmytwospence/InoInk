@@ -39,13 +39,14 @@ pub struct Context {
     pub frontlight: Box<dyn Frontlight>,
     pub battery: Box<dyn Battery>,
     pub lightsensor: Box<dyn LightSensor>,
-    pub notification_index: u8,
     pub kb_rect: Rectangle,
     pub rng: Xoroshiro128Plus,
     pub plugged: bool,
     pub covered: bool,
     pub shared: bool,
     pub online: bool,
+    /// InoInk turned the Wi-Fi on this session. On MediaTek Kobos quitting then has to reboot.
+    pub wifi_used: bool,
 }
 
 impl Context {
@@ -58,9 +59,9 @@ impl Context {
         Context { fb, rtc, display: Display { dims, rotation },
                   inoink, settings, fonts, dictionaries: BTreeMap::new(),
                   keyboard_layouts: BTreeMap::new(), input_history: FxHashMap::default(),
-                  battery, frontlight, lightsensor, notification_index: 0,
+                  battery, frontlight, lightsensor,
                   kb_rect: Rectangle::default(), rng, plugged: false, covered: false,
-                  shared: false, online: false }
+                  shared: false, online: false, wifi_used: false }
     }
 
     pub fn load_keyboard_layouts(&mut self) {

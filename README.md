@@ -42,9 +42,10 @@ public API and does not try to match the Inoreader website feature for feature; 
   tap away (an Article | comments switch in the bar). Both are cached for offline reading.
 - **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
-- Reading flows: at the end of an article a card offers Archive (or Mark read) and the next article
-  of the list, Keep, Comments, or Back to list; swiping or pressing forward again continues (a
-  setting). A line under the article shows progress, time left and your place in the list.
+- Reading flows: paging past the end of an article opens a small popup: Mark read, Unstar (Remove
+  from Read later in that list) or Keep unread, then on to the next article or back to the list
+  (remembered). Swiping up or holding forward skips it. A line under the article shows progress,
+  time left and your place in the list.
 - Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
   are shown underlined. `inoink-cli highlights` exports yours as Markdown or Readwise-style JSON.
 - Links: tap a link for a reading view of the page; hold it for Open in reading view, Show QR code
@@ -183,12 +184,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   API budget today's requests.
 - **Article:** tap the middle of the page for the bar (Back, Aa, Star, Archive, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
-  Karakeep, Show QR code, Details, Load original page. Tap an image to enlarge it.
+  Karakeep, Show QR code, Details, Load original page (the article switches to it when it arrives). Tap an image to enlarge it.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
   also changes brightness.
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
 - **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
-  sets it up; see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
+  sets it up (or answer the prompt during `authorize`); see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
 - **USB:** quit InoInk before connecting to a computer.
 - **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting restarts the Kobo (about half a minute). Restarting
   only the Kobo interface can crash these MediaTek models; see
@@ -238,6 +239,7 @@ scripts/preview-macos.sh --scale 0.4   # use a smaller window
 scripts/preview-macos.sh --build-only  # prepare/build without opening a window
 scripts/preview-macos.sh --inoreader   # use a sandbox snapshot of your real articles
 scripts/preview-macos.sh --inoreader --refresh  # replace local experiments with a fresh snapshot
+scripts/preview-macos.sh --live        # your real account, syncing (changes reach Inoreader)
 ```
 
 The Inoreader mode asks for a **dedicated read-only authorization** on first use; a separate

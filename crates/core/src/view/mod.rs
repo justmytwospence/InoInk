@@ -465,6 +465,7 @@ pub enum ViewId {
     QrView,
     ArticleFooter,
     QueueNav,
+    ArticleEnd,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

@@ -27,7 +27,7 @@ use crate::view::keyboard::Keyboard;
 use crate::view::label::Label;
 use crate::view::menu::{Menu, MenuKind};
 use crate::view::named_input::NamedInput;
-use crate::view::notification::Notification;
+use crate::view::notification::show_notification;
 use crate::view::top_bar::TopBar;
 use crate::view::{Align, Bus, EntryId, EntryKind, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::view::{BIG_BAR_HEIGHT, SMALL_BAR_HEIGHT, THICKNESS_MEDIUM};
@@ -314,8 +314,7 @@ impl InoInkHome {
         }
         self.update_chrome(rq, context);
         if let Some(notice) = context.inoink.notice.take() {
-            let n = Notification::new(notice, hub, rq, context);
-            self.children.push(Box::new(n));
+            show_notification(self, notice, hub, rq, context);
         }
     }
 
@@ -801,8 +800,7 @@ impl InoInkHome {
                 } else if !self.end_only && self.search.is_none() && context.inoink.handle.is_some() && self.can_browse(context) {
                     // End of what is stored: browse further back through history online.
                     context.inoink.submit(inoink::runtime::Command::Browse { collection: context.inoink.collection.clone(), continuation: context.inoink.store().and_then(|s| s.get_meta(&browse_key(&context.inoink.collection)).ok().flatten()) });
-                    let n = Notification::new("Loading older articles".to_string(), hub, rq, context);
-                    self.children.push(Box::new(n));
+                    show_notification(self, "Loading older articles".to_string(), hub, rq, context);
                 }
             }
             CycleDir::Previous => {
@@ -853,8 +851,7 @@ impl InoInkHome {
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        let n = Notification::new(text.to_string(), hub, rq, context);
-        self.children.push(Box::new(n));
+        show_notification(self, text.to_string(), hub, rq, context);
     }
 
     /// The articles on screen, in order.

@@ -96,6 +96,21 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
+    /// A choice in the end-of-article popup.
+    ArticleEnd(EndChoice),
+}
+
+/// The end-of-article popup's choices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndChoice {
+    /// Mark read, keeping any star.
+    MarkRead,
+    /// Mark read and remove the star (Archive; undoable).
+    Unstar,
+    /// Close the popup and stay.
+    KeepUnread,
+    /// The next article, changing nothing (the Forward button).
+    Skip,
 }
 
 /// Which articles a selection starts from or switches to.
@@ -241,6 +256,7 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
         let _ = s.mark_seen(&[id], inoink::util::now_usec());
     }
     let at_end = std::mem::take(&mut context.inoink.open_at_end);
+    let at_start = std::mem::take(&mut context.inoink.open_at_start);
     let version = context.inoink.store().and_then(|s| s.latest_version(id).ok().flatten());
     let Some(v) = version else {
         return fetch_for_open(context, id);
@@ -254,6 +270,8 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
         let _ = store.lease(id, v.version);
         if at_end {
             offset = Some(usize::MAX);
+        } else if at_start {
+            // New text (the original page): the old position means nothing in it.
         } else if let Ok(Some(pos)) = store.position(id) {
             offset = if pos.content_hash == v.hash {
                 Some(pos.offset as usize)
@@ -347,17 +365,8 @@ pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String
     Ok("Sending to Karakeep".into())
 }
 
-/// What a sync pass reports about shares: the first refusal, or how many were saved.
+/// What a sync pass reports about shares: the first refusal, if any. Successful sends are
+/// silent (the message would arrive later, over whatever happens to be on screen).
 pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
-    if let Some(e) = rep.shares.iter().find_map(|s| s.error.as_ref()) {
-        return Some(format!("Karakeep: {e}"));
-    }
-    match rep.shares.len() {
-        0 => None,
-        1 => {
-            let t = inoink::util::shorten(&rep.shares[0].title, 40);
-            Some(format!("Saved to Karakeep: {}", if t.is_empty() { "link" } else { &t }))
-        }
-        n => Some(format!("Saved {n} links to Karakeep")),
-    }
+    rep.shares.iter().find_map(|s| s.error.as_ref()).map(|e| format!("Karakeep: {e}"))
 }

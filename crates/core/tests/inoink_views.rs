@@ -20,7 +20,8 @@ use inoink::store::ListSpan;
 use plato_core::view::EntryKind;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use plato_core::geom::{CycleDir, Dir};
-use plato_core::settings::{ButtonScheme, QueueTitles};
+use plato_core::settings::{AfterEnd, ButtonScheme, QueueTitles};
+use plato_core::view::inoink::article_end::ArticleEnd;
 use plato_core::view::inoink::article_bar::{ArticleBar, CommentsButton};
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
@@ -469,15 +470,109 @@ fn press(code: ButtonCode, status: ButtonStatus) -> Event {
 }
 
 #[test]
-fn paging_past_the_last_page_opens_the_next_article_without_marking_read() {
+fn paging_past_the_last_page_shows_the_end_popup() {
     let mut e = env();
     let mut reader = open(&mut e, &[2, 1], true, 2);
     drive(&mut reader, &mut e, swipe_h(1000, 200));
-    assert_eq!(opens(&sent(&e)), vec![ArticleId(1)]);
+    assert!(opens(&sent(&e)).is_empty());
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_some());
     let st = e.context.inoink.store().unwrap();
     assert!(st.effective(ArticleId(2), &Membership::Starred).unwrap(), "still saved for later");
     assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap(), "not marked read");
     assert!(locate_by_id(&reader, ViewId::QueueNav).is_none());
+}
+
+fn end_popup(reader: &Reader) -> &ArticleEnd {
+    let i = locate_by_id(reader, ViewId::ArticleEnd).expect("end popup");
+    reader.children()[i].downcast_ref::<ArticleEnd>().unwrap()
+}
+
+fn choose(reader: &mut Reader, e: &mut Env, c: EndChoice) {
+    drive(reader, e, Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(c))));
+}
+
+#[test]
+fn end_popup_mark_read_keeps_the_star_and_opens_the_next() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    assert_eq!(end_popup(&reader).choices(), vec![EndChoice::MarkRead, EndChoice::Unstar, EndChoice::KeepUnread]);
+    choose(&mut reader, &mut e, EndChoice::MarkRead);
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(1)]);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(2), &Membership::Starred).unwrap());
+}
+
+#[test]
+fn end_popup_unstar_back_to_list() {
+    let mut e = env();
+    e.context.settings.inoink.after_end = AfterEnd::List;
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    choose(&mut reader, &mut e, EndChoice::Unstar);
+    let evts = sent(&e);
+    assert!(opens(&evts).is_empty());
+    assert!(evts.iter().any(|ev| matches!(ev, Event::Back)));
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(2), &Membership::Starred).unwrap());
+    assert!(e.context.inoink.last_undo.is_some(), "undoable");
+}
+
+#[test]
+fn end_popup_keep_unread_stays() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    sent(&e);
+    choose(&mut reader, &mut e, EndChoice::KeepUnread);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    assert!(sent(&e).iter().all(|ev| !matches!(ev, Event::OpenNext(_) | Event::Back)));
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(2), &Membership::Read).unwrap());
+}
+
+#[test]
+fn end_popup_hides_unstar_when_not_starred() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    assert_eq!(end_popup(&reader).choices(), vec![EndChoice::MarkRead, EndChoice::KeepUnread]);
+}
+
+#[test]
+fn end_popup_toggle_is_remembered() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    let r = end_popup(&reader).toggle_rects()[1];
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(Point::new((r.min.x + r.max.x) / 2, (r.min.y + r.max.y) / 2))));
+    assert_eq!(e.context.settings.inoink.after_end, AfterEnd::List);
+    assert_eq!(e.context.inoink.settings.after_end, AfterEnd::List);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_some(), "the popup stays open");
+}
+
+#[test]
+fn forward_in_the_end_popup_skips_to_the_next() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    sent(&e);
+    drive(&mut reader, &mut e, press(ButtonCode::Forward, ButtonStatus::Pressed));
+    drive(&mut reader, &mut e, press(ButtonCode::Forward, ButtonStatus::Released));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+}
+
+#[test]
+fn a_tap_outside_the_end_popup_closes_it() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(Point::new(20, 840))));
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    assert!(opens(&sent(&e)).is_empty());
 }
 
 #[test]
@@ -538,6 +633,19 @@ fn swiping_down_on_the_first_article_says_so() {
 }
 
 #[test]
+fn a_new_toast_replaces_the_old_one_below_the_top_bar() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_v(600, 1400));
+    drive(&mut reader, &mut e, swipe_v(600, 1400));
+    let toasts: Vec<_> = reader.children().iter().filter(|c| c.is::<Notification>()).collect();
+    assert_eq!(toasts.len(), 1, "one toast at a time");
+    let r = *toasts[0].rect();
+    assert_eq!(r.min.x, (1264 - r.width() as i32) / 2, "centred");
+    assert!(r.min.y < 1680 / 4, "near the top");
+}
+
+#[test]
 fn after_the_last_article_you_are_back_at_the_list() {
     let mut e = env();
     let mut reader = open(&mut e, &[4, 3], false, 3);
@@ -571,11 +679,47 @@ fn the_bar_names_the_neighbours_and_tapping_one_opens_it() {
 }
 
 #[test]
+fn tapping_the_title_in_the_bar_goes_back() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(632, 840))));
+    let index = locate::<ArticleBar>(&reader).expect("bar");
+    let r = *reader.children()[index].rect();
+    sent(&e);
+    // Well right of the back arrow, on the title.
+    let tap = Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(r.min.x + 3 * r.height() as i32, (r.min.y + r.max.y) / 2)));
+    let mut bus = VecDeque::new();
+    plato_core::view::handle_event(&mut reader, &tap, &e.tx, &mut bus, &mut RenderQueue::new(), &mut e.context);
+    // Like the back arrow, Back travels up to the app, which closes the reader.
+    assert!(bus.iter().any(|ev| matches!(ev, Event::Back)));
+}
+
+#[test]
 fn no_titles_row_without_neighbours() {
     let mut e = env();
     let mut reader = open(&mut e, &[4], false, 4);
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(632, 840))));
     assert!(locate_by_id(&reader, ViewId::QueueNav).is_none());
+}
+
+#[test]
+fn an_extracted_original_reopens_the_article_at_the_start() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    sent(&e);
+    let hash = e.context.inoink.store().unwrap().latest_version(ArticleId(4)).unwrap().unwrap().hash;
+    let pos = ReadingPosition { content_hash: hash, offset: 7, anchor: String::new(), font_size: None };
+    e.context.inoink.store_mut().unwrap().save_position(ArticleId(4), &pos).unwrap();
+    drive(&mut reader, &mut e, Event::Sync(inoink::runtime::Update::Extracted(ArticleId(4), Ok(DownloadState::Complete))));
+    let evts = sent(&e);
+    assert!(evts.iter().any(|ev| matches!(ev, Event::ShowDocument(ArticleId(4), DocKind::Article))));
+    assert!(!reader.children().iter().any(|c| c.is::<Notification>()), "no toast");
+    assert!(e.context.inoink.open_at_start);
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(4)) else { panic!("cached") };
+    assert_eq!(a.offset, None, "starts at the top of the new text");
+    assert!(!e.context.inoink.open_at_start, "the flag is taken");
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(4)) else { panic!("cached") };
+    assert_eq!(a.offset, Some(7), "later opens resume");
 }
 
 #[test]
@@ -669,9 +813,26 @@ fn the_title_stays_in_the_top_margin_after_the_first_page() {
     e.context.inoink.open_at_end = true;
     let mut reader = open(&mut e, &[9], false, 9);
     assert!(!has_bar(&reader));
-    assert_eq!(reader.running_header(), Some("Article 9"));
+    assert_eq!(reader.running_header().as_deref(), Some("Article 9"));
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
-    assert_eq!(reader.running_header(), Some("Article 9"));
+    assert_eq!(reader.running_header().as_deref(), Some("Article 9"));
+}
+
+#[test]
+fn the_comments_top_margin_names_the_thread() {
+    use inoink::content::discussion::{render_comments, Comment, Discussion, Site, Thread};
+    let mut e = env();
+    let words: String = (0..5000).map(|i| format!("word{i} ")).collect();
+    let comments = ["a", "b", "c"].iter().map(|a| Comment { author: a.to_string(), html: format!("<p>{words}</p>"), time: 1794000000, depth: 0 }).collect();
+    let thread = Thread { title: "T".into(), count: 3, comments, ..Default::default() };
+    let page = render_comments(&thread, &Discussion { site: Site::HackerNews, id: "1".into() }, "T", 1794003600);
+    let path = e._dir.path().join("comments-test.html");
+    std::fs::write(&path, page.html).unwrap();
+    let mk = |offset| OpenArticle { id: ArticleId(4), path: path.clone(), version: 0, content_hash: "comments:1".into(), offset, kind: DocKind::Comments };
+    let reader = Reader::new_article(e.context.fb.rect(), &mk(Some(usize::MAX)), &e.tx, &mut e.context).expect("reader");
+    assert_eq!(reader.running_header().as_deref(), Some("Thread 3 of 3"));
+    let reader = Reader::new_article(e.context.fb.rect(), &mk(None), &e.tx, &mut e.context).expect("reader");
+    assert_eq!(reader.running_header().as_deref(), None, "the first page has the page's own heading");
 }
 
 #[test]
@@ -679,7 +840,7 @@ fn an_article_opened_at_its_start_shows_no_bar() {
     let mut e = env();
     let reader = open(&mut e, &[4, 3], false, 4);
     assert!(!has_bar(&reader));
-    assert_eq!(reader.running_header(), None, "the first page has the article's own heading");
+    assert_eq!(reader.running_header().as_deref(), None, "the first page has the article's own heading");
 }
 
 #[test]

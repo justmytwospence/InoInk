@@ -132,3 +132,47 @@ fn inline_formula_images_scale_with_the_font_and_stay_inline() {
     let w22 = width_at(&mut doc, 22.0);
     assert!((w22 - 2.0 * w11).abs() <= 4.0, "{w22} vs {w11}");
 }
+
+/// The longest vertical run of dark pixels in any column.
+fn longest_dark_column_run(p: &plato_core::framebuffer::Pixmap) -> u32 {
+    let mut best = 0;
+    for x in 0..p.width {
+        let mut run = 0;
+        for y in 0..p.height {
+            if p.data[(y * p.width + x) as usize] < 100 {
+                run += 1;
+                best = best.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    best
+}
+
+fn paragraphs_html(style: &str) -> String {
+    let words: String = (0..60).map(|i| format!("word{i} ")).collect();
+    let paras: String = (0..40).map(|_| format!("<p>{words}</p>")).collect();
+    format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>T</title></head><body><div style=\"{style}\">{paras}</div></body></html>")
+}
+
+fn first_two_pages(html: &str) -> Vec<plato_core::framebuffer::Pixmap> {
+    let mut doc = HtmlDocument::new_from_memory(html);
+    doc.layout(1264, 1680, 11.0, 300);
+    let (first, offset) = doc.pixmap(Location::Exact(0), 1.0, 1).expect("first page");
+    let (second, _) = doc.pixmap(Location::Next(offset), 1.0, 1).expect("second page");
+    vec![first, second]
+}
+
+#[test]
+fn border_left_draws_a_continuous_line_on_every_page() {
+    repo_root();
+    let bordered = first_two_pages(&paragraphs_html("border-left-width: 2pt; border-left-color: #000; padding-left: 1em"));
+    let plain = first_two_pages(&paragraphs_html("padding-left: 1em"));
+    for (i, page) in bordered.iter().enumerate() {
+        assert!(longest_dark_column_run(page) >= 400, "page {i} has a vertical line");
+    }
+    for (i, page) in plain.iter().enumerate() {
+        assert!(longest_dark_column_run(page) < 100, "page {i} has no line without a border");
+    }
+}

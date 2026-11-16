@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod article_bar;
+pub mod article_end;
 pub mod categories;
 pub mod details;
 pub mod group_header;
