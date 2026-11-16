@@ -109,7 +109,9 @@ pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
     entries.push(EntryKind::SubMenu("Status".into(), status_entries(context)));
     entries.push(EntryKind::Separator);
     entries.push(EntryKind::Command("About InoInk".into(), EntryId::About));
-    let quit = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Quit (the Kobo restarts)" } else { "Quit" };
+    // MediaTek Kobos reboot on quitting once the Wi-Fi was used (see the launcher).
+    let reboots = std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") && context.wifi_used;
+    let quit = if reboots { "Quit (the Kobo restarts)" } else { "Quit" };
     entries.push(EntryKind::Command(quit.into(), EntryId::Quit));
     entries
 }

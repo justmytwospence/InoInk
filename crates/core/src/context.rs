@@ -45,6 +45,8 @@ pub struct Context {
     pub covered: bool,
     pub shared: bool,
     pub online: bool,
+    /// InoInk turned the Wi-Fi on this session. On MediaTek Kobos quitting then has to reboot.
+    pub wifi_used: bool,
 }
 
 impl Context {
@@ -59,7 +61,7 @@ impl Context {
                   keyboard_layouts: BTreeMap::new(), input_history: FxHashMap::default(),
                   battery, frontlight, lightsensor,
                   kb_rect: Rectangle::default(), rng, plugged: false, covered: false,
-                  shared: false, online: false }
+                  shared: false, online: false, wifi_used: false }
     }
 
     pub fn load_keyboard_layouts(&mut self) {

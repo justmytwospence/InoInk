@@ -23,7 +23,7 @@ document tests inside the build container, and the install/launcher tests).
 | Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode | `crates/core/tests/inoink_document.rs` (4), `inoink_views.rs` (50), `font_crop.rs` (2), in the container | PASS |
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
-| Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
+| Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (38) |
 
 ## Build and package (computer only)
@@ -169,6 +169,7 @@ that was merged.
 | After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Archive and bulk Read/Unread/Save/Unsave update silently with rows unobscured; Main menu > Undo last change remains available after paging and returning from a reader, even after waiting beyond six seconds, and restores silently without a timer | NOT RUN |
+| MediaTek quick quit: Wi-Fi off at launch and never turned on, Quit says "Quit", the closing screen says Closing InoInk and the Kobo interface returns without a reboot (repeat several times, then use USB and the Wi-Fi in Nickel normally); after turning the Wi-Fi on, the menu says Quit (the Kobo restarts) and the Kobo reboots | NOT RUN |
 | Toasts appear centred just below the top bar, one at a time (a new one replaces the old); no "Full text" or "Saved to Karakeep" confirmations | NOT RUN |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
 | Saved headlines show only the ribbon | NOT RUN |

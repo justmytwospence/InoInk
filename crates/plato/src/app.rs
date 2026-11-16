@@ -198,6 +198,7 @@ fn resume(id: TaskId, tasks: &mut Vec<Task>, view: &mut dyn View, hub: &Sender<E
             context.frontlight.set_intensity(levels.intensity);
         }
         if context.settings.wifi {
+            context.wifi_used = true;
             Command::new("scripts/wifi-enable.sh")
                     .status()
                     .ok();
@@ -229,6 +230,19 @@ fn power_off(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut
     context.fb.update(interm.rect(), UpdateMode::Full).ok();
 }
 
+fn mediatek() -> bool {
+    std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx")
+}
+
+/// Tells the launcher InoInk never turned the Wi-Fi on. On MediaTek Kobos restarting the Kobo
+/// interface after the Wi-Fi chip was used can crash the kernel (koreader/koreader#12739), so the
+/// launcher reboots instead, unless this marker says the chip was never touched.
+fn quit_marker(context: &Context) {
+    if !context.wifi_used {
+        File::create("/tmp/inoink-nickel").ok();
+    }
+}
+
 /// Confirms Quit at once with a full-screen message, after leaving every view so open articles
 /// save their position.
 fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updating: &mut Vec<UpdateData>, context: &mut Context) {
@@ -237,7 +251,7 @@ fn show_quit_screen(view: &mut dyn View, history: &mut Vec<HistoryItem>, updatin
     while let Some(mut item) = history.pop() {
         item.view.handle_event(&Event::Back, &tx, &mut VecDeque::new(), &mut RenderQueue::new(), context);
     }
-    let text = if std::env::var("PLATFORM").as_deref() == Ok("mt8113t-ntx") { "Restarting the Kobo" } else { "Closing InoInk" };
+    let text = if mediatek() && context.wifi_used { "Restarting the Kobo" } else { "Closing InoInk" };
     let interm = Intermission::with_text(context.fb.rect(), text.to_string());
     wait_for_all(updating, context);
     interm.render(context.fb.as_mut(), *interm.rect(), &mut context.fonts);
@@ -276,6 +290,7 @@ fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
     }
     context.settings.wifi = enable;
     if context.settings.wifi {
+        context.wifi_used = true;
         tx.send(Event::NetworkChanged).ok();
         Command::new("scripts/wifi-enable.sh")
                 .status()
@@ -394,11 +409,14 @@ pub fn run() -> Result<(), Error> {
     eprintln!("wifi: starting {}", if wifi { "on" } else { "off" });
     context.settings.wifi = wifi;
     if context.settings.wifi {
+        context.wifi_used = true;
         Command::new("scripts/wifi-enable.sh").status().ok();
         watch_network(&tx);
-    } else {
+    } else if !mediatek() {
         Command::new("scripts/wifi-disable.sh").status().ok();
     }
+    // On MediaTek Kobos the Wi-Fi chip is left alone while it is off, so that quitting can restart
+    // the Kobo interface directly (see quit_marker).
 
     if context.settings.frontlight {
         let levels = context.settings.frontlight_levels;
@@ -583,6 +601,7 @@ pub fn run() -> Result<(), Error> {
                                 context.settings = settings;
                             }
                             if context.settings.wifi {
+                                context.wifi_used = true;
                                 Command::new("scripts/wifi-enable.sh")
                                         .status()
                                         .ok();
@@ -1249,6 +1268,7 @@ pub fn run() -> Result<(), Error> {
                 break;
             },
             Event::Select(EntryId::Quit) => {
+                quit_marker(&context);
                 show_quit_screen(view.as_mut(), &mut history, &mut updating, &mut context);
                 break;
             },

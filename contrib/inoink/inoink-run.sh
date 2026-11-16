@@ -27,6 +27,8 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 	mkdir "$LOCK" || exit 1
 fi
 echo $$ > "$LOCK/pid"
+# Left by the app when the Wi-Fi was never used; one from an earlier run never counts.
+rm -f /tmp/inoink-nickel
 
 # Restore the Kobo interface exactly once, however we leave.
 RESTORED=0
@@ -41,15 +43,18 @@ restore() {
 	elif [ -e /tmp/power_off ] ; then
 		sync
 		poweroff -f
-	elif [ "$PLATFORM" = "mt8113t-ntx" ] && [ -z "$INOINK_RESTART_NICKEL" ] ; then
+	elif [ "$PLATFORM" = "mt8113t-ntx" ] && [ -z "$INOINK_RESTART_NICKEL" ] && ! { [ -e /tmp/inoink-nickel ] && [ "$INOINK_WIFI" = 0 ]; } ; then
 		# MediaTek Kobos (Libra Colour, Clara Colour/BW): restarting Nickel after another app
 		# has used the Wi-Fi or Bluetooth chip can crash the kernel while Nickel reloads the
 		# chip's drivers (koreader/koreader#12739). The device then reboots uncleanly and may
-		# come up in the setup screens. A clean reboot is the safe way back.
+		# come up in the setup screens. A clean reboot is the safe way back, unless the Wi-Fi
+		# stayed off for the whole session (off at launch, and the app leaves /tmp/inoink-nickel).
 		echo "--- $(date) rebooting into the Kobo interface (MediaTek)" >> "$INOINK_DATA/inoink.log"
 		sync
 		reboot
 	else
+		[ -e /tmp/inoink-nickel ] && echo "--- $(date) restarting Nickel directly (Wi-Fi unused)" >> "$INOINK_DATA/inoink.log"
+		rm -f /tmp/inoink-nickel
 		REL_DIR=$(pwd)
 		cd / && "$REL_DIR/nickel.sh" &
 	fi

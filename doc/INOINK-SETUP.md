@@ -118,10 +118,13 @@ can read it. Use a dedicated application registration you can revoke.
 
 ## Quitting
 
-On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting InoInk **reboots** the Kobo
-instead of restarting its interface directly. Restarting the interface after another app has used
-the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the device then reboots uncleanly
-and may show its setup screens. A clean reboot takes about half a minute and avoids that. To
+On MediaTek Kobos (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting InoInk after the Wi-Fi was
+used **reboots** the Kobo instead of restarting its interface directly. Restarting the interface
+after another app has used the Wi-Fi chip can crash the kernel (koreader/koreader#12739); the
+device then reboots uncleanly and may show its setup screens. A clean reboot takes about half a
+minute and avoids that. When the Wi-Fi was off as InoInk started and stayed off, InoInk never
+touches the chip, and quitting returns to the Kobo interface directly, in a few seconds. The menu
+says which will happen: Quit, or Quit (the Kobo restarts). To
 restart the interface directly anyway, put `INOINK_RESTART_NICKEL=1` in
 `.adds/inoink/data/config.sh`.
 

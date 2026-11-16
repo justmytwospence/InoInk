@@ -153,6 +153,27 @@ rm -f "$B/data/nickel.log" "$WORK/calls.log"
 PLATFORM=mt8113t-ntx INOINK_RESTART_NICKEL=1 run_launcher; sleep 2
 check "the override restarts Nickel instead" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
 
+# MediaTek: Nickel restarts directly when the app reports the Wi-Fi unused and it was off at launch.
+# (Assignments before a function call outlive it in some shells: clear the earlier ones.)
+unset INOINK_RESTART_NICKEL PLATFORM INOINK_SYSROOT INTERFACE
+mkdir -p "$WORK/nowifi" "$WORK/wifisys/sys/class/net/wlan0"; printf 'up\n' > "$WORK/wifisys/sys/class/net/wlan0/operstate"
+printf '#!/bin/sh\ntouch /tmp/inoink-nickel\nexit 0\n' > "$B/releases/1.2.0/inoink"
+rm -f "$B/data/nickel.log" "$WORK/calls.log"
+PLATFORM=mt8113t-ntx INOINK_SYSROOT="$WORK/nowifi" run_launcher; sleep 2
+check "MediaTek exit restarts Nickel when the Wi-Fi was unused" test "$(wc -l < "$B/data/nickel.log" | tr -d ' ')" = 1
+check_not "MediaTek exit with the Wi-Fi unused does not reboot" grep -q "^reboot" "$WORK/calls.log"
+check "the marker is consumed" test ! -e /tmp/inoink-nickel
+rm -f "$B/data/nickel.log" "$WORK/calls.log"
+PLATFORM=mt8113t-ntx INOINK_SYSROOT="$WORK/wifisys" INTERFACE=wlan0 run_launcher; sleep 2
+check "MediaTek reboots when the Wi-Fi was on at launch" grep -q "^reboot" "$WORK/calls.log"
+rm -f /tmp/inoink-nickel
+printf '#!/bin/sh\nexit 0\n' > "$B/releases/1.2.0/inoink"
+touch /tmp/inoink-nickel; rm -f "$B/data/nickel.log" "$WORK/calls.log"
+PLATFORM=mt8113t-ntx INOINK_SYSROOT="$WORK/nowifi" run_launcher; sleep 2
+check "a stale marker from an earlier run is ignored" grep -q "^reboot" "$WORK/calls.log"
+rm -f /tmp/inoink-nickel
+unset PLATFORM INOINK_SYSROOT INTERFACE
+
 # Termination by signal restores Nickel too.
 printf '#!/bin/sh\nsleep 30\n' > "$B/releases/1.2.0/inoink"
 rm -f "$B/data/nickel.log"
