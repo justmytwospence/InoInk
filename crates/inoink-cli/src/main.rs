@@ -348,7 +348,7 @@ impl Fetcher for FixtureImages {
             });
         }
         if url.as_str() == "https://hn.algolia.com/api/v1/items/4242" {
-            let json = r#"{"type":"story","title":"A linked story","url":"https://blog.example/posts/linked-story","text":null,"children":[
+            let json = r#"{"type":"story","author":"alice","title":"A linked story","url":"https://blog.example/posts/linked-story","text":null,"children":[
               {"type":"comment","author":"alice","text":"<p>Great write-up. The part about <i>pagination</i> is what I keep running into.</p>","created_at_i":1799990000,"children":[
                 {"type":"comment","author":"bob","text":"<p>Agreed, though I would not call it solved.</p>","created_at_i":1799990600,"children":[
                   {"type":"comment","author":"alice","text":"<p>Fair. Solved enough for e-ink.</p>","created_at_i":1799991200,"children":[]}]}]},

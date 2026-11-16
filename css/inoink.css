@@ -156,18 +156,34 @@ p.inoink-switch {
 	font-weight: bold;
 }
 
+/* Comments: each author line sits tight on its comment, comments are spaced apart, and
+   top-level threads start with a gap (the renderer draws no rules; the hr is the jump target). Replies name the comment they answer, so the
+   indentation stops growing after four levels. */
 div.inoink-comment {
-	margin: 0.9em 0 0 0;
+	margin: 1.1em 0 0 0;
 }
 
-div.inoink-d1 { margin-left: 1em; }
-div.inoink-d2 { margin-left: 2em; }
-div.inoink-d3 { margin-left: 3em; }
-div.inoink-d4 { margin-left: 4em; }
-div.inoink-d5 { margin-left: 5em; }
+div.inoink-comment > p {
+	margin: 0.25em 0;
+}
 
-p.inoink-cmeta {
+div.inoink-d1 { margin-left: 1.2em; }
+div.inoink-d2 { margin-left: 2.4em; }
+div.inoink-d3 { margin-left: 3.6em; }
+div.inoink-d4 { margin-left: 4.8em; }
+
+div.inoink-comment > p.inoink-cmeta {
 	font-size: 0.8em;
 	color: #444;
-	margin: 0 0 0.2em 0;
+	margin: 0 0 0.1em 0;
+}
+
+hr.inoink-thread {
+	margin: 1.6em 0 0.4em 0;
+}
+
+p.inoink-next {
+	font-size: 0.8em;
+	text-align: right;
+	margin: 0.6em 0 0 0;
 }

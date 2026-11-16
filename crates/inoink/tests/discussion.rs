@@ -87,6 +87,7 @@ fn renders_comments_well_formed() {
         title: "T".into(),
         article_url: None,
         post_html: None,
+        submitter: None,
         count: 2,
         comments: vec![
             Comment {
@@ -101,8 +102,30 @@ fn renders_comments_well_formed() {
     let d = Discussion { site: Site::Lobsters, id: "abc".into() };
     let p = render_comments(&t, &d, "A <title>");
     assert_well_formed(&p.html);
-    assert!(p.html.contains("inoink-article:") && p.html.contains("inoink-d5"));
+    assert!(p.html.contains("inoink-article:") && p.html.contains("inoink-d4"));
     assert!(p.html.contains("&lt;b&gt;x&lt;/b&gt;"));
     assert!(!p.html.contains("<img") && p.html.contains("pic"));
     assert!(p.assets.is_empty());
+}
+
+#[test]
+fn comments_name_their_parent_mark_the_poster_and_link_threads() {
+    let json = r#"{"type":"story","author":"op","title":"T","url":null,"text":null,"children":[
+      {"type":"comment","author":"alice","text":"<p>a</p>","children":[
+        {"type":"comment","author":"bob","text":"<p>b</p>","children":[
+          {"type":"comment","author":"op","text":"<p>c</p>","children":[]}]},
+        {"type":"comment","author":"dan","text":"<p>d</p>","children":[]}]},
+      {"type":"comment","author":"erin","text":"<p>e</p>","children":[]}]}"#;
+    let t = parse_thread(Site::HackerNews, json.as_bytes()).unwrap();
+    assert_eq!(t.submitter.as_deref(), Some("op"));
+    let p = render_comments(&t, &Discussion { site: Site::HackerNews, id: "1".into() }, "T");
+    assert_well_formed(&p.html);
+    let h = &p.html;
+    assert!(h.contains("Thread 1 of 2 \u{b7} <b>alice</b>"));
+    assert!(h.contains("<b>bob</b> \u{21b3} alice"));
+    assert!(h.contains("<b>op</b> OP \u{21b3} bob"));
+    assert!(h.contains("<b>dan</b> \u{21b3} alice"), "a sibling reply names the right parent");
+    assert!(h.contains("Thread 2 of 2 \u{b7} <b>erin</b>"));
+    assert!(h.contains("id=\"inoink-t2\"") && h.contains("href=\"#inoink-t2\""));
+    assert!(!h.contains("#inoink-t3"), "no link after the last thread");
 }

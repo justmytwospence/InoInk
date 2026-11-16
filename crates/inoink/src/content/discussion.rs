@@ -113,6 +113,8 @@ pub struct Thread {
     pub post_html: Option<String>,
     pub comments: Vec<Comment>,
     pub count: u32,
+    /// Who submitted the story (marked OP in the thread).
+    pub submitter: Option<String>,
 }
 
 fn non_empty(v: &Value) -> Option<String> {
@@ -158,6 +160,7 @@ pub fn parse_thread(site: Site, json: &[u8]) -> Result<Thread> {
             t.title = v["title"].as_str().unwrap_or_default().to_string();
             t.article_url = non_empty(&v["url"]);
             t.post_html = non_empty(&v["text"]);
+            t.submitter = non_empty(&v["author"]);
             let mut count = 0;
             for c in v["children"].as_array().cloned().unwrap_or_default() {
                 walk_hn(&c, 0, &mut t.comments, &mut count);
@@ -171,6 +174,8 @@ pub fn parse_thread(site: Site, json: &[u8]) -> Result<Thread> {
             t.title = v["title"].as_str().unwrap_or_default().to_string();
             t.article_url = non_empty(&v["url"]);
             t.post_html = non_empty(&v["description"]);
+            // A name, or an object with one, depending on the API version.
+            t.submitter = non_empty(&v["submitter_user"]).or_else(|| non_empty(&v["submitter_user"]["username"]));
             for c in v["comments"].as_array().cloned().unwrap_or_default() {
                 let depth = c["depth"].as_u64().unwrap_or(0) as u32;
                 if c["is_deleted"].as_bool().unwrap_or(false) {
@@ -211,16 +216,47 @@ pub fn render_comments(thread: &Thread, d: &Discussion, title: &str) -> Prepared
     esc(&summary, &mut html);
     html.push_str("</p><p class=\"inoink-switch\"><a href=\"");
     html.push_str(ARTICLE_SCHEME);
-    html.push_str("\">Back to the article</a></p><hr/>");
+    html.push_str("\">Back to the article</a></p>");
     let mut text = String::new();
-    for c in &thread.comments {
+    let threads = thread.comments.iter().filter(|c| c.depth == 0).count();
+    let mut n = 0;
+    // The author at each depth so far: a reply names the comment it answers.
+    let mut parents: Vec<String> = Vec::new();
+    for (i, c) in thread.comments.iter().enumerate() {
         let (body, body_text) = sanitize_fragment(&c.html, Some(&d.url()));
-        html.push_str(&format!("<div class=\"inoink-comment inoink-d{}\"><p class=\"inoink-cmeta\">", c.depth.min(5)));
-        let meta = if c.date.is_empty() { c.author.clone() } else { format!("{} \u{b7} {}", c.author, c.date) };
-        esc(&meta, &mut html);
+        let depth = c.depth as usize;
+        parents.truncate(depth);
+        let parent = if depth > 0 { parents.last().cloned() } else { None };
+        parents.resize(depth, String::new());
+        parents.push(c.author.clone());
+        if depth == 0 {
+            n += 1;
+            html.push_str(&format!("<hr class=\"inoink-thread\" id=\"inoink-t{n}\"/>"));
+        }
+        html.push_str(&format!("<div class=\"inoink-comment inoink-d{}\"><p class=\"inoink-cmeta\">", c.depth.min(4)));
+        if depth == 0 && threads > 1 {
+            esc(&format!("Thread {n} of {threads} \u{b7} "), &mut html);
+        }
+        html.push_str("<b>");
+        esc(&c.author, &mut html);
+        html.push_str("</b>");
+        if thread.submitter.as_deref().is_some_and(|s| s == c.author) {
+            html.push_str(" OP");
+        }
+        if let Some(p) = parent {
+            esc(&format!(" \u{21b3} {p}"), &mut html);
+        }
+        if !c.date.is_empty() {
+            esc(&format!(" \u{b7} {}", c.date), &mut html);
+        }
         html.push_str("</p>");
         html.push_str(&body);
         html.push_str("</div>");
+        // The end of a thread (not the last): a link to skip to the next one.
+        let ends = thread.comments.get(i + 1).map(|next| next.depth == 0);
+        if ends == Some(true) && n < threads {
+            html.push_str(&format!("<p class=\"inoink-next\"><a href=\"#inoink-t{}\">Next thread \u{203a}</a></p>", n + 1));
+        }
         text.push_str(&c.author);
         text.push(' ');
         text.push_str(&body_text);
