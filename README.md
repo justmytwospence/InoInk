@@ -188,7 +188,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   also changes brightness.
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
 - **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
-  sets it up; see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
+  sets it up (or answer the prompt during `authorize`); see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
 - **USB:** quit InoInk before connecting to a computer.
 - **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting restarts the Kobo (about half a minute). Restarting
   only the Kobo interface can crash these MediaTek models; see

@@ -108,6 +108,10 @@ inoink-cli authorize \
    `.adds/inoink/data/provision/`. Eject and open InoInk: it imports and deletes the transfer
    file, then syncs. Tokens refresh on the device; the Kobo's browser is never needed.
 
+   It then offers to set up [Karakeep](#karakeep) as well: paste its address (or pass
+   `--karakeep-url https://...`), then the API key at the hidden prompt, or press Enter to skip.
+   A Karakeep problem never undoes the sign-in.
+
 Security note: the client secret has to live on the Kobo because Inoreader's documented token
 refresh needs it. The Kobo's storage is FAT with no file permissions, so anyone with the device
 can read it. Use a dedicated application registration you can revoke.
@@ -245,7 +249,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
 
 Links and articles can be sent to [Karakeep](https://karakeep.app) (More menu, or by holding a
 link). They wait in a local queue and are sent as soon as the network allows; Karakeep's address
-and API key are set up from the computer, the same way as the Inoreader sign-in:
+and API key are set up from the computer, while signing in with `authorize` or later on their own:
 
 ```sh
 inoink-cli karakeep --url https://karakeep.example.com --device /Volumes/KOBOeReader

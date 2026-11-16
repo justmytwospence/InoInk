@@ -11,7 +11,7 @@ use inoink::credentials::{encrypt_for, read_device_recipient, write_transfer, Cr
 use inoink::error::{Error, Result};
 use inoink::model::*;
 use inoink::store::{ArticleRecord, Store, Subscription};
-use std::io::{BufRead, Cursor, Read, Write};
+use std::io::{BufRead, Cursor, IsTerminal, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -20,10 +20,12 @@ use std::sync::Arc;
 const USAGE: &str = "inoink-cli <command>
 
   authorize --client-id ID --redirect-uri URI [--scope 'read write'] (--device MOUNT | --out FILE)
+            [--karakeep-url URL]
       Sign in with Inoreader on this computer. The client secret is read from the
       INOINK_CLIENT_SECRET environment variable or a hidden prompt. With --device the encrypted
       credentials are written to the mounted Kobo; with --out they are written to FILE
-      (plaintext: delete it after provisioning).
+      (plaintext: delete it after provisioning). With --device it also offers to set up
+      Karakeep (the key is read as for `karakeep`).
   snapshot-login --auth DIR
       Authorize a separate read-only account for offline snapshots.
   snapshot --auth DIR --output DIR
@@ -224,6 +226,22 @@ fn authorize(args: &[String]) -> Result<()> {
         let dir = data_dir_of(device.as_ref().unwrap());
         write_transfer(&dir, &enc)?;
         println!("Credentials were encrypted for this Kobo and written to {}.", dir.join("provision/credentials.age").display());
+        let karakeep_url = arg(args, "--karakeep-url").or_else(|| {
+            if !std::io::stdin().is_terminal() {
+                return None;
+            }
+            eprint!("Karakeep address to send links to (https://...), or press Enter to skip: ");
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line).ok()?;
+            Some(line.trim().to_string())
+        });
+        if let Some(url) = karakeep_url.filter(|u| !u.trim().is_empty()) {
+            if let Err(e) = setup_karakeep(&dir, &r, &url) {
+                println!(
+                    "Karakeep was not set up: {e}. The Inoreader sign-in is saved; run inoink-cli karakeep --url URL --device MOUNT later."
+                );
+            }
+        }
         println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
     }
     if let Some(o) = out {
@@ -251,16 +269,32 @@ fn provision(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Sets up Karakeep: checks the key, then writes the encrypted settings for the Kobo to import.
-fn karakeep(args: &[String]) -> Result<()> {
-    use inoink::api::{HttpRequest, Method, Transport};
-    let url = arg(args, "--url").ok_or_else(|| Error::InvalidRequest("--url is required".into()))?;
-    let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
+/// A Karakeep address without its trailing slash. Only web addresses are accepted.
+fn karakeep_base(url: &str) -> Result<String> {
+    let url = url.trim();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(Error::InvalidRequest("--url must start with https:// (or http://)".into()));
     }
+    Ok(url.trim_end_matches('/').to_string())
+}
+
+/// Sets up Karakeep: checks the key, then writes the encrypted settings for the Kobo to import.
+fn karakeep(args: &[String]) -> Result<()> {
+    let url = arg(args, "--url").ok_or_else(|| Error::InvalidRequest("--url is required".into()))?;
+    let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
+    karakeep_base(&url)?;
     let dir = data_dir_of(Path::new(&device));
     let recipient = read_device_recipient(&dir)?;
+    setup_karakeep(&dir, &recipient, &url)?;
+    println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
+    Ok(())
+}
+
+/// Reads and checks the API key for the Karakeep at `url`, then writes the settings encrypted
+/// for the Kobo whose data directory is `dir`.
+fn setup_karakeep(dir: &Path, recipient: &str, url: &str) -> Result<()> {
+    use inoink::api::{HttpRequest, Method, Transport};
+    let url = karakeep_base(url)?;
     let key = read_secret_from(
         "INOINK_KARAKEEP_KEY",
         "the Karakeep API key",
@@ -268,7 +302,7 @@ fn karakeep(args: &[String]) -> Result<()> {
     )?;
     let probe = HttpRequest {
         method: Method::Get,
-        url: format!("{}/api/v1/users/me", url.trim_end_matches('/')),
+        url: format!("{url}/api/v1/users/me"),
         headers: vec![("Authorization".into(), format!("Bearer {key}")), ("Accept".into(), "application/json".into())],
         body: None,
     };
@@ -278,13 +312,10 @@ fn karakeep(args: &[String]) -> Result<()> {
         Ok(r) => println!("Could not verify the key (HTTP {}); saving it anyway.", r.status),
         Err(e) => println!("Could not verify the key ({e}); saving it anyway."),
     }
-    let cfg = inoink::share::ShareConfig {
-        karakeep: Some(inoink::share::KarakeepConfig { url: url.trim_end_matches('/').to_string(), api_key: key }),
-    };
-    let enc = inoink::share::encrypt_for(&recipient, &cfg)?;
-    inoink::share::write_transfer(&dir, &enc)?;
+    let cfg = inoink::share::ShareConfig { karakeep: Some(inoink::share::KarakeepConfig { url, api_key: key }) };
+    let enc = inoink::share::encrypt_for(recipient, &cfg)?;
+    inoink::share::write_transfer(dir, &enc)?;
     println!("The Karakeep settings were encrypted for this Kobo and written to {}.", dir.join("provision/share.age").display());
-    println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
     Ok(())
 }
 
@@ -622,5 +653,17 @@ fn main() {
     if let Err(e) = result {
         eprintln!("error: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::karakeep_base;
+
+    #[test]
+    fn karakeep_base_validates_and_trims() {
+        assert_eq!(karakeep_base("https://k.example/").unwrap(), "https://k.example");
+        assert_eq!(karakeep_base(" http://a ").unwrap(), "http://a");
+        assert!(karakeep_base("ftp://x").is_err());
     }
 }
