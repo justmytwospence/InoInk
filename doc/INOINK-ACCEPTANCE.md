@@ -169,6 +169,8 @@ that was merged.
 | After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Archive and bulk Read/Unread/Save/Unsave update silently with rows unobscured; Main menu > Undo last change remains available after paging and returning from a reader, even after waiting beyond six seconds, and restores silently without a timer | NOT RUN |
+| Comments: replies name their parent (↳), OP is marked, threads are numbered and spaced apart, Next thread jumps to the next one | NOT RUN |
+| Article bar: the title is left-aligned and tapping it goes back like the arrow | NOT RUN |
 | MediaTek quick quit: Wi-Fi off at launch and never turned on, Quit says "Quit", the closing screen says Closing InoInk and the Kobo interface returns without a reboot (repeat several times, then use USB and the Wi-Fi in Nickel normally); after turning the Wi-Fi on, the menu says Quit (the Kobo restarts) and the Kobo reboots | NOT RUN |
 | Toasts appear centred just below the top bar, one at a time (a new one replaces the old); no "Full text" or "Saved to Karakeep" confirmations | NOT RUN |
 | New bar: unseen unread headlines show a 4 dp left bar that stays while in the list and is gone after an article, waking or switching lists; it reads clearly without looking heavy | NOT RUN |
@@ -177,7 +179,7 @@ that was merged.
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
 | Swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
-| End-of-article popup: paging past the last page opens it; Mark read keeps the star, Unstar / Remove from Read later unstars (Undo in the main menu), Keep unread stays; Then: Next article / Back to list is remembered after restarting; forward skips, back and a tap outside close it; swipe up and holding forward bypass it; layout reads well | NOT RUN |
+| End-of-article popup: paging past the last page opens it; Mark read keeps the star, Unstar / Remove from Read later unstars (Undo in the main menu), Keep unread stays; Then Next article / Back to list is remembered after restarting; forward skips, back and a tap outside close it; swipe up and holding forward bypass it; layout reads well | NOT RUN |
 | Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |

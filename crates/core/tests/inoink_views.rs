@@ -679,6 +679,22 @@ fn the_bar_names_the_neighbours_and_tapping_one_opens_it() {
 }
 
 #[test]
+fn tapping_the_title_in_the_bar_goes_back() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(632, 840))));
+    let index = locate::<ArticleBar>(&reader).expect("bar");
+    let r = *reader.children()[index].rect();
+    sent(&e);
+    // Well right of the back arrow, on the title.
+    let tap = Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(r.min.x + 3 * r.height() as i32, (r.min.y + r.max.y) / 2)));
+    let mut bus = VecDeque::new();
+    plato_core::view::handle_event(&mut reader, &tap, &e.tx, &mut bus, &mut RenderQueue::new(), &mut e.context);
+    // Like the back arrow, Back travels up to the app, which closes the reader.
+    assert!(bus.iter().any(|ev| matches!(ev, Event::Back)));
+}
+
+#[test]
 fn no_titles_row_without_neighbours() {
     let mut e = env();
     let mut reader = open(&mut e, &[4], false, 4);

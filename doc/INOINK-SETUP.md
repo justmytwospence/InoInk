@@ -60,6 +60,13 @@ file mode 0600; they are plaintext local credentials, so protect your Mac accoun
 The sandbox database, cached articles, settings and screenshots live in
 `target/macos-preview/inoreader/state`. After confirming no preview or download is running, you
 can remove `target/macos-preview/inoreader` to discard both snapshot and preview authorization.
+
+`scripts/preview-macos.sh --live` instead runs the preview against your real account, syncing like
+the Kobo: reading, starring and marking read reach Inoreader. On first use it signs in with
+`inoink-cli authorize` (app ID and redirect URI from `INOINK_CLIENT_ID` / `INOINK_REDIRECT_URI` or a
+prompt, the secret hidden) and keeps everything in `target/macos-preview/live`. Syncing counts
+against the app registration's daily request allowance, so register a separate app for the preview
+to leave the Kobo's untouched. Remove that directory to sign out.
 Do not delete the auth directory while a refresh is in progress.
 
 ## Development and releases
@@ -203,7 +210,7 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   page.
 - Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup:
   Mark read (keeps the star), Unstar (Remove from Read later in that list; Undo is in the main
-  menu) or Keep unread, and a Then: Next article | Back to list choice that is remembered. In the
+  menu) or Keep unread, and a Then Next article | Back to list choice that is remembered. In the
   popup the forward button goes on to the next article without changing anything and the back
   button closes it. Swipe up or hold the forward button
   for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
@@ -233,7 +240,9 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   the site's public JSON. The bar shows a comments icon with the count (0 when there are none; just
   the icon before it is fetched). Tap it to read the comments; there it becomes an article icon that returns to the article.
   There is also a link at the end of the article; More has Refresh comments. Star, Archive and Read
-  apply to the one item.
+  apply to the one item. On the comments page each reply names the comment it answers
+  ("bob ↳ alice"), the story's poster is marked OP, threads are spaced apart and numbered
+  ("Thread 3 of 12"), and a Next thread link at the end of each skips to the following one.
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
