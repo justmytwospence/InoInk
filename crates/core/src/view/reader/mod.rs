@@ -44,7 +44,7 @@ use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
 use crate::view::notification::show_notification;
 use crate::settings::{ButtonScheme, QueueTitles};
-use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
+use crate::settings::{guess_frontlight, AfterEnd, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
 use crate::settings::{HYPHEN_PENALTY, STRETCH_TOLERANCE};
 use crate::frontlight::LightLevels;
@@ -1128,7 +1128,7 @@ impl Reader {
                     _ if self.article.as_ref().map(|a| a.kind) == Some(crate::view::inoink::actions::DocKind::Comments) => {},
                     CycleDir::Next if self.article.is_some() => {
                         self.finished = true;
-                        self.go_to_article(CycleDir::Next, hub, rq, context);
+                        self.show_article_end(rq, context);
                     },
                     CycleDir::Next => {
                         self.finished = true;
@@ -3431,6 +3431,51 @@ impl Reader {
         hub.send(Event::Back).ok();
     }
 
+    /// The end-of-article popup (paging past the last page).
+    fn show_article_end(&mut self, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::article_end::ArticleEnd;
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        if locate_by_id(self, ViewId::ArticleEnd).is_some() {
+            return;
+        }
+        let flag = |m: inoink::model::Membership| context.inoink.store().and_then(|s| s.effective(id, &m).ok()).unwrap_or(false);
+        let starred = flag(inoink::model::Membership::Starred);
+        let read = flag(inoink::model::Membership::Read);
+        let read_later = context.inoink.queue.as_ref().map_or(false, |q| q.read_later);
+        let after = context.settings.inoink.after_end;
+        let popup = ArticleEnd::new(self.rect, starred, read_later, read, after, context);
+        rq.add(RenderData::new(popup.id(), *popup.rect(), UpdateMode::Gui));
+        self.children.push(Box::new(popup) as Box<dyn View>);
+    }
+
+    fn close_article_end(&mut self, rq: &mut RenderQueue) {
+        while let Some(index) = locate_by_id(self, ViewId::ArticleEnd) {
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+        }
+    }
+
+    /// Applies a choice of the end-of-article popup.
+    fn end_choice(&mut self, choice: crate::view::inoink::actions::EndChoice, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::actions::{apply_article_action, ArticleAction, EndChoice};
+        self.close_article_end(rq);
+        let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
+        let action = match choice {
+            EndChoice::KeepUnread => return,
+            EndChoice::Skip => return self.go_to_article(CycleDir::Next, hub, rq, context),
+            EndChoice::MarkRead => ArticleAction::MarkRead,
+            EndChoice::Unstar => ArticleAction::Done,
+        };
+        // Not run_article_action: Done would close the reader whatever the setting says.
+        match apply_article_action(context, id, &action) {
+            Ok(_) => match context.settings.inoink.after_end {
+                AfterEnd::Next => self.go_to_article(CycleDir::Next, hub, rq, context),
+                AfterEnd::List => self.close_article(hub, context),
+            },
+            Err(m) => self.notify(&m, hub, rq, context),
+        }
+    }
+
     /// The next or previous article of the list (swipe up/down, holding a page button, paging
     /// past either end, the titles row). The article left keeps its read state; its position is
     /// saved when the reader is replaced.
@@ -3557,6 +3602,10 @@ impl Reader {
                 }
                 Some(true)
             }
+            Event::Close(ViewId::ArticleEnd) => {
+                self.close_article_end(rq);
+                Some(true)
+            }
             Event::Close(ViewId::QrView) => {
                 if let Some(index) = locate_by_id(self, ViewId::QrView) {
                     self.children.remove(index);
@@ -3565,6 +3614,10 @@ impl Reader {
                 Some(true)
             }
             Event::Select(EntryId::InoInk(ref e)) => match e {
+                InoInkEntry::ArticleEnd(choice) if article => {
+                    self.end_choice(*choice, hub, rq, context);
+                    Some(true)
+                }
                 InoInkEntry::QueueArticle(d) if article => {
                     self.go_to_article(*d, hub, rq, context);
                     Some(true)
@@ -5178,6 +5231,10 @@ impl View for Reader {
     }
 
     fn resize(&mut self, rect: Rectangle, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        // The end-of-article popup is laid out for one orientation: rotating dismisses it.
+        if let Some(index) = locate_by_id(self, ViewId::ArticleEnd) {
+            self.children.remove(index);
+        }
         if !self.children.is_empty() {
             let dpi = CURRENT_DEVICE.dpi;
             let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;

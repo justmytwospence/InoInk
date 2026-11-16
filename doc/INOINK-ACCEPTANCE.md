@@ -42,7 +42,7 @@ document tests inside the build container, and the install/launcher tests).
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; Categories and a folder; Read later; an
-article with the bar, the next article's title and the page indicator; the next article (swipe up); a QR code; the light
+article with the bar, the next article's title and the page indicator; the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
 panel; the main menu; the Newsfeed after saving. Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
@@ -175,7 +175,8 @@ that was merged.
 | Selection mode: check boxes toggle without ghosting; hold selects a range; Read/Unread/Save/Unsave apply and Undo reverts; the footer labels fit in portrait and landscape | NOT RUN |
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
-| Paging past the last page, swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
+| Swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
+| End-of-article popup: paging past the last page opens it; Mark read keeps the star, Unstar / Remove from Read later unstars (Undo in the main menu), Keep unread stays; Then: Next article / Back to list is remembered after restarting; forward skips, back and a tap outside close it; swipe up and holding forward bypass it; layout reads well | NOT RUN |
 | Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |

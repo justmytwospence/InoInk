@@ -801,6 +801,14 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Send(Event::Gesture(GestureEvent::Swipe { dir: Dir::North, start: pt!(w / 2, 3 * h / 4), end: pt!(w / 2, h / 4) })));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("09-next-article"));
+    // Page to the end: the popup opens and swallows further swipes.
+    for _ in 0..12 {
+        t.push_back(TourStep::Send(Event::Gesture(GestureEvent::Swipe { dir: Dir::West, start: pt!(3 * w / 4, h / 2), end: pt!(w / 4, h / 2) })));
+        t.push_back(TourStep::Wait(300));
+    }
+    t.push_back(TourStep::Shot("09b-article-end"));
+    t.push_back(TourStep::Send(Event::Close(ViewId::ArticleEnd)));
+    t.push_back(TourStep::Wait(500));
     t.push_back(select(InoInkEntry::ShowQr("https://news.example/issue/42".into())));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("10-qr"));

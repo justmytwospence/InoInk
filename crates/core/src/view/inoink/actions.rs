@@ -96,6 +96,21 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
+    /// A choice in the end-of-article popup.
+    ArticleEnd(EndChoice),
+}
+
+/// The end-of-article popup's choices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndChoice {
+    /// Mark read, keeping any star.
+    MarkRead,
+    /// Mark read and remove the star (Archive; undoable).
+    Unstar,
+    /// Close the popup and stay.
+    KeepUnread,
+    /// The next article, changing nothing (the Forward button).
+    Skip,
 }
 
 /// Which articles a selection starts from or switches to.

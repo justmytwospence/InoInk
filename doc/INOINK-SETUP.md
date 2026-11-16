@@ -198,8 +198,12 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page.
-- Swipe left or right to turn pages. Swipe up, page past the last page or hold the forward button
-  for the next article of the list; swipe down or hold the back button for the previous one (swipe directions follow Settings >
+- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup:
+  Mark read (keeps the star), Unstar (Remove from Read later in that list; Undo is in the main
+  menu) or Keep unread, and a Then: Next article | Back to list choice that is remembered. In the
+  popup the forward button goes on to the next article without changing anything and the back
+  button closes it. Swipe up or hold the forward button
+  for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Archive or Mark read. After the last article of the list you are
   back at the list. With the bar showing, a row above the footer names the previous (left) and next

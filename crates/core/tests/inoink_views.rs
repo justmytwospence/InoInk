@@ -20,7 +20,8 @@ use inoink::store::ListSpan;
 use plato_core::view::EntryKind;
 use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
 use plato_core::geom::{CycleDir, Dir};
-use plato_core::settings::{ButtonScheme, QueueTitles};
+use plato_core::settings::{AfterEnd, ButtonScheme, QueueTitles};
+use plato_core::view::inoink::article_end::ArticleEnd;
 use plato_core::view::inoink::article_bar::{ArticleBar, CommentsButton};
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
@@ -469,15 +470,109 @@ fn press(code: ButtonCode, status: ButtonStatus) -> Event {
 }
 
 #[test]
-fn paging_past_the_last_page_opens_the_next_article_without_marking_read() {
+fn paging_past_the_last_page_shows_the_end_popup() {
     let mut e = env();
     let mut reader = open(&mut e, &[2, 1], true, 2);
     drive(&mut reader, &mut e, swipe_h(1000, 200));
-    assert_eq!(opens(&sent(&e)), vec![ArticleId(1)]);
+    assert!(opens(&sent(&e)).is_empty());
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_some());
     let st = e.context.inoink.store().unwrap();
     assert!(st.effective(ArticleId(2), &Membership::Starred).unwrap(), "still saved for later");
     assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap(), "not marked read");
     assert!(locate_by_id(&reader, ViewId::QueueNav).is_none());
+}
+
+fn end_popup(reader: &Reader) -> &ArticleEnd {
+    let i = locate_by_id(reader, ViewId::ArticleEnd).expect("end popup");
+    reader.children()[i].downcast_ref::<ArticleEnd>().unwrap()
+}
+
+fn choose(reader: &mut Reader, e: &mut Env, c: EndChoice) {
+    drive(reader, e, Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(c))));
+}
+
+#[test]
+fn end_popup_mark_read_keeps_the_star_and_opens_the_next() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    assert_eq!(end_popup(&reader).choices(), vec![EndChoice::MarkRead, EndChoice::Unstar, EndChoice::KeepUnread]);
+    choose(&mut reader, &mut e, EndChoice::MarkRead);
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(1)]);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(2), &Membership::Starred).unwrap());
+}
+
+#[test]
+fn end_popup_unstar_back_to_list() {
+    let mut e = env();
+    e.context.settings.inoink.after_end = AfterEnd::List;
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    choose(&mut reader, &mut e, EndChoice::Unstar);
+    let evts = sent(&e);
+    assert!(opens(&evts).is_empty());
+    assert!(evts.iter().any(|ev| matches!(ev, Event::Back)));
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(2), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(2), &Membership::Starred).unwrap());
+    assert!(e.context.inoink.last_undo.is_some(), "undoable");
+}
+
+#[test]
+fn end_popup_keep_unread_stays() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    sent(&e);
+    choose(&mut reader, &mut e, EndChoice::KeepUnread);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    assert!(sent(&e).iter().all(|ev| !matches!(ev, Event::OpenNext(_) | Event::Back)));
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(2), &Membership::Read).unwrap());
+}
+
+#[test]
+fn end_popup_hides_unstar_when_not_starred() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    assert_eq!(end_popup(&reader).choices(), vec![EndChoice::MarkRead, EndChoice::KeepUnread]);
+}
+
+#[test]
+fn end_popup_toggle_is_remembered() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    let r = end_popup(&reader).toggle_rects()[1];
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(Point::new((r.min.x + r.max.x) / 2, (r.min.y + r.max.y) / 2))));
+    assert_eq!(e.context.settings.inoink.after_end, AfterEnd::List);
+    assert_eq!(e.context.inoink.settings.after_end, AfterEnd::List);
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_some(), "the popup stays open");
+}
+
+#[test]
+fn forward_in_the_end_popup_skips_to_the_next() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    sent(&e);
+    drive(&mut reader, &mut e, press(ButtonCode::Forward, ButtonStatus::Pressed));
+    drive(&mut reader, &mut e, press(ButtonCode::Forward, ButtonStatus::Released));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+}
+
+#[test]
+fn a_tap_outside_the_end_popup_closes_it() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_h(1000, 200));
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(Point::new(20, 840))));
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    assert!(opens(&sent(&e)).is_empty());
 }
 
 #[test]
