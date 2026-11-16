@@ -58,6 +58,13 @@ pub fn transfer_notifications(view1: &mut dyn View, view2: &mut dyn View, rq: &m
             view2.children_mut().push(child);
         }
     }
+    // Only one notification shows at a time: keep the newest.
+    while view2.children().iter().filter(|c| c.is::<Notification>()).count() > 1 {
+        if let Some(index) = locate::<Notification>(view2) {
+            rq.add(RenderData::expose(*view2.child(index).rect(), UpdateMode::Gui));
+            view2.children_mut().remove(index);
+        }
+    }
 }
 
 pub fn toggle_main_menu(view: &mut dyn View, rect: Rectangle, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {

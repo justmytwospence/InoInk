@@ -314,14 +314,8 @@ pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&st
         InoInkEntry::SetFullText(feed, mode) => {
             let store = context.inoink.store().ok_or(SAVE_FAILED)?;
             store.set_full_text_mode(feed, *mode).map_err(|_| SAVE_FAILED.to_string())?;
-            Ok(Some(
-                match mode {
-                    FullText::Auto => "Full text: automatic",
-                    FullText::Always => "Full text: always",
-                    FullText::Never => "Full text: never",
-                }
-                .to_string(),
-            ))
+            // The radio button shows the new choice.
+            Ok(None)
         }
         _ => Ok(None),
     }

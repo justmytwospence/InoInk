@@ -538,6 +538,19 @@ fn swiping_down_on_the_first_article_says_so() {
 }
 
 #[test]
+fn a_new_toast_replaces_the_old_one_below_the_top_bar() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, swipe_v(600, 1400));
+    drive(&mut reader, &mut e, swipe_v(600, 1400));
+    let toasts: Vec<_> = reader.children().iter().filter(|c| c.is::<Notification>()).collect();
+    assert_eq!(toasts.len(), 1, "one toast at a time");
+    let r = *toasts[0].rect();
+    assert_eq!(r.min.x, (1264 - r.width() as i32) / 2, "centred");
+    assert!(r.min.y < 1680 / 4, "near the top");
+}
+
+#[test]
 fn after_the_last_article_you_are_back_at_the_list() {
     let mut e = env();
     let mut reader = open(&mut e, &[4, 3], false, 3);

@@ -42,7 +42,7 @@ use crate::view::search_bar::SearchBar;
 use crate::view::keyboard::Keyboard;
 use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
-use crate::view::notification::Notification;
+use crate::view::notification::show_notification;
 use crate::settings::{ButtonScheme, QueueTitles};
 use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
@@ -1139,9 +1139,8 @@ impl Reader {
                         };
                         match action {
                             FinishedAction::Notify => {
-                                let notif = Notification::new("No next page.".to_string(),
+                                show_notification(self, "No next page.".to_string(),
                                                               hub, rq, context);
-                                self.children.push(Box::new(notif) as Box<dyn View>);
                             },
                             FinishedAction::Close => {
                                 self.quit(context);
@@ -1162,9 +1161,8 @@ impl Reader {
                         }
                     },
                     CycleDir::Previous => {
-                        let notif = Notification::new("No previous page.".to_string(),
+                        show_notification(self, "No previous page.".to_string(),
                                                       hub, rq, context);
-                        self.children.push(Box::new(notif) as Box<dyn View>);
                     },
                 }
             },
@@ -3265,8 +3263,7 @@ impl Reader {
     }
 
     fn notify(&mut self, text: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        let notif = Notification::new(text.to_string(), hub, rq, context);
-        self.children.push(Box::new(notif) as Box<dyn View>);
+        show_notification(self, text.to_string(), hub, rq, context);
     }
 
     fn run_article_action(&mut self, action: &crate::view::inoink::actions::ArticleAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -4192,8 +4189,8 @@ impl View for Reader {
                             } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
                                 hub.send(Event::RetryImage(name.to_string())).ok();
                             } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
-                                let notif = Notification::new(link.text.clone(), hub, rq, context);
-                                self.children.push(Box::new(notif) as Box<dyn View>);
+                                drop(doc);
+                                show_notification(self, link.text.clone(), hub, rq, context);
                             } else {
                                 eprintln!("Can't resolve URI: {}.", link.text);
                             }
@@ -4360,8 +4357,7 @@ impl View for Reader {
                             } else {
                                 format!("Note from Inoreader: {}", truncate_chars(&annot.note, 200))
                             };
-                            let notif = Notification::new(msg, hub, rq, context);
-                            self.children.push(Box::new(notif) as Box<dyn View>);
+                            show_notification(self, msg, hub, rq, context);
                         } else {
                             let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
                             self.toggle_annotation_menu(&annot, Rectangle::from_disk(center, radius), Some(true), rq, context);
@@ -4499,9 +4495,8 @@ impl View for Reader {
                         self.toggle_results_bar(true, rq, context);
                     },
                     None => {
-                        let notif = Notification::new("Invalid search query.".to_string(),
+                        show_notification(self, "Invalid search query.".to_string(),
                                                       hub, rq, context);
-                        self.children.push(Box::new(notif) as Box<dyn View>);
                     },
                 }
                 true
@@ -4773,9 +4768,8 @@ impl View for Reader {
                 let results_count = self.search.as_ref().map(|s| s.results_count)
                                         .unwrap_or(usize::MAX);
                 if results_count == 0 {
-                    let notif = Notification::new("No search results.".to_string(),
+                    show_notification(self, "No search results.".to_string(),
                                                   hub, rq, context);
-                    self.children.push(Box::new(notif) as Box<dyn View>);
                     self.toggle_search_bar(true, hub, rq, context);
                     hub.send(Event::Focus(Some(ViewId::ReaderSearchInput))).ok();
                 }
@@ -4823,9 +4817,8 @@ impl View for Reader {
                             self.search(text, query, hub, rq);
                         },
                         None => {
-                            let notif = Notification::new("Invalid search query.".to_string(),
+                            show_notification(self, "Invalid search query.".to_string(),
                                                           hub, rq, context);
-                            self.children.push(Box::new(notif) as Box<dyn View>);
                         },
                     }
                 }
@@ -4920,8 +4913,8 @@ impl View for Reader {
                     Err(e) => format!("{}", e),
                     Ok(()) => format!("Saved {}.", name),
                 };
-                let notif = Notification::new(msg, hub, rq, context);
-                self.children.push(Box::new(notif) as Box<dyn View>);
+                drop(doc);
+                show_notification(self, msg, hub, rq, context);
                 true
             },
             Event::Select(EntryId::ApplyCroppings(index, scheme)) => {

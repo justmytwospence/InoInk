@@ -347,17 +347,8 @@ pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String
     Ok("Sending to Karakeep".into())
 }
 
-/// What a sync pass reports about shares: the first refusal, or how many were saved.
+/// What a sync pass reports about shares: the first refusal, if any. Successful sends are
+/// silent (the message would arrive later, over whatever happens to be on screen).
 pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
-    if let Some(e) = rep.shares.iter().find_map(|s| s.error.as_ref()) {
-        return Some(format!("Karakeep: {e}"));
-    }
-    match rep.shares.len() {
-        0 => None,
-        1 => {
-            let t = inoink::util::shorten(&rep.shares[0].title, 40);
-            Some(format!("Saved to Karakeep: {}", if t.is_empty() { "link" } else { &t }))
-        }
-        n => Some(format!("Saved {n} links to Karakeep")),
-    }
+    rep.shares.iter().find_map(|s| s.error.as_ref()).map(|e| format!("Karakeep: {e}"))
 }

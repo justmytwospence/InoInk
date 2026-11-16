@@ -23,7 +23,7 @@ use plato_core::view::inoink::actions::{open_article, open_document, InoInkEntry
 use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
-use plato_core::view::notification::Notification;
+use plato_core::view::notification::show_notification;
 use plato_core::view::dialog::Dialog;
 use plato_core::view::inoink::light_panel::LightPanel;
 use plato_core::view::menu::{Menu, MenuKind};
@@ -346,12 +346,10 @@ fn main() -> Result<(), Error> {
                             }
                         },
                         OpenResult::Fetching => {
-                            let notif = Notification::new("Downloading the article".to_string(), &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), "Downloading the article".to_string(), &tx, &mut rq, &mut context);
                         },
                         OpenResult::Unavailable(why) => {
-                            let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                             handle_event(view.as_mut(), &Event::Invalid(Default::default()), &tx, &mut bus, &mut rq, &mut context);
                         },
                     }
@@ -370,20 +368,17 @@ fn main() -> Result<(), Error> {
                                     rq.add(RenderData::new(view.id(), context.fb.rect(), UpdateMode::Full));
                                 } else {
                                     plato_core::view::inoink::actions::release_article(&mut context, article.id, article.version);
-                                    let notif = Notification::new("This article could not be opened".to_string(), &tx, &mut rq, &mut context);
-                                    view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                    show_notification(view.as_mut(), "This article could not be opened".to_string(), &tx, &mut rq, &mut context);
                                     tx.send(Event::Back).ok();
                                 }
                             },
                             OpenResult::Fetching => {
                                 context.inoink.opening = Some((id, plato_core::view::inoink::state::OpenMode::Replace));
                                 context.inoink.opening_at = Some(std::time::Instant::now());
-                                let notif = Notification::new("Downloading the next article".to_string(), &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), "Downloading the next article".to_string(), &tx, &mut rq, &mut context);
                             },
                             OpenResult::Unavailable(why) => {
-                                let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                             },
                         }
                     }
@@ -399,14 +394,12 @@ fn main() -> Result<(), Error> {
                     };
                     match why {
                         Some(m) => {
-                            let notif = Notification::new(m, &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), m, &tx, &mut rq, &mut context);
                         },
                         None => {
                             context.inoink.opening_page = Some(url.clone());
                             context.inoink.submit(plato_core::inoink::runtime::Command::FetchPage(url.clone()));
-                            let notif = Notification::new("Loading the page".to_string(), &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), "Loading the page".to_string(), &tx, &mut rq, &mut context);
                         },
                     }
                 },
@@ -423,17 +416,14 @@ fn main() -> Result<(), Error> {
                                     view = next_view;
                                     rq.add(RenderData::new(view.id(), context.fb.rect(), UpdateMode::Full));
                                 } else {
-                                    let notif = Notification::new("This document could not be opened".to_string(), &tx, &mut rq, &mut context);
-                                    view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                    show_notification(view.as_mut(), "This document could not be opened".to_string(), &tx, &mut rq, &mut context);
                                 }
                             },
                             OpenResult::Fetching => {
-                                let notif = Notification::new("Downloading the comments".to_string(), &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), "Downloading the comments".to_string(), &tx, &mut rq, &mut context);
                             },
                             OpenResult::Unavailable(why) => {
-                                let notif = Notification::new(why, &tx, &mut rq, &mut context);
-                                view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                                show_notification(view.as_mut(), why, &tx, &mut rq, &mut context);
                             },
                         }
                     }
@@ -475,8 +465,7 @@ fn main() -> Result<(), Error> {
                     }
                     if let plato_core::inoink::runtime::Update::Cycle(rep) = u {
                         if let Some(m) = plato_core::view::inoink::actions::share_message(rep) {
-                            let notif = Notification::new(m, &tx, &mut rq, &mut context);
-                            view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                            show_notification(view.as_mut(), m, &tx, &mut rq, &mut context);
                         }
                     }
                     if let plato_core::inoink::runtime::Update::PageReady(url, r) = u {
@@ -651,12 +640,10 @@ fn main() -> Result<(), Error> {
                         Err(e) => format!("Couldn't take screenshot: {}).", e),
                         Ok(_) => format!("Saved {}.", name),
                     };
-                    let notif = Notification::new(msg, &tx, &mut rq, &mut context);
-                    view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    show_notification(view.as_mut(), msg, &tx, &mut rq, &mut context);
                 },
                 Event::Notify(msg) => {
-                    let notif = Notification::new(msg, &tx, &mut rq, &mut context);
-                    view.children_mut().push(Box::new(notif) as Box<dyn View>);
+                    show_notification(view.as_mut(), msg, &tx, &mut rq, &mut context);
                 },
                 Event::Device(DeviceEvent::NetUp) if !view.is::<InoInkHome>() => {
                     if let Some(home) = history.get_mut(0).filter(|view| view.is::<InoInkHome>()) {

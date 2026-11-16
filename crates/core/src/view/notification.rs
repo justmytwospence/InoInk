@@ -6,6 +6,7 @@ use crate::geom::{Rectangle, CornerSpec, BorderSpec};
 use crate::font::{Fonts, font_from_style, NORMAL_STYLE};
 use crate::color::{BLACK, WHITE, TEXT_NORMAL};
 use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, ViewId};
+use super::common::locate;
 use super::{SMALL_BAR_HEIGHT, THICKNESS_LARGE, BORDER_RADIUS_MEDIUM};
 use crate::gesture::GestureEvent;
 use crate::input::DeviceEvent;
@@ -20,7 +21,6 @@ pub struct Notification {
     children: Vec<Box<dyn View>>,
     text: String,
     max_width: i32,
-    index: u8,
     view_id: ViewId,
 }
 
@@ -29,7 +29,6 @@ impl Notification {
         let id = ID_FEEDER.next();
         let view_id = ViewId::MessageNotif(id);
         let hub2 = hub.clone();
-        let index = context.notification_index;
 
         thread::spawn(move || {
             thread::sleep(NOTIFICATION_CLOSE_DELAY);
@@ -50,19 +49,14 @@ impl Notification {
         let dialog_width = plan.width + 3 * padding;
         let dialog_height = 7 * x_height;
 
-        let side = (index / 3) % 2;
-        let dx = if side == 0 {
-            width as i32 - dialog_width - padding
-        } else {
-            padding
-        };
-        let dy = small_height + padding + (index % 3) as i32 * (dialog_height + padding);
+        // Always in the same place: centred just below the top bar.
+        let dx = (width as i32 - dialog_width) / 2;
+        let dy = small_height + padding;
 
         let rect = rect![dx, dy,
                          dx + dialog_width, dy + dialog_height];
 
         rq.add(RenderData::new(id, rect, UpdateMode::Gui));
-        context.notification_index = index.wrapping_add(1);
 
         Notification {
             id,
@@ -70,7 +64,6 @@ impl Notification {
             children: Vec::new(),
             text,
             max_width: max_message_width,
-            index,
             view_id,
         }
     }
@@ -111,25 +104,14 @@ impl View for Notification {
 
     fn resize(&mut self, _rect: Rectangle, _hub: &Hub, _rq: &mut RenderQueue, context: &mut Context) {
         let dpi = CURRENT_DEVICE.dpi;
-        let (width, height) = context.display.dims;
+        let (width, _) = context.display.dims;
         let small_height = scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32;
-        let side = (self.index / 3) % 2;
-        let padding = if side == 0 {
-            height as i32 - self.rect.max.x
-        } else {
-            self.rect.min.x
-        };
+        let padding = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi).em() as i32;
         let dialog_width = self.rect.width() as i32;
         let dialog_height = self.rect.height() as i32;
-        let dx = if side == 0 {
-            width as i32 - dialog_width - padding
-        } else {
-            padding
-        };
-        let dy = small_height + padding + (self.index % 3) as i32 * (dialog_height + padding);
-        let rect = rect![dx, dy,
-                         dx + dialog_width, dy + dialog_height];
-        self.rect = rect;
+        let dx = (width as i32 - dialog_width) / 2;
+        let dy = small_height + padding;
+        self.rect = rect![dx, dy, dx + dialog_width, dy + dialog_height];
     }
 
     fn rect(&self) -> &Rectangle {
@@ -155,4 +137,14 @@ impl View for Notification {
     fn view_id(&self) -> Option<ViewId> {
         Some(self.view_id)
     }
+}
+
+/// Shows `text` as the only notification of `view`: an earlier one still showing is replaced.
+pub fn show_notification(view: &mut dyn View, text: String, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+    while let Some(index) = locate::<Notification>(view) {
+        rq.add(RenderData::expose(*view.child(index).rect(), UpdateMode::Gui));
+        view.children_mut().remove(index);
+    }
+    let notif = Notification::new(text, hub, rq, context);
+    view.children_mut().push(Box::new(notif) as Box<dyn View>);
 }
