@@ -25,8 +25,10 @@ use plato_core::view::inoink::article_bar::ArticleBar;
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
-use plato_core::view::inoink::state::{InoInk, ReadingQueue, Tab};
+use plato_core::view::inoink::state::{InoInk, ReadingQueue, Tab, Undo};
 use plato_core::view::ViewId;
+use plato_core::view::common::locate;
+use plato_core::view::notification::Notification;
 use plato_core::view::{EntryId, Event, RenderQueue, View};
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicBool;
@@ -90,6 +92,10 @@ fn env() -> Env {
 
 fn rows(home: &InoInkHome) -> Vec<u64> {
     home.children()[4].children().iter().filter_map(|c| c.downcast_ref::<ArticleRow>()).map(|r| r.item.id.0).collect()
+}
+
+fn has_undo(e: &Env) -> bool {
+    plato_core::view::inoink::manage::main_menu_entries(&e.context).into_iter().any(|k| matches!(k, EntryKind::Command(l, _) if l == "Undo last change"))
 }
 
 fn send(home: &mut InoInkHome, env: &mut Env, e: Event) {
@@ -292,6 +298,8 @@ fn selection_toggles_ranges_and_applies_with_undo() {
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     let sel = |home: &mut InoInkHome, e: &mut Env, entry: InoInkEntry| send(home, e, Event::Select(EntryId::InoInk(entry)));
+    let children = home.children().len();
+    assert!(!has_undo(&e));
     sel(&mut home, &mut e, InoInkEntry::Select(SelectPreset::None));
     assert_eq!(home.selected_articles(), Some(vec![]));
     assert_eq!(rows(&home), vec![4, 3, 2, 1]);
@@ -310,9 +318,15 @@ fn selection_toggles_ranges_and_applies_with_undo() {
         assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
         assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
     }
-    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Marked 2 read"));
+    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Bulk(_))));
+    assert!(has_undo(&e));
+    assert!(locate::<Notification>(&home).is_none());
+    assert_eq!(home.children().len(), children);
     assert_eq!(rows(&home), vec![3, 1]);
     sel(&mut home, &mut e, InoInkEntry::UndoDone);
+    assert!(!has_undo(&e));
+    assert!(locate::<Notification>(&home).is_none());
+    assert_eq!(home.children().len(), children);
     let st = e.context.inoink.store().unwrap();
     assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
     assert!(!st.effective(ArticleId(4), &Membership::Read).unwrap());
@@ -670,7 +684,8 @@ fn mark_all_read_asks_first_and_skips_saved() {
     assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
     assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap(), "saved stays unread");
     assert!(!st.effective(ArticleId(2), &Membership::Read).unwrap());
-    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Marked 2 read"));
+    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Bulk(_))));
+    assert!(locate::<Notification>(&home).is_none());
     assert_eq!(e.context.inoink.refills, 1);
 }
 
@@ -764,18 +779,71 @@ fn the_select_button_enters_and_leaves_selection_mode() {
 }
 
 #[test]
-fn turning_the_page_dismisses_the_undo_bar() {
+fn archive_is_silent_and_menu_undo_survives_paging() {
     let mut e = env();
     for i in 10..30u64 {
         e.context.inoink.store_mut().unwrap().upsert_article(&rec(i, (i as i64) * 1_000_000_000, false), 0).unwrap();
     }
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let before = rows(&home).len();
+    let children = home.children().len();
     send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
-    assert_eq!(e.context.inoink.last_undo.as_ref().map(|u| u.1.as_str()), Some("Archived: Article 29"));
+    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Done(_))));
+    assert!(locate::<Notification>(&home).is_none());
+    assert_eq!(home.children().len(), children);
+    assert_eq!(rows(&home).len(), before, "full row capacity remains");
     let last_on_first = *rows(&home).last().unwrap();
     send(&mut home, &mut e, Event::Page(CycleDir::Next));
-    assert!(e.context.inoink.last_undo.is_none(), "the bar stays on the page it was made on");
+    assert!(has_undo(&e));
     assert_eq!(rows(&home)[0], last_on_first - 1, "the next page starts after the last headline shown");
+    send(&mut home, &mut e, Event::Reseed);
+    assert!(has_undo(&e));
+    assert!(locate::<Notification>(&home).is_none());
+}
+
+#[test]
+fn menu_undo_restores_silently_and_disappears() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert!(!has_undo(&e));
+    send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
+    assert!(has_undo(&e));
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
+    assert!(locate::<Notification>(&home).is_none());
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    assert_eq!(rows(&home), vec![4, 3, 2, 1]);
+    assert!(e.context.inoink.last_undo.is_none());
+    assert!(!has_undo(&e));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
+    assert!(locate::<Notification>(&home).is_none());
+    assert!(!has_undo(&e));
+}
+
+#[test]
+fn latest_successful_action_replaces_menu_undo() {
+    let mut e = env();
+    let outcome = apply_article_action(&mut e.context, ArticleId(4), &ArticleAction::Done).unwrap();
+    assert!(outcome.message.is_none());
+    let first = e.context.inoink.last_undo;
+    assert!(matches!(first, Some(Undo::Done(_))));
+    let store = e.context.inoink.store.take();
+    assert_eq!(apply_bulk_action(&mut e.context, &[ArticleId(3)], BulkAction::MarkRead).unwrap_err(), SAVE_FAILED);
+    assert_eq!(e.context.inoink.last_undo, first);
+    assert_eq!(undo_done(&mut e.context).unwrap_err(), SAVE_FAILED);
+    assert_eq!(e.context.inoink.last_undo, first);
+    e.context.inoink.store = store;
+    assert_eq!(apply_bulk_action(&mut e.context, &[ArticleId(3)], BulkAction::MarkRead).unwrap(), 1);
+    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Bulk(_))));
+    assert!(has_undo(&e));
+    assert!(undo_done(&mut e.context).unwrap().message.is_none());
+    let st = e.context.inoink.store().unwrap();
+    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
+    assert!(e.context.inoink.last_undo.is_none());
+    assert!(!has_undo(&e));
 }
