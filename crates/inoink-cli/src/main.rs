@@ -349,11 +349,12 @@ impl Fetcher for FixtureImages {
         }
         if url.as_str() == "https://hn.algolia.com/api/v1/items/4242" {
             let json = r#"{"type":"story","author":"alice","title":"A linked story","url":"https://blog.example/posts/linked-story","text":null,"children":[
-              {"type":"comment","author":"alice","text":"<p>Great write-up. The part about <i>pagination</i> is what I keep running into.</p>","created_at_i":1799990000,"children":[
-                {"type":"comment","author":"bob","text":"<p>Agreed, though I would not call it solved.</p>","created_at_i":1799990600,"children":[
-                  {"type":"comment","author":"alice","text":"<p>Fair. Solved enough for e-ink.</p>","created_at_i":1799991200,"children":[]}]}]},
+              {"type":"comment","author":"alice","text":"<p>Great write-up. The part about <i>pagination</i> is what I keep running into.</p>","created_at_i":1794000000,"children":[
+                {"type":"comment","author":"bob","text":"<p>Agreed, though I would not call it solved.</p>","created_at_i":1794000600,"children":[
+                  {"type":"comment","author":"alice","text":"<p>Fair. Solved enough for e-ink.</p>","created_at_i":1794001200,"children":[
+                    {"type":"comment","author":"dan","text":"<p>On a Kobo it is.</p>","created_at_i":1794001500,"children":[]}]}]}]},
               {"type":"comment","author":null,"text":null,"children":[
-                {"type":"comment","author":"carol","text":"<p>Replying under a deleted comment.</p>","created_at_i":1799992000,"children":[]}]}]}"#;
+                {"type":"comment","author":"carol","text":"<p>Replying under a deleted comment.</p>","created_at_i":1794002000,"children":[]}]}]}"#;
             return Ok(Fetched {
                 status: 200,
                 content_type: Some("application/json".into()),

@@ -169,7 +169,7 @@ that was merged.
 | After a bulk mark-read a sync starts at once and new unread articles arrive | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Top-bar select button enters selection mode with nothing ticked; pressing it again leaves | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Archive and bulk Read/Unread/Save/Unsave update silently with rows unobscured; Main menu > Undo last change remains available after paging and returning from a reader, even after waiting beyond six seconds, and restores silently without a timer | NOT RUN |
-| Comments: replies name their parent (↳), OP is marked, threads are numbered and spaced apart, Next thread jumps to the next one | NOT RUN |
+| Comments: thread lines continue across pages, two indents at most with ↳ beyond, ⁂ before each thread, reply count and Skip › on the first comment, OP marked, ages, Thread k of n in the top margin | NOT RUN |
 | Article bar: the title is left-aligned and tapping it goes back like the arrow | NOT RUN |
 | MediaTek quick quit: Wi-Fi off at launch and never turned on, Quit says "Quit", the closing screen says Closing InoInk and the Kobo interface returns without a reboot (repeat several times, then use USB and the Wi-Fi in Nickel normally); after turning the Wi-Fi on, the menu says Quit (the Kobo restarts) and the Kobo reboots | NOT RUN |
 | Toasts appear centred just below the top bar, one at a time (a new one replaces the old); no "Full text" or "Saved to Karakeep" confirmations | NOT RUN |

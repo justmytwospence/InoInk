@@ -342,10 +342,11 @@ impl Cache {
     }
 
     fn write_comments(&self, store: &mut Store, id: ArticleId, d: &Discussion, title: &str, thread: &Thread) -> Result<u32> {
-        let page = discussion::render_comments(thread, d, title);
+        let now = now_secs();
+        let page = discussion::render_comments(thread, d, title, now);
         fs::create_dir_all(self.article_dir(id))?;
         atomic_write(&self.comments_path(id), page.html.as_bytes())?;
-        store.set_discussion_comments(id, thread.count, now_secs(), page.html.len() as i64)?;
+        store.set_discussion_comments(id, thread.count, now, page.html.len() as i64)?;
         Ok(thread.count)
     }
 

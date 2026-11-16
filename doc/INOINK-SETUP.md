@@ -240,9 +240,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   the site's public JSON. The bar shows a comments icon with the count (0 when there are none; just
   the icon before it is fetched). Tap it to read the comments; there it becomes an article icon that returns to the article.
   There is also a link at the end of the article; More has Refresh comments. Star, Archive and Read
-  apply to the one item. On the comments page each reply names the comment it answers
-  ("bob ↳ alice"), the story's poster is marked OP, threads are spaced apart and numbered
-  ("Thread 3 of 12"), and a Next thread link at the end of each skips to the following one.
+  apply to the one item. On the comments page a thin line runs down the left of each reply branch,
+  two levels deep (deeper replies say whom they answer: "↳ alice"). Each thread starts with ⁂; its
+  first comment shows how many replies follow and Skip › jumps to the next thread. The top margin
+  names the thread you are in (Thread 3 of 12). Ages are as of the last refresh (More > Refresh
+  comments).
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.

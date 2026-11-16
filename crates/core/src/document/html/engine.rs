@@ -20,11 +20,11 @@ use super::parse::{parse_display, parse_edge, parse_float, parse_text_align, par
 use super::parse::{parse_width, parse_height, parse_inline_material, parse_font_kind, parse_font_style};
 use super::parse::{parse_font_weight, parse_font_size, parse_font_features, parse_font_variant};
 use super::parse::{parse_letter_spacing, parse_word_spacing};
-use super::parse::{parse_line_height, parse_vertical_align, parse_color, parse_list_style_type};
+use super::parse::{parse_line_height, parse_vertical_align, parse_color, parse_list_style_type, parse_length};
 use super::dom::{NodeRef, NodeData, ElementData, TextData, WRAPPER_TAG_NAME};
 use super::layout::{StyleData, InlineMaterial, TextMaterial, ImageMaterial};
 use super::layout::{GlueMaterial, PenaltyMaterial, ChildArtifact, SiblingStyle, LoopContext};
-use super::layout::{RootData, DrawState, DrawCommand, TextCommand, ImageCommand, FontKind, Fonts};
+use super::layout::{RootData, DrawState, DrawCommand, TextCommand, ImageCommand, RuleCommand, FontKind, Fonts};
 use super::layout::{TextAlign, ParagraphElement, TextElement, ImageElement, Display, Float};
 use super::layout::{WordSpacing, ListStyleType, LineStats};
 use super::layout::{hyph_lang, collapse_margins, DEFAULT_HYPH_LANG, HYPHENATION_PATTERNS};
@@ -265,6 +265,12 @@ impl Engine {
                                        props.get("padding-bottom").map(String::as_str),
                                        props.get("padding-left").map(String::as_str),
                                        style.font_size, self.font_size, parent_style.width, self.dpi);
+
+            style.border_left_width = props.get("border-left-width")
+                                           .and_then(|v| parse_length(v, style.font_size, self.font_size, self.dpi))
+                                           .unwrap_or(0).max(0);
+            style.border_left_color = props.get("border-left-color")
+                                           .and_then(|v| parse_color(v)).unwrap_or(style.color);
         }
 
         style.width = props.get("width")
@@ -277,25 +283,26 @@ impl Engine {
                                                            parent_style.width, self.dpi))
                             .unwrap_or(0);
 
-        style.start_x = parent_style.start_x + style.margin.left + style.padding.left;
+        style.start_x = parent_style.start_x + style.margin.left + style.border_left_width + style.padding.left;
         style.end_x = parent_style.end_x - style.margin.right - style.padding.right;
 
         let mut width = style.end_x - style.start_x;
 
         if width < 0 {
             if style.width > 0 {
-                let total_space = style.margin.left + style.padding.left + style.margin.right + style.padding.right;
+                let total_space = style.margin.left + style.border_left_width + style.padding.left + style.margin.right + style.padding.right;
                 let remaining_space = parent_style.width - style.width;
                 let ratio = remaining_space as f32 / total_space as f32;
                 style.margin.left = (style.margin.left as f32 * ratio).round() as i32;
                 style.padding.left = (style.padding.left as f32 * ratio).round() as i32;
                 style.margin.right = (style.margin.right as f32 * ratio).round() as i32;
                 style.padding.right = (style.padding.right as f32 * ratio).round() as i32;
-                style.start_x = parent_style.start_x + style.margin.left + style.padding.left;
+                style.start_x = parent_style.start_x + style.margin.left + style.border_left_width + style.padding.left;
                 style.end_x = parent_style.end_x - style.margin.right - style.padding.right;
                 width = style.width;
             } else {
                 style.margin.left = 0;
+                style.border_left_width = 0;
                 style.padding.left = 0;
                 style.margin.right = 0;
                 style.padding.right = 0;
@@ -311,6 +318,8 @@ impl Engine {
             display_list.push(Vec::new());
             draw_state.position.y = root_data.rect.min.y;
         }
+
+        let first_page = display_list.len() - 1;
 
         draw_state.position.y += style.padding.top;
 
@@ -520,6 +529,21 @@ impl Engine {
         }
 
         draw_state.position.y += style.padding.bottom;
+
+        // The left border: one bar per page the block covers, pushed after the content so it is
+        // never the first command of a page (page offsets come from the first command).
+        if style.border_left_width > 0 {
+            let x0 = parent_style.start_x + style.margin.left;
+            for (i, r) in rects.iter().enumerate() {
+                if let (Some(r), Some(page)) = (r, display_list.get_mut(first_page + i)) {
+                    page.push(DrawCommand::Rule(RuleCommand {
+                        offset: root_data.start_offset + node.offset(),
+                        rect: rect![x0, r.min.y, x0 + style.border_left_width, r.max.y],
+                        color: style.border_left_color,
+                    }));
+                }
+            }
+        }
 
         if props.get("page-break-after").map(String::as_str) == Some("always") {
             display_list.push(Vec::new());
@@ -1699,6 +1723,13 @@ impl Engine {
                             fb.draw_pixmap(&pixmap, position);
                         }
                     }
+                },
+                DrawCommand::Rule(RuleCommand { rect, color, .. }) => {
+                    let x0 = (scale_factor * rect.min.x as f32) as i32;
+                    let y0 = (scale_factor * rect.min.y as f32) as i32;
+                    let x1 = ((scale_factor * rect.max.x as f32) as i32).max(x0 + 1);
+                    let y1 = (scale_factor * rect.max.y as f32) as i32;
+                    fb.draw_rectangle(&rect![x0, y0, x1, y1], *color);
                 },
                 _ => (),
             }

@@ -102,7 +102,8 @@ pub fn is_discussion_url(url: &str) -> bool {
 pub struct Comment {
     pub author: String,
     pub html: String,
-    pub date: String,
+    /// When it was posted, in Unix seconds (0 when unknown).
+    pub time: i64,
     pub depth: u32,
 }
 
@@ -130,14 +131,14 @@ fn walk_hn(node: &Value, depth: u32, out: &mut Vec<Comment>, count: &mut u32) {
         if author.is_none() && text.is_none() {
             // Deleted: keep a stub only so its replies keep their context.
             if !children.is_empty() {
-                out.push(Comment { author: "[deleted]".into(), html: String::new(), date: String::new(), depth });
+                out.push(Comment { author: "[deleted]".into(), html: String::new(), time: 0, depth });
             }
         } else {
             *count += 1;
             out.push(Comment {
                 author: author.unwrap_or_else(|| "[deleted]".into()),
                 html: text.unwrap_or_default(),
-                date: node["created_at_i"].as_i64().map(crate::cache::format_date).unwrap_or_default(),
+                time: node["created_at_i"].as_i64().unwrap_or(0),
                 depth,
             });
         }
@@ -179,13 +180,13 @@ pub fn parse_thread(site: Site, json: &[u8]) -> Result<Thread> {
             for c in v["comments"].as_array().cloned().unwrap_or_default() {
                 let depth = c["depth"].as_u64().unwrap_or(0) as u32;
                 if c["is_deleted"].as_bool().unwrap_or(false) {
-                    t.comments.push(Comment { author: "[deleted]".into(), html: String::new(), date: String::new(), depth });
+                    t.comments.push(Comment { author: "[deleted]".into(), html: String::new(), time: 0, depth });
                 } else {
                     t.count += 1;
                     t.comments.push(Comment {
                         author: c["commenting_user"].as_str().unwrap_or_default().to_string(),
                         html: c["comment"].as_str().unwrap_or_default().to_string(),
-                        date: c["created_at"].as_str().map(|d| d.chars().take(10).collect()).unwrap_or_default(),
+                        time: c["created_at"].as_str().and_then(parse_iso8601).unwrap_or(0),
                         depth,
                     });
                 }
@@ -204,63 +205,170 @@ pub fn count_text(n: u32) -> String {
     }
 }
 
-/// The comments page as a complete XHTML document.
-pub fn render_comments(thread: &Thread, d: &Discussion, title: &str) -> PreparedArticle {
+/// Unix seconds of an ISO 8601 time like `2026-11-11T12:16:50.200-06:00` or `...Z`.
+fn parse_iso8601(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || !(b[10] == b'T' || b[10] == b' ') || b[13] != b':' || b[16] != b':' {
+        return None;
+    }
+    let num = |a: usize, z: usize| s.get(a..z)?.parse::<i64>().ok();
+    let (y, mo, d, h, mi, se) = (num(0, 4)?, num(5, 7)?, num(8, 10)?, num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {
+        return None;
+    }
+    let mut rest = &s[19..];
+    if let Some(r) = rest.strip_prefix('.') {
+        let digits = r.bytes().take_while(u8::is_ascii_digit).count();
+        rest = &r[digits..];
+    }
+    let offset = match rest.as_bytes() {
+        [] | [b'Z'] => 0,
+        [sign @ (b'+' | b'-'), _, _, b':', _, _] | [sign @ (b'+' | b'-'), _, _, _, _] => {
+            let hh = rest.get(1..3)?.parse::<i64>().ok()?;
+            let mm = rest.get(rest.len() - 2..)?.parse::<i64>().ok()?;
+            let v = hh * 3600 + mm * 60;
+            if *sign == b'-' {
+                -v
+            } else {
+                v
+            }
+        }
+        _ => return None,
+    };
+    Some(days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + se - offset)
+}
+
+/// Days since 1970-01-01 of a civil date (the inverse of `cache::civil`).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// How long before `now` a comment was posted, briefly: "now", "5 min", "3 h", "2 d", "4 mo", "1 y".
+pub fn age_text(secs: i64, now: i64) -> String {
+    if secs <= 0 {
+        return String::new();
+    }
+    let d = now - secs;
+    match d {
+        d if d < 60 => "now".to_string(),
+        d if d < 3600 => format!("{} min", d / 60),
+        d if d < 86_400 => format!("{} h", d / 3600),
+        d if d < 30 * 86_400 => format!("{} d", d / 86_400),
+        d if d < 365 * 86_400 => format!("{} mo", d / (30 * 86_400)),
+        d => format!("{} y", d / (365 * 86_400)),
+    }
+}
+
+/// The comments page as a complete XHTML document. `now` dates the ages shown ("3 h"): the page
+/// is generated when the comments are fetched, so they are as of then.
+pub fn render_comments(thread: &Thread, d: &Discussion, title: &str, now: i64) -> PreparedArticle {
     let mut html = String::new();
     html.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>");
     esc(title, &mut html);
     html.push_str("</title></head><body><h1>Comments: ");
     esc(title, &mut html);
     html.push_str("</h1><p class=\"inoink-meta\">");
-    let summary = if thread.count == 0 { count_text(0) } else { format!("{} on {}", count_text(thread.count), d.site.label()) };
+    let summary = if thread.count == 0 {
+        count_text(0)
+    } else {
+        format!("{} on {} \u{b7} as of {}", count_text(thread.count), d.site.label(), crate::cache::format_date(now))
+    };
     esc(&summary, &mut html);
     html.push_str("</p><p class=\"inoink-switch\"><a href=\"");
     html.push_str(ARTICLE_SCHEME);
     html.push_str("\">Back to the article</a></p>");
     let mut text = String::new();
     let threads = thread.comments.iter().filter(|c| c.depth == 0).count();
+    // Replies under each top-level comment: everything up to the next one, minus deleted stubs.
+    let mut reply_counts: Vec<usize> = Vec::new();
+    for c in &thread.comments {
+        if c.depth == 0 {
+            reply_counts.push(0);
+        } else if let Some(k) = reply_counts.last_mut() {
+            if c.author != "[deleted]" {
+                *k += 1;
+            }
+        }
+    }
     let mut n = 0;
-    // The author at each depth so far: a reply names the comment it answers.
+    // `<div class="inoink-replies">` containers open now: one per indent level, two at most.
+    let mut open = 0usize;
+    let mut thread_open = false;
+    // The author at each depth so far: a deep reply names the comment it answers.
     let mut parents: Vec<String> = Vec::new();
-    for (i, c) in thread.comments.iter().enumerate() {
+    for c in &thread.comments {
         let (body, body_text) = sanitize_fragment(&c.html, Some(&d.url()));
         let depth = c.depth as usize;
         parents.truncate(depth);
         let parent = if depth > 0 { parents.last().cloned() } else { None };
         parents.resize(depth, String::new());
         parents.push(c.author.clone());
+        let visual = depth.min(2);
+        while open > visual || (depth == 0 && open > 0) {
+            html.push_str("</div>");
+            open -= 1;
+        }
         if depth == 0 {
+            if thread_open {
+                html.push_str("</div>");
+            }
             n += 1;
-            html.push_str(&format!("<hr class=\"inoink-thread\" id=\"inoink-t{n}\"/>"));
+            html.push_str(&format!("<p class=\"inoink-sep\" id=\"inoink-t{n}\">\u{2042}</p><div class=\"inoink-thread\">"));
+            thread_open = true;
         }
-        html.push_str(&format!("<div class=\"inoink-comment inoink-d{}\"><p class=\"inoink-cmeta\">", c.depth.min(4)));
-        if depth == 0 && threads > 1 {
-            esc(&format!("Thread {n} of {threads} \u{b7} "), &mut html);
+        while open < visual {
+            html.push_str("<div class=\"inoink-replies\">");
+            open += 1;
         }
-        html.push_str("<b>");
-        esc(&c.author, &mut html);
-        html.push_str("</b>");
-        if thread.submitter.as_deref().is_some_and(|s| s == c.author) {
-            html.push_str(" OP");
-        }
-        if let Some(p) = parent {
-            esc(&format!(" \u{21b3} {p}"), &mut html);
-        }
-        if !c.date.is_empty() {
-            esc(&format!(" \u{b7} {}", c.date), &mut html);
+        html.push_str("<div class=\"inoink-c\"><p class=\"inoink-cm\">");
+        if c.author == "[deleted]" && c.html.is_empty() {
+            html.push_str("<i>deleted</i>");
+        } else {
+            html.push_str("<b>");
+            esc(&c.author, &mut html);
+            html.push_str("</b>");
+            if thread.submitter.as_deref().is_some_and(|s| s == c.author) {
+                html.push_str(" OP");
+            }
+            if depth >= 3 {
+                if let Some(p) = parent {
+                    esc(&format!(" \u{21b3} {p}"), &mut html);
+                }
+            }
+            let age = age_text(c.time, now);
+            if !age.is_empty() {
+                esc(&format!(" \u{b7} {age}"), &mut html);
+            }
+            if depth == 0 {
+                match reply_counts[n - 1] {
+                    0 => {}
+                    1 => html.push_str(" \u{b7} 1 reply"),
+                    k => html.push_str(&format!(" \u{b7} {k} replies")),
+                }
+                if n < threads {
+                    html.push_str(&format!(" \u{b7} <a href=\"#inoink-t{}\">Skip \u{203a}</a>", n + 1));
+                }
+            }
         }
         html.push_str("</p>");
         html.push_str(&body);
         html.push_str("</div>");
-        // The end of a thread (not the last): a link to skip to the next one.
-        let ends = thread.comments.get(i + 1).map(|next| next.depth == 0);
-        if ends == Some(true) && n < threads {
-            html.push_str(&format!("<p class=\"inoink-next\"><a href=\"#inoink-t{}\">Next thread \u{203a}</a></p>", n + 1));
-        }
         text.push_str(&c.author);
         text.push(' ');
         text.push_str(&body_text);
         text.push('\n');
+    }
+    while open > 0 {
+        html.push_str("</div>");
+        open -= 1;
+    }
+    if thread_open {
+        html.push_str("</div>");
     }
     html.push_str("</body></html>\n");
     PreparedArticle { html, text: text.trim().to_string(), assets: Vec::new(), placeholders: 0 }

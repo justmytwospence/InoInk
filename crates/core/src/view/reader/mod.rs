@@ -116,6 +116,8 @@ pub struct Reader {
     running_header: Option<String>,
     /// Location of the first page.
     first_location: Option<usize>,
+    /// Offsets of the comments page's thread anchors, for the running header.
+    thread_starts: Vec<usize>,
 }
 
 /// The article a reader is showing.
@@ -291,10 +293,8 @@ impl Reader {
     pub fn new_article(rect: Rectangle, article: &crate::view::inoink::actions::OpenArticle, hub: &Hub, context: &mut Context) -> Option<Reader> {
         let mut doc = HtmlDocument::new(&article.path).map_err(|e| eprintln!("{}: {:#}.", article.path.display(), e)).ok()?;
         doc.set_viewer_stylesheet("css/inoink.css");
-        if article.kind == crate::view::inoink::actions::DocKind::Article {
-            // Room for the title in the top margin, clear of the text.
-            doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
-        }
+        // Room for the running header in the top margin, clear of the text.
+        doc.set_top_reserve(scale_by_dpi(56.0, CURRENT_DEVICE.dpi) as i32);
         let mut info = Info {
             file: FileInfo { path: article.path.clone(), kind: "html".to_string(), size: 0 },
             .. Default::default()
@@ -320,6 +320,23 @@ impl Reader {
         if reader.is_article() {
             reader.running_header = Some(reader.article_title(context));
             reader.first_location = reader.doc.lock().unwrap().resolve_location(Location::Exact(0));
+        }
+        if article.kind == crate::view::inoink::actions::DocKind::Comments {
+            // The top margin names the thread: find where each one starts, once.
+            let (first, starts) = {
+                let mut doc = reader.doc.lock().unwrap();
+                let first = doc.resolve_location(Location::Exact(0));
+                let mut starts = Vec::new();
+                for n in 1..=2000 {
+                    match doc.resolve_location(Location::LocalUri(0, format!("#inoink-t{n}"))) {
+                        Some(o) => starts.push(o),
+                        None => break,
+                    }
+                }
+                (first, starts)
+            };
+            reader.first_location = first;
+            reader.thread_starts = starts;
         }
         // Lay out the first page now so the first refresh shows the article, not a blank page.
         reader.update(Some(UpdateMode::Partial), hub, &mut rq, context);
@@ -641,6 +658,7 @@ impl Reader {
                 article_nav_at: None,
                 running_header: None,
                 first_location: None,
+                thread_starts: Vec::new(),
             })
         })
     }
@@ -717,6 +735,7 @@ impl Reader {
             article_nav_at: None,
             running_header: None,
             first_location: None,
+            thread_starts: Vec::new(),
         }
     }
 
@@ -3394,11 +3413,15 @@ impl Reader {
     }
 
     /// The title shown in the top margin of the current page, if any.
-    pub fn running_header(&self) -> Option<&str> {
+    pub fn running_header(&self) -> Option<String> {
         if Some(self.current_page) == self.first_location {
             return None;
         }
-        self.running_header.as_deref()
+        if !self.thread_starts.is_empty() {
+            let k = self.thread_starts.iter().filter(|&&s| s <= self.current_page).count();
+            return (k > 0).then(|| format!("Thread {k} of {}", self.thread_starts.len()));
+        }
+        self.running_header.clone()
     }
 
     /// The article's title in the top margin of every page, like a book's running header: it
@@ -3414,7 +3437,7 @@ impl Reader {
         }
         let font = crate::font::font_from_style(fonts, &crate::font::NORMAL_STYLE, dpi);
         let x_height = font.x_heights.0 as i32;
-        let plan = font.plan(title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
+        let plan = font.plan(&title, Some((self.rect.width() as i32 - 2 * pad).max(0)), None);
         let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
         font.render(fb, BLACK, &plan, pt!(x, y + x_height / 2));
     }

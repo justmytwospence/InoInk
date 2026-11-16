@@ -813,9 +813,26 @@ fn the_title_stays_in_the_top_margin_after_the_first_page() {
     e.context.inoink.open_at_end = true;
     let mut reader = open(&mut e, &[9], false, 9);
     assert!(!has_bar(&reader));
-    assert_eq!(reader.running_header(), Some("Article 9"));
+    assert_eq!(reader.running_header().as_deref(), Some("Article 9"));
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(100, 840))));
-    assert_eq!(reader.running_header(), Some("Article 9"));
+    assert_eq!(reader.running_header().as_deref(), Some("Article 9"));
+}
+
+#[test]
+fn the_comments_top_margin_names_the_thread() {
+    use inoink::content::discussion::{render_comments, Comment, Discussion, Site, Thread};
+    let mut e = env();
+    let words: String = (0..5000).map(|i| format!("word{i} ")).collect();
+    let comments = ["a", "b", "c"].iter().map(|a| Comment { author: a.to_string(), html: format!("<p>{words}</p>"), time: 1794000000, depth: 0 }).collect();
+    let thread = Thread { title: "T".into(), count: 3, comments, ..Default::default() };
+    let page = render_comments(&thread, &Discussion { site: Site::HackerNews, id: "1".into() }, "T", 1794003600);
+    let path = e._dir.path().join("comments-test.html");
+    std::fs::write(&path, page.html).unwrap();
+    let mk = |offset| OpenArticle { id: ArticleId(4), path: path.clone(), version: 0, content_hash: "comments:1".into(), offset, kind: DocKind::Comments };
+    let reader = Reader::new_article(e.context.fb.rect(), &mk(Some(usize::MAX)), &e.tx, &mut e.context).expect("reader");
+    assert_eq!(reader.running_header().as_deref(), Some("Thread 3 of 3"));
+    let reader = Reader::new_article(e.context.fb.rect(), &mk(None), &e.tx, &mut e.context).expect("reader");
+    assert_eq!(reader.running_header().as_deref(), None, "the first page has the page's own heading");
 }
 
 #[test]
@@ -823,7 +840,7 @@ fn an_article_opened_at_its_start_shows_no_bar() {
     let mut e = env();
     let reader = open(&mut e, &[4, 3], false, 4);
     assert!(!has_bar(&reader));
-    assert_eq!(reader.running_header(), None, "the first page has the article's own heading");
+    assert_eq!(reader.running_header().as_deref(), None, "the first page has the article's own heading");
 }
 
 #[test]
