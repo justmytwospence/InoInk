@@ -3,8 +3,27 @@ html > head {
 	display: none;
 }
 
+/* Opening quotes at the start of a line hang into the margin (InoInk engine extension). */
+body {
+	hanging-punctuation: first;
+}
+
 a {
-	color: #333;
+	text-decoration: underline;
+	text-decoration-color: #666;
+}
+
+u, ins {
+	text-decoration: underline;
+}
+
+s, del {
+	text-decoration: line-through;
+}
+
+abbr {
+	font-variant: all-small-caps;
+	letter-spacing: 0.04em;
 }
 
 i, em, cite, var, address {

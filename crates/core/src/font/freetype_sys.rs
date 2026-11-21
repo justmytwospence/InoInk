@@ -267,7 +267,7 @@ pub struct FtFace {
 
     bbox: FtBBox,
 
-    units_per_em: libc::c_ushort,
+    pub units_per_em: libc::c_ushort,
     ascender: libc::c_short,
     descender: libc::c_short,
     height: libc::c_short,
@@ -275,8 +275,8 @@ pub struct FtFace {
     max_advance_width: libc::c_short,
     max_advance_height: libc::c_short,
 
-    underline_position: libc::c_short,
-    underline_thickness: libc::c_short,
+    pub underline_position: libc::c_short,
+    pub underline_thickness: libc::c_short,
 
     pub glyph: *mut FtGlyphSlot,
     pub size: *mut FtSize,

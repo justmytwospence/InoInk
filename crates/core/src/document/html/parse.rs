@@ -1,6 +1,6 @@
 use fxhash::FxHashSet;
 use regex::Regex;
-use super::layout::{FontKind, FontStyle, FontWeight, WordSpacing};
+use super::layout::{FontKind, FontStyle, FontWeight, WordSpacing, TextDecoration};
 use super::layout::{TextAlign, Display, Float, ListStyleType};
 use super::layout::{InlineMaterial, GlueMaterial, PenaltyMaterial};
 use crate::geom::Edge;
@@ -338,6 +338,42 @@ pub fn parse_font_variant(value: &str) -> Vec<String> {
     features.into_iter().map(String::from).collect()
 }
 
+pub fn parse_text_decoration(value: &str) -> Option<TextDecoration> {
+    let mut decoration = TextDecoration::default();
+    let mut has_line = false;
+
+    for token in value.split_whitespace() {
+        let token = token.to_lowercase();
+        match token.as_str() {
+            "none" => return Some(TextDecoration::default()),
+            "underline" => { decoration.underline = true; has_line = true; },
+            "line-through" => { decoration.line_through = true; has_line = true; },
+            _ => {
+                if let Some(color) = parse_color(&token) {
+                    decoration.color = Some(color);
+                }
+            },
+        }
+    }
+
+    if has_line {
+        Some(decoration)
+    } else {
+        None
+    }
+}
+
+pub fn parse_hanging_punctuation(value: &str) -> Option<bool> {
+    if value.trim() == "none" {
+        return Some(false);
+    }
+    if value.split_whitespace().any(|token| matches!(token, "first" | "last" | "force-end" | "allow-end")) {
+        Some(true)
+    } else {
+        None
+    }
+}
+
 pub fn parse_color(value: &str) -> Option<Color> {
     if value.starts_with('#') {
         if value.len() < 4 {
@@ -376,6 +412,26 @@ pub fn parse_color(value: &str) -> Option<Color> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_text_decoration() {
+        assert_eq!(parse_text_decoration("underline"),
+                   Some(TextDecoration { underline: true, line_through: false, color: None }));
+        assert_eq!(parse_text_decoration("underline #666"),
+                   Some(TextDecoration { underline: true, line_through: false, color: parse_color("#666") }));
+        assert_eq!(parse_text_decoration("line-through underline dotted"),
+                   Some(TextDecoration { underline: true, line_through: true, color: None }));
+        assert_eq!(parse_text_decoration("none"), Some(TextDecoration::default()));
+        assert_eq!(parse_text_decoration("overline"), None);
+        assert_eq!(parse_text_decoration("#f00"), None);
+    }
+
+    #[test]
+    fn test_parse_hanging_punctuation() {
+        assert_eq!(parse_hanging_punctuation("first"), Some(true));
+        assert_eq!(parse_hanging_punctuation("none"), Some(false));
+        assert_eq!(parse_hanging_punctuation("bogus"), None);
+    }
 
     #[test]
     fn test_parse_color() {
