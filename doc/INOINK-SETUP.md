@@ -207,16 +207,11 @@ scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache
   to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page (the article switches to the full page in place, from the top, when it arrives).
-- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup:
-  Mark read (keeps the star), Unstar (Remove from Read later in that list; Undo is in the main
-  menu) or Keep unread, and a Then Next article | Back to list choice that is remembered. In the
-  popup the forward button goes on to the next article without changing anything and the back
-  button closes it. Swipe up or hold the forward button
+- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup: choose what happens to the article (Mark read by default; Archive, which also removes the star, when it is starred, with Undo in the main menu; or Keep unread), see the next article of the list, and swipe on (or press forward) to open it, or tap Back to list. Swiping back, the back button or a tap outside closes the popup. Swipe up or hold the forward button
   for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Archive or Mark read. After the last article of the list you are
-  back at the list. With the bar showing, a row above the footer names the previous (left) and next
-  (right) articles; tap one to open it. The article's title stays in the top margin of every page after the first. Straight quotes,
+  back at the list. With the bar showing, ‹ and › at the ends of the footer open the previous and next articles. The article's title stays in the top margin of every page after the first. Straight quotes,
   `--` and `...` in articles are set as curly quotes, dashes and ellipses, and lines are hyphenated
   in the article's language when InoInk can tell it (English otherwise). The previous and next articles download in
   the background while you read. Settings > Previous and next titles > Always also names them beside

@@ -3,18 +3,18 @@
 use crate::context::Context;
 use crate::framebuffer::Framebuffer;
 use crate::font::Fonts;
-use crate::geom::{CycleDir, Rectangle, CornerSpec};
+use crate::geom::{CycleDir, Rectangle};
 use crate::gesture::GestureEvent;
-use crate::input::{DeviceEvent, FingerStatus};
+use crate::input::DeviceEvent;
 use crate::view::icon::{Icon, ICONS_PIXMAPS};
 use crate::view::inoink::actions::{ArticleAction, DocKind, InoInkEntry};
 use crate::view::label::Label;
-use crate::color::{BLACK, WHITE, GRAY05, GRAY06, GRAY11};
+use crate::color::{BLACK, WHITE};
 use crate::device::CURRENT_DEVICE;
-use crate::font::{font_from_style, Font, RenderPlan, MD_KIND, NORMAL_STYLE};
+use crate::font::{font_from_style, NORMAL_STYLE};
 use crate::geom::Point;
 use crate::unit::scale_by_dpi;
-use crate::view::{THICKNESS_SMALL, BORDER_RADIUS_LARGE};
+use crate::view::THICKNESS_SMALL;
 use crate::view::{Align, Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::framebuffer::UpdateMode;
 use inoink::model::ArticleId;
@@ -224,24 +224,36 @@ impl View for CommentsButton {
     }
 }
 
-/// One line under the article while the bar is showing: progress, time left, place in the list.
+/// One line under the article while the bar is showing: progress, time left, place in the list,
+/// with ‹ › at the sides for the previous and next articles of the list (tap a side to open it).
 pub struct ArticleFooter {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     text: String,
+    previous: bool,
+    next: bool,
 }
 
 impl ArticleFooter {
-    pub fn new(rect: Rectangle, text: String) -> ArticleFooter {
-        ArticleFooter { id: ID_FEEDER.next(), rect, children: Vec::new(), text }
+    pub fn new(rect: Rectangle, text: String, previous: bool, next: bool) -> ArticleFooter {
+        ArticleFooter { id: ID_FEEDER.next(), rect, children: Vec::new(), text, previous, next }
     }
 }
 
 impl View for ArticleFooter {
-    fn handle_event(&mut self, evt: &Event, _hub: &Hub, _bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
+    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
-            Event::Gesture(GestureEvent::Tap(c)) | Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
+            Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
+                let zone = self.rect.width() as i32 / 4;
+                if c.x < self.rect.min.x + zone && self.previous {
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Previous))));
+                } else if c.x >= self.rect.max.x - zone && self.next {
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Next))));
+                }
+                true
+            }
+            Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
             Event::Device(DeviceEvent::Finger { position, .. }) if self.rect.includes(position) => true,
             _ => false,
         }
@@ -257,6 +269,17 @@ impl View for ArticleFooter {
         let x = self.rect.min.x + (self.rect.width() as i32 - plan.width) / 2;
         let y = self.rect.min.y + (self.rect.height() as i32 + font.x_heights.0 as i32) / 2;
         font.render(fb, BLACK, &plan, Point::new(x, y));
+        let edge = scale_by_dpi(48.0, dpi) as i32;
+        for (shown, name, left) in [(self.previous, "angle-left", true), (self.next, "angle-right", false)] {
+            if !shown {
+                continue;
+            }
+            if let Some(pixmap) = ICONS_PIXMAPS.get(name) {
+                let x = if left { self.rect.min.x + edge } else { self.rect.max.x - edge - pixmap.width as i32 };
+                let y = self.rect.min.y + (self.rect.height() as i32 - pixmap.height as i32) / 2;
+                fb.draw_blended_pixmap(pixmap, Point::new(x, y), BLACK);
+            }
+        }
     }
 
     fn rect(&self) -> &Rectangle {
@@ -281,200 +304,5 @@ impl View for ArticleFooter {
 
     fn view_id(&self) -> Option<ViewId> {
         Some(ViewId::ArticleFooter)
-    }
-}
-
-/// Height of the titles row above the footer.
-pub const QUEUE_NAV_HEIGHT: f32 = 170.0;
-// The pressed highlight's inset, the text's distance from the edges and the middle, and the
-// label's tracking.
-const CARD_MARGIN: f32 = 12.0;
-const SIDE_PADDING: f32 = 40.0;
-const LABEL_TRACKING: f32 = 2.0;
-
-/// The title on one line, or two with the second ending at a whole word with an ellipsis.
-fn title_lines(font: &mut Font, title: &str, max_width: i32) -> (RenderPlan, Option<RenderPlan>) {
-    if max_width <= 0 {
-        return (font.plan(title, Some(1), None), None);
-    }
-    let mut plan = font.plan(title, None, None);
-    if plan.width > max_width {
-        let (index, usable) = font.cut_point(&plan, max_width);
-        let mut second = plan.split_off(index, usable);
-        font.trim_left(&mut second);
-        font.crop_right(&mut second, max_width);
-        (plan, Some(second))
-    } else {
-        (plan, None)
-    }
-}
-
-/// Above the footer while the bar is showing: the previous and next articles of the list, each a
-/// small "< PREVIOUS" / "NEXT >" label over its title in its half of the row. Tapping a side (the
-/// whole row when only one is named) opens that article, as swiping does; pressing highlights it.
-pub struct QueueNav {
-    id: Id,
-    rect: Rectangle,
-    children: Vec<Box<dyn View>>,
-    previous: Option<String>,
-    next: Option<String>,
-    active: Option<CycleDir>,
-}
-
-impl QueueNav {
-    pub fn new(rect: Rectangle, previous: Option<String>, next: Option<String>) -> QueueNav {
-        QueueNav { id: ID_FEEDER.next(), rect, children: Vec::new(), previous, next, active: None }
-    }
-
-    /// The tap targets (and pressed highlights): the two halves, or the whole row when alone.
-    fn cards(&self) -> (Option<Rectangle>, Option<Rectangle>) {
-        let dpi = CURRENT_DEVICE.dpi;
-        let m = scale_by_dpi(CARD_MARGIN, dpi) as i32;
-        let line = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
-        let inner = rect![self.rect.min.x + m, self.rect.min.y + line + m, self.rect.max.x - m, self.rect.max.y - m];
-        match (self.previous.is_some(), self.next.is_some()) {
-            (true, true) => {
-                let mid = (inner.min.x + inner.max.x) / 2;
-                (Some(rect![inner.min.x, inner.min.y, mid - m / 2, inner.max.y]),
-                 Some(rect![mid + (m - m / 2), inner.min.y, inner.max.x, inner.max.y]))
-            }
-            (true, false) => (Some(inner), None),
-            (false, true) => (None, Some(inner)),
-            (false, false) => (None, None),
-        }
-    }
-}
-
-impl View for QueueNav {
-    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
-        match *evt {
-            Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
-                let (previous, next) = self.cards();
-                if previous.is_some_and(|r| r.includes(c)) {
-                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Previous))));
-                } else if next.is_some_and(|r| r.includes(c)) {
-                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Next))));
-                }
-                true
-            }
-            Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
-            Event::Gesture(GestureEvent::Swipe { start, end, .. }) if self.rect.includes(start) && self.rect.includes(end) => true,
-            Event::Device(DeviceEvent::Finger { status, position, .. }) if self.rect.includes(position) || self.active.is_some() => {
-                match status {
-                    FingerStatus::Down => {
-                        let (previous, next) = self.cards();
-                        self.active = if previous.is_some_and(|r| r.includes(position)) {
-                            Some(CycleDir::Previous)
-                        } else if next.is_some_and(|r| r.includes(position)) {
-                            Some(CycleDir::Next)
-                        } else {
-                            None
-                        };
-                        if self.active.is_some() {
-                            rq.add(RenderData::new(self.id, self.rect, UpdateMode::Fast));
-                        }
-                    }
-                    FingerStatus::Up if self.active.is_some() => {
-                        self.active = None;
-                        rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
-                    }
-                    _ => (),
-                }
-                self.rect.includes(position)
-            }
-            _ => false,
-        }
-    }
-
-    fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
-        let dpi = CURRENT_DEVICE.dpi;
-        fb.draw_rectangle(&self.rect, WHITE);
-        let thickness = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
-        fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + thickness], BLACK);
-        let pad = scale_by_dpi(SIDE_PADDING, dpi) as i32;
-        let mid = (self.rect.min.x + self.rect.max.x) / 2;
-        let (previous, next) = self.cards();
-        // A short rule between the two halves when both are named.
-        if previous.is_some() && next.is_some() {
-            let inset = self.rect.height() as i32 / 4;
-            fb.draw_rectangle(&rect![mid, self.rect.min.y + inset, mid + thickness, self.rect.max.y - inset], GRAY05);
-        }
-        let radius = scale_by_dpi(BORDER_RADIUS_LARGE, dpi) as i32;
-        let cards = [(previous, self.previous.as_ref(), CycleDir::Previous), (next, self.next.as_ref(), CycleDir::Next)];
-        for (card, title, dir) in cards {
-            let (Some(card), Some(title)) = (card, title) else { continue };
-            let left = dir == CycleDir::Previous;
-            let active = self.active == Some(dir);
-            let (ink, label_color) = if active { (WHITE, GRAY11) } else { (BLACK, GRAY06) };
-            if active {
-                fb.draw_rounded_rectangle(&card, &CornerSpec::Uniform(radius), BLACK);
-            }
-            // Each side's text stays in its half of the row, even when it is the only one.
-            let (col_min, col_max) = if left { (self.rect.min.x + pad, mid - pad) } else { (mid + pad, self.rect.max.x - pad) };
-            let col_w = col_max - col_min;
-
-            let (llh, lasc, label_x_height, label) = {
-                let font = font_from_style(fonts, &MD_KIND, dpi);
-                let mut plan = font.plan(if left { "PREVIOUS" } else { "NEXT" }, Some(col_w.max(1)), None);
-                plan.space_out(scale_by_dpi(LABEL_TRACKING, dpi) as i32);
-                (font.line_height(), font.ascender(), font.x_heights.1 as i32, plan)
-            };
-            let (tlh, tasc, first, second) = {
-                let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-                let (first, second) = title_lines(font, title, col_w);
-                (font.line_height(), font.ascender(), first, second)
-            };
-            let gap = llh / 5;
-            let lines = 1 + second.is_some() as i32;
-            let block = llh + gap + lines * tlh;
-            let top = self.rect.min.y + (self.rect.height() as i32 - block) / 2;
-            let label_y = top + lasc;
-
-            // The label with its chevron on the outer side: "< PREVIOUS", "NEXT >".
-            let icon = ICONS_PIXMAPS.get(if left { "angle-left-small" } else { "angle-right-small" });
-            let icon_gap = scale_by_dpi(10.0, dpi) as i32;
-            let icon_w = icon.map_or(0, |p| p.width as i32 + icon_gap);
-            let label_x = if left { col_min + icon_w } else { col_max - icon_w - label.width };
-            if let Some(pixmap) = icon {
-                let x = if left { col_min } else { col_max - pixmap.width as i32 };
-                let y = label_y - label_x_height / 2 - pixmap.height as i32 / 2;
-                fb.draw_blended_pixmap(pixmap, Point::new(x, y), label_color);
-            }
-            {
-                let font = font_from_style(fonts, &MD_KIND, dpi);
-                font.render(fb, label_color, &label, Point::new(label_x, label_y));
-            }
-            let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-            let x_for = |width: i32| if left { col_min } else { col_max - width };
-            let y0 = top + llh + gap + tasc;
-            font.render(fb, ink, &first, Point::new(x_for(first.width), y0));
-            if let Some(second) = &second {
-                font.render(fb, ink, second, Point::new(x_for(second.width), y0 + tlh));
-            }
-        }
-    }
-
-    fn rect(&self) -> &Rectangle {
-        &self.rect
-    }
-
-    fn rect_mut(&mut self) -> &mut Rectangle {
-        &mut self.rect
-    }
-
-    fn children(&self) -> &Vec<Box<dyn View>> {
-        &self.children
-    }
-
-    fn children_mut(&mut self) -> &mut Vec<Box<dyn View>> {
-        &mut self.children
-    }
-
-    fn id(&self) -> Id {
-        self.id
-    }
-
-    fn view_id(&self) -> Option<ViewId> {
-        Some(ViewId::QueueNav)
     }
 }

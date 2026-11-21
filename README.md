@@ -44,10 +44,10 @@ public API and does not try to match the Inoreader website feature for feature; 
   between threads, and the thread you are in named in the top margin.
 - **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
-- Reading flows: paging past the end of an article opens a small popup: Mark read, Unstar (Remove
-  from Read later in that list) or Keep unread, then on to the next article or back to the list
-  (remembered). Swiping up or holding forward skips it. A line under the article shows progress,
-  time left and your place in the list.
+- Reading flows: paging past the end of an article opens a small popup: choose Mark read (the
+  default), Archive or Keep unread, see the next article's title, and swipe on to it, or tap Back
+  to list. Swiping up or holding forward skips the popup. A line under the article shows progress,
+  time left and your place in the list, with ‹ › to open the previous or next article.
 - Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
   are shown underlined. `inoink-cli highlights` exports yours as Markdown or Readwise-style JSON.
 - Links: tap a link for a reading view of the page; hold it for Open in reading view, Show QR code

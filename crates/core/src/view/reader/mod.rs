@@ -44,7 +44,7 @@ use crate::view::menu::{Menu, MenuKind};
 use crate::view::menu_entry::MenuEntry;
 use crate::view::notification::show_notification;
 use crate::settings::{ButtonScheme, QueueTitles};
-use crate::settings::{guess_frontlight, AfterEnd, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
+use crate::settings::{guess_frontlight, FinishedAction, SouthEastCornerAction, BottomRightGestureAction, SouthStripAction, WestStripAction, EastStripAction};
 use crate::settings::{DEFAULT_FONT_FAMILY, DEFAULT_TEXT_ALIGN, DEFAULT_LINE_HEIGHT, DEFAULT_MARGIN_WIDTH};
 use crate::settings::{HYPHEN_PENALTY, STRETCH_TOLERANCE};
 use crate::frontlight::LightLevels;
@@ -3030,7 +3030,7 @@ impl Reader {
     }
 
     fn toggle_article_bar(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter, QueueNav, QUEUE_NAV_HEIGHT};
+        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter};
         if let Some(index) = locate::<ArticleBar>(self) {
             if let Some(true) = enable {
                 return;
@@ -3042,11 +3042,6 @@ impl Reader {
             if let Some(fi) = locate_by_id(self, ViewId::ArticleFooter) {
                 let r = *self.child(fi).rect();
                 self.children.remove(fi);
-                rq.add(RenderData::expose(r, UpdateMode::Gui));
-            }
-            if let Some(qi) = locate_by_id(self, ViewId::QueueNav) {
-                let r = *self.child(qi).rect();
-                self.children.remove(qi);
                 rq.add(RenderData::expose(r, UpdateMode::Gui));
             }
         } else {
@@ -3077,15 +3072,10 @@ impl Reader {
             self.children.insert(0, Box::new(bar) as Box<dyn View>);
             self.children.insert(1, Box::new(separator) as Box<dyn View>);
             if self.article.is_some() {
-                let footer = ArticleFooter::new(rect![self.rect.min.x, self.rect.max.y - small_height, self.rect.max.x, self.rect.max.y], self.footer_text(context));
+                let (has_prev, has_next) = (self.is_article() && self.queue_titles.0.is_some(), self.is_article() && self.queue_titles.1.is_some());
+                let footer = ArticleFooter::new(rect![self.rect.min.x, self.rect.max.y - small_height, self.rect.max.x, self.rect.max.y], self.footer_text(context), has_prev, has_next);
                 rq.add(RenderData::new(footer.id(), *footer.rect(), UpdateMode::Gui));
                 self.children.push(Box::new(footer) as Box<dyn View>);
-            }
-            if self.is_article() && (self.queue_titles.0.is_some() || self.queue_titles.1.is_some()) {
-                let nav_height = scale_by_dpi(QUEUE_NAV_HEIGHT, dpi) as i32;
-                let nav = QueueNav::new(rect![self.rect.min.x, self.rect.max.y - small_height - nav_height, self.rect.max.x, self.rect.max.y - small_height], self.queue_titles.0.clone(), self.queue_titles.1.clone());
-                rq.add(RenderData::new(nav.id(), *nav.rect(), UpdateMode::Gui));
-                self.children.push(Box::new(nav) as Box<dyn View>);
             }
         }
     }
@@ -3465,9 +3455,7 @@ impl Reader {
         let flag = |m: inoink::model::Membership| context.inoink.store().and_then(|s| s.effective(id, &m).ok()).unwrap_or(false);
         let starred = flag(inoink::model::Membership::Starred);
         let read = flag(inoink::model::Membership::Read);
-        let read_later = context.inoink.queue.as_ref().map_or(false, |q| q.read_later);
-        let after = context.settings.inoink.after_end;
-        let popup = ArticleEnd::new(self.rect, starred, read_later, read, after, context);
+        let popup = ArticleEnd::new(self.rect, starred, read, self.queue_titles.1.clone(), context);
         rq.add(RenderData::new(popup.id(), *popup.rect(), UpdateMode::Gui));
         self.children.push(Box::new(popup) as Box<dyn View>);
     }
@@ -3481,27 +3469,33 @@ impl Reader {
 
     /// Applies a choice of the end-of-article popup.
     fn end_choice(&mut self, choice: crate::view::inoink::actions::EndChoice, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::actions::{apply_article_action, ArticleAction, EndChoice};
+        use crate::view::inoink::actions::{apply_article_action, ArticleAction, EndChoice, EndState};
         self.close_article_end(rq);
         let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
-        let action = match choice {
-            EndChoice::KeepUnread => return,
-            EndChoice::Skip => return self.go_to_article(CycleDir::Next, hub, rq, context),
-            EndChoice::MarkRead => ArticleAction::MarkRead,
-            EndChoice::Unstar => ArticleAction::Done,
+        let (state, onward) = match choice {
+            EndChoice::Continue(s) => (s, true),
+            EndChoice::BackToList(s) => (s, false),
         };
-        // Not run_article_action: Done would close the reader whatever the setting says.
-        match apply_article_action(context, id, &action) {
-            Ok(_) => match context.settings.inoink.after_end {
-                AfterEnd::Next => self.go_to_article(CycleDir::Next, hub, rq, context),
-                AfterEnd::List => self.close_article(hub, context),
-            },
-            Err(m) => self.notify(&m, hub, rq, context),
+        let action = match state {
+            EndState::MarkRead => Some(ArticleAction::MarkRead),
+            EndState::Archive => Some(ArticleAction::Done),
+            EndState::Leave => None,
+        };
+        // Not run_article_action: Done would close the reader whatever the choice.
+        if let Some(action) = action {
+            if let Err(m) = apply_article_action(context, id, &action) {
+                return self.notify(&m, hub, rq, context);
+            }
+        }
+        if onward {
+            self.go_to_article(CycleDir::Next, hub, rq, context);
+        } else {
+            self.close_article(hub, context);
         }
     }
 
     /// The next or previous article of the list (swipe up/down, holding a page button, paging
-    /// past either end, the titles row). The article left keeps its read state; its position is
+    /// past either end, the footer's chevrons, the end popup). The article left keeps its read state; its position is
     /// saved when the reader is replaced.
     fn go_to_article(&mut self, dir: CycleDir, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
