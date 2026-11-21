@@ -1,86 +1,164 @@
-//! The end-of-article popup: mark the article read or unstar it, or keep it, and choose where
-//! that leads (the next article or the list). Opened by paging past the last page.
+//! The end-of-article popup: what to do with the finished article (Mark read by default), the
+//! next article of the list, and Back to list / Next article. Swiping on (or the forward button)
+//! also opens the next article; swiping back, the back button or a tap outside closes the popup. Opened by paging past
+//! the last page.
 
-use crate::color::{BLACK, TEXT_INVERTED_HARD, TEXT_NORMAL, WHITE};
+use crate::color::{Color, BLACK, GRAY06, GRAY10, TEXT_INVERTED_HARD, TEXT_NORMAL, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::font::{font_from_style, Fonts, NORMAL_STYLE};
+use crate::font::{font_from_style, Font, Fonts, RenderPlan, LIST_META, MD_KIND, NORMAL_STYLE};
 use crate::framebuffer::{Framebuffer, UpdateMode};
-use crate::geom::{BorderSpec, CornerSpec, Rectangle};
+use crate::geom::{BorderSpec, CornerSpec, Dir, Rectangle};
 use crate::gesture::GestureEvent;
 use crate::input::{ButtonCode, ButtonStatus, DeviceEvent};
-use crate::settings::AfterEnd;
+use crate::settings::ButtonScheme;
 use crate::unit::scale_by_dpi;
-use crate::view::inoink::actions::{EndChoice, InoInkEntry};
+use crate::view::inoink::actions::{EndChoice, EndState, InoInkEntry};
 use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::view::{BORDER_RADIUS_LARGE, BORDER_RADIUS_MEDIUM, THICKNESS_LARGE, THICKNESS_MEDIUM};
+use std::time::{Duration, Instant};
 
 const TITLE: &str = "End of article";
-const THEN: &str = "Then";
-const SEGMENTS: [(&str, AfterEnd); 2] = [("Next article", AfterEnd::Next), ("Back to list", AfterEnd::List)];
+const BACK: &str = "Back to list";
+const NEXT: &str = "Next article";
+/// Onward swipes and forward presses this soon after the popup opens are ignored, so a quick run
+/// of page turns does not overshoot into the next article.
+pub const CONTINUE_GRACE: Duration = Duration::from_millis(600);
+const LABEL_TRACKING: f32 = 2.0;
+
+/// The title on one line, or two with the second ending at a whole word with an ellipsis.
+fn title_lines(font: &mut Font, title: &str, max_width: i32) -> (RenderPlan, Option<RenderPlan>) {
+    if max_width <= 0 {
+        return (font.plan(title, Some(1), None), None);
+    }
+    let mut plan = font.plan(title, None, None);
+    if plan.width > max_width {
+        let (index, usable) = font.cut_point(&plan, max_width);
+        let mut second = plan.split_off(index, usable);
+        font.trim_left(&mut second);
+        font.crop_right(&mut second, max_width);
+        (plan, Some(second))
+    } else {
+        (plan, None)
+    }
+}
 
 pub struct ArticleEnd {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     title_rect: Rectangle,
-    rows: Vec<(Rectangle, EndChoice, String)>,
-    then_rect: Rectangle,
-    toggle: [Rectangle; 2],
-    after: AfterEnd,
+    toggle: Vec<(Rectangle, EndState, &'static str)>,
+    state: EndState,
+    separator: Rectangle,
+    next_rect: Rectangle,
+    next_title: Option<String>,
+    back_rect: Rectangle,
+    continue_rect: Option<Rectangle>,
+    opened: Instant,
 }
 
 impl ArticleEnd {
-    /// `starred`: the Unstar row is offered; `read_later`: it is called "Remove from Read later";
-    /// `read`: Keep unread becomes Close.
-    pub fn new(screen: Rectangle, starred: bool, read_later: bool, read: bool, after: AfterEnd, context: &mut Context) -> ArticleEnd {
+    /// `starred`: Archive is offered; `read`: Mark read is not (and Leave is called "Leave as is");
+    /// `next_title`: the next article of the list, if any.
+    pub fn new(screen: Rectangle, starred: bool, read: bool, next_title: Option<String>, context: &mut Context) -> ArticleEnd {
         let dpi = CURRENT_DEVICE.dpi;
-        let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi);
-        let x_height = font.x_heights.0 as i32;
-        let padding = font.em() as i32;
-        let row_h = 4 * x_height;
-
-        let mut choices = vec![(EndChoice::MarkRead, "Mark read".to_string())];
-        if starred {
-            let label = if read_later { "Remove from Read later" } else { "Unstar" };
-            choices.push((EndChoice::Unstar, label.to_string()));
+        let mut options: Vec<(EndState, &'static str)> = Vec::new();
+        if !read {
+            options.push((EndState::MarkRead, "Mark read"));
         }
-        choices.push((EndChoice::KeepUnread, if read { "Close" } else { "Keep unread" }.to_string()));
+        if starred {
+            options.push((EndState::Archive, "Archive"));
+        }
+        options.push((EndState::Leave, if read { "Leave as is" } else { "Keep unread" }));
+        let state = if read { EndState::Leave } else { EndState::MarkRead };
+
+        let (x_height, padding, tlh) = {
+            let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi);
+            (font.x_heights.0 as i32, font.em() as i32, font.line_height())
+        };
+        let row_h = 4 * x_height;
+        let llh = font_from_style(&mut context.fonts, &MD_KIND, dpi).line_height();
+        let hlh = font_from_style(&mut context.fonts, &LIST_META, dpi).line_height();
 
         let width = screen.width() as i32 * 2 / 3;
-        // Title, the rows, then the toggle line, each a row high with padding between.
-        let n = choices.len() as i32 + 2;
-        let height = n * row_h + (n + 1) * padding;
+        let inner_w = width - 2 * padding;
+        let lines = match next_title.as_ref() {
+            Some(t) => {
+                let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi);
+                if title_lines(font, t, inner_w).1.is_some() { 2 } else { 1 }
+            }
+            None => 0,
+        };
+        let block_h = llh + llh / 4 + lines * tlh + tlh / 3 + hlh;
+        let toggle_h = if options.len() >= 2 { row_h + padding } else { 0 };
+        let height = padding + row_h + padding + toggle_h + 1 + padding + block_h + padding + row_h + padding;
         let x0 = screen.min.x + (screen.width() as i32 - width) / 2;
         let y0 = screen.min.y + (screen.height() as i32 - height) / 2;
         let rect = rect![x0, y0, x0 + width, y0 + height];
+        let (x, x_end) = (x0 + padding, x0 + width - padding);
 
-        let inner = |i: i32| rect![x0 + padding, y0 + padding + i * (row_h + padding), x0 + width - padding, y0 + padding + i * (row_h + padding) + row_h];
-        let title_rect = inner(0);
-        let rows = choices.into_iter().enumerate().map(|(i, (c, l))| (inner(i as i32 + 1), c, l)).collect::<Vec<_>>();
-        let line = inner(n - 1);
-        let then_w = font.plan(THEN, None, None).width + padding;
-        let then_rect = rect![line.min.x, line.min.y, line.min.x + then_w, line.max.y];
-        let seg_w = (line.max.x - then_rect.max.x) / 2;
-        let toggle = [
-            rect![then_rect.max.x, line.min.y, then_rect.max.x + seg_w, line.max.y],
-            rect![then_rect.max.x + seg_w, line.min.y, line.max.x, line.max.y],
-        ];
-        ArticleEnd { id: ID_FEEDER.next(), rect, children: Vec::new(), title_rect, rows, then_rect, toggle, after }
+        let mut y = y0 + padding;
+        let title_rect = rect![x, y, x_end, y + row_h];
+        y += row_h + padding;
+        let mut toggle = Vec::new();
+        if options.len() >= 2 {
+            let n = options.len() as i32;
+            let seg_w = (x_end - x) / n;
+            for (i, (s, label)) in options.iter().enumerate() {
+                let i = i as i32;
+                let x1 = if i == n - 1 { x_end } else { x + (i + 1) * seg_w };
+                toggle.push((rect![x + i * seg_w, y, x1, y + row_h], *s, *label));
+            }
+            y += row_h + padding;
+        }
+        let separator = rect![x, y, x_end, y + 1];
+        y += 1 + padding;
+        let next_rect = rect![x, y, x_end, y + block_h];
+        y += block_h + padding;
+        // Back to list and, when there is one, Next article side by side (swiping does the same).
+        let (back_rect, continue_rect) = if next_title.is_some() {
+            let mid = (x + x_end) / 2;
+            let gap = padding / 2;
+            (rect![x, y, mid - gap / 2, y + row_h], Some(rect![mid + (gap - gap / 2), y, x_end, y + row_h]))
+        } else {
+            (rect![x, y, x_end, y + row_h], None)
+        };
+        ArticleEnd { id: ID_FEEDER.next(), rect, children: Vec::new(), title_rect, toggle, state, separator, next_rect, next_title, back_rect, continue_rect, opened: Instant::now() }
     }
 
-    /// The choices offered, top to bottom.
-    pub fn choices(&self) -> Vec<EndChoice> {
-        self.rows.iter().map(|r| r.1).collect()
+    /// The states offered, left to right (just the default when there is nothing to choose).
+    pub fn choices(&self) -> Vec<EndState> {
+        if self.toggle.is_empty() {
+            vec![self.state]
+        } else {
+            self.toggle.iter().map(|t| t.1).collect()
+        }
     }
 
-    /// Next article, Back to list.
-    pub fn toggle_rects(&self) -> [Rectangle; 2] {
-        self.toggle
+    pub fn state(&self) -> EndState {
+        self.state
+    }
+
+    pub fn toggle_rects(&self) -> Vec<Rectangle> {
+        self.toggle.iter().map(|t| t.0).collect()
+    }
+
+    pub fn back_rect(&self) -> Rectangle {
+        self.back_rect
+    }
+
+    /// The Next article button, when there is a next article.
+    pub fn continue_rect(&self) -> Option<Rectangle> {
+        self.continue_rect
+    }
+
+    pub fn next_title(&self) -> Option<&str> {
+        self.next_title.as_deref()
     }
 }
 
-fn render_text(fb: &mut dyn Framebuffer, fonts: &mut Fonts, rect: &Rectangle, text: &str, color: crate::color::Color) {
+fn render_text(fb: &mut dyn Framebuffer, fonts: &mut Fonts, rect: &Rectangle, text: &str, color: Color) {
     let dpi = CURRENT_DEVICE.dpi;
     let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
     let x_height = font.x_heights.0 as i32;
@@ -92,31 +170,47 @@ fn render_text(fb: &mut dyn Framebuffer, fonts: &mut Fonts, rect: &Rectangle, te
 
 impl View for ArticleEnd {
     fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        let onward_ok = self.opened.elapsed() >= CONTINUE_GRACE;
         match *evt {
             Event::Gesture(GestureEvent::Tap(c)) => {
                 if !self.rect.includes(c) {
                     bus.push_back(Event::Close(ViewId::ArticleEnd));
-                } else if let Some(&(_, choice, _)) = self.rows.iter().find(|r| r.0.includes(c)) {
-                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(choice))));
-                } else if let Some(i) = self.toggle.iter().position(|r| r.includes(c)) {
-                    let after = SEGMENTS[i].1;
-                    if after != self.after {
-                        self.after = after;
-                        context.settings.inoink.after_end = after;
-                        context.inoink.settings.after_end = after;
+                } else if self.continue_rect.is_some_and(|r| r.includes(c)) {
+                    // A deliberate tap: no grace needed.
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::Continue(self.state)))));
+                } else if self.back_rect.includes(c) {
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::BackToList(self.state)))));
+                } else if let Some(&(_, state, _)) = self.toggle.iter().find(|t| t.0.includes(c)) {
+                    if state != self.state {
+                        self.state = state;
                         rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
                     }
+                }
+                true
+            }
+            Event::Gesture(GestureEvent::Swipe { dir, .. }) => {
+                let next_is_up = context.settings.button_scheme != ButtonScheme::Inverted;
+                let onward = match dir {
+                    Dir::West => true,
+                    Dir::East => false,
+                    Dir::North => next_is_up,
+                    Dir::South => !next_is_up,
+                };
+                if !onward {
+                    bus.push_back(Event::Close(ViewId::ArticleEnd));
+                } else if onward_ok {
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::Continue(self.state)))));
                 }
                 true
             }
             Event::Gesture(..) => true,
             Event::Device(DeviceEvent::Button { code: code @ (ButtonCode::Forward | ButtonCode::Backward), status, .. }) => {
                 if status == ButtonStatus::Released {
-                    bus.push_back(if code == ButtonCode::Forward {
-                        Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::Skip)))
-                    } else {
-                        Event::Close(ViewId::ArticleEnd)
-                    });
+                    if code == ButtonCode::Backward {
+                        bus.push_back(Event::Close(ViewId::ArticleEnd));
+                    } else if onward_ok {
+                        bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::Continue(self.state)))));
+                    }
                 }
                 true
             }
@@ -134,18 +228,57 @@ impl View for ArticleEnd {
 
         let button_radius = scale_by_dpi(BORDER_RADIUS_LARGE, dpi) as i32;
         let button_thick = scale_by_dpi(THICKNESS_MEDIUM, dpi) as u16;
-        for (r, _, label) in &self.rows {
-            fb.draw_rounded_rectangle_with_border(r, &CornerSpec::Uniform(button_radius), &BorderSpec { thickness: button_thick, color: BLACK }, &WHITE);
-            render_text(fb, fonts, r, label, BLACK);
+        let border = BorderSpec { thickness: button_thick, color: BLACK };
+        let last = self.toggle.len().saturating_sub(1);
+        for (i, (r, state, label)) in self.toggle.iter().enumerate() {
+            let scheme = if *state == self.state { TEXT_INVERTED_HARD } else { TEXT_NORMAL };
+            let corners = if i == 0 {
+                CornerSpec::West(button_radius)
+            } else if i == last {
+                CornerSpec::East(button_radius)
+            } else {
+                CornerSpec::Uniform(0)
+            };
+            fb.draw_rounded_rectangle_with_border(r, &corners, &border, &scheme[0]);
+            render_text(fb, fonts, r, label, scheme[1]);
         }
 
-        render_text(fb, fonts, &self.then_rect, THEN, BLACK);
-        for (i, (label, after)) in SEGMENTS.iter().enumerate() {
-            let scheme = if *after == self.after { TEXT_INVERTED_HARD } else { TEXT_NORMAL };
-            let corners = if i == 0 { CornerSpec::West(button_radius) } else { CornerSpec::East(button_radius) };
-            let r = &self.toggle[i];
-            fb.draw_rounded_rectangle_with_border(r, &corners, &BorderSpec { thickness: button_thick, color: BLACK }, &scheme[0]);
-            render_text(fb, fonts, r, label, scheme[1]);
+        fb.draw_rectangle(&self.separator, GRAY10);
+
+        // The next article: a small label, its title (two lines at most) and the way to go on.
+        let center = |width: i32| self.next_rect.min.x + (self.next_rect.width() as i32 - width) / 2;
+        let top = self.next_rect.min.y;
+        let (llh, lasc, label) = {
+            let font = font_from_style(fonts, &MD_KIND, dpi);
+            let mut plan = font.plan(if self.next_title.is_some() { "UP NEXT" } else { "END OF LIST" }, None, None);
+            plan.space_out(scale_by_dpi(LABEL_TRACKING, dpi) as i32);
+            (font.line_height(), font.ascender(), plan)
+        };
+        font_from_style(fonts, &MD_KIND, dpi).render(fb, GRAY06, &label, pt!(center(label.width), top + lasc));
+        let mut lines_count = 0;
+        let tlh = font_from_style(fonts, &NORMAL_STYLE, dpi).line_height();
+        if let Some(title) = self.next_title.as_ref() {
+            let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+            let asc = font.ascender();
+            let (first, second) = title_lines(font, title, self.next_rect.width() as i32);
+            let y = top + llh + llh / 4 + asc;
+            font.render(fb, BLACK, &first, pt!(center(first.width), y));
+            lines_count = 1;
+            if let Some(second) = second {
+                font.render(fb, BLACK, &second, pt!(center(second.width), y + tlh));
+                lines_count = 2;
+            }
+        }
+        let font = font_from_style(fonts, &LIST_META, dpi);
+        let hint = font.plan(if self.next_title.is_some() { "Swipe or tap Next article to continue" } else { "Swipe to return to the list" }, None, None);
+        let y = top + llh + llh / 4 + lines_count * tlh + tlh / 3 + font.ascender();
+        font.render(fb, GRAY06, &hint, pt!(center(hint.width), y));
+
+        fb.draw_rounded_rectangle_with_border(&self.back_rect, &CornerSpec::Uniform(button_radius), &border, &WHITE);
+        render_text(fb, fonts, &self.back_rect, BACK, BLACK);
+        if let Some(r) = self.continue_rect.as_ref() {
+            fb.draw_rounded_rectangle_with_border(r, &CornerSpec::Uniform(button_radius), &border, &WHITE);
+            render_text(fb, fonts, r, NEXT, BLACK);
         }
     }
 

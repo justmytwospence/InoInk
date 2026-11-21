@@ -123,8 +123,8 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
         EntryKind::SubMenu(
             "Previous and next titles".into(),
             vec![
-                radio("With the bar", InoInkEntry::SetQueueTitles(QueueTitles::WithBar), s.queue_titles == QueueTitles::WithBar),
-                radio("Always", InoInkEntry::SetQueueTitles(QueueTitles::Always), s.queue_titles == QueueTitles::Always),
+                radio("Only at the end", InoInkEntry::SetQueueTitles(QueueTitles::WithBar), s.queue_titles == QueueTitles::WithBar),
+                radio("Beside the progress line", InoInkEntry::SetQueueTitles(QueueTitles::Always), s.queue_titles == QueueTitles::Always),
             ],
         ),
     ];

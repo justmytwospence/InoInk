@@ -100,17 +100,23 @@ pub enum InoInkEntry {
     ArticleEnd(EndChoice),
 }
 
-/// The end-of-article popup's choices.
+/// What the end-of-article popup does with the finished article.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EndChoice {
+pub enum EndState {
     /// Mark read, keeping any star.
     MarkRead,
-    /// Mark read and remove the star (Archive; undoable).
-    Unstar,
-    /// Close the popup and stay.
-    KeepUnread,
-    /// The next article, changing nothing (the Forward button).
-    Skip,
+    /// Mark read and remove the star (undoable).
+    Archive,
+    /// Change nothing.
+    Leave,
+}
+
+/// The end-of-article popup's ways out: on to the next article (a swipe or the forward button),
+/// or back to the list; both apply the chosen state first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndChoice {
+    Continue(EndState),
+    BackToList(EndState),
 }
 
 /// Which articles a selection starts from or switches to.

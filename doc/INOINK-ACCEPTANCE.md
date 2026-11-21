@@ -25,7 +25,7 @@ document tests inside the build container, and the install/launcher tests).
 | List views: counts, query order and cap, unread per folder, folder ordering, per-collection defaults, word counts, time left, mark read up to / from here | `crates/inoink/tests/views.rs` (8) | PASS |
 | Preview snapshot: exact read-only allowlist, forbidden writes never reach the network, read scope only, token rotation, bounded and atomic publication, no partial or unreadable snapshots, no private URLs logged | `crates/inoink/tests/snapshot.rs` (23), `crates/inoink-cli/tests/snapshot_pty.rs` (2) | PASS |
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
-| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and titles row, word-boundary truncation, new marks per visit, selection mode, end-of-article popup and its remembered choice, one toast at a time, back by title, running headers (title, thread), left borders across pages | `crates/core/tests/inoink_document.rs` (5), `inoink_views.rs` (61), `font_crop.rs` (2), in the container | PASS |
+| Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and footer chevrons, word-boundary truncation, new marks per visit, selection mode, end-of-article popup (state, Up next, swipe on, grace, Back to list), one toast at a time, back by title, running headers (title, thread), left borders across pages | `crates/core/tests/inoink_document.rs` (5), `inoink_views.rs` (68), `font_crop.rs` (2), in the container | PASS |
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
@@ -184,7 +184,7 @@ that was merged.
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
 | Swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
-| End-of-article popup: paging past the last page opens it; Mark read keeps the star, Unstar / Remove from Read later unstars (Undo in the main menu), Keep unread stays; Then Next article / Back to list is remembered after restarting; forward skips, back and a tap outside close it; swipe up and holding forward bypass it; layout reads well | NOT RUN |
+| End-of-article popup: paging past the last page opens it; Mark read is preselected (Leave as is for a read article), Archive unstars (Undo in the main menu), Keep unread leaves it; Up next names the next article (End of list after the last); swiping on or forward applies the choice and opens it, but not in the first moment after the popup opens; Back to list applies it and returns, Next article beside it applies it and opens the next; swiping back, the back button and a tap outside close it; layout reads well | NOT RUN |
 | Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |
@@ -193,10 +193,10 @@ that was merged.
 | The article title shows in the top margin of every page but the first, clear of the text | NOT RUN |
 | Curly quotes, dashes and ellipses in articles (not in code); a German or French article hyphenates in its language | NOT RUN |
 | Inverted page-turn buttons also swap the swipe directions | NOT RUN |
-| Long titles end at a whole word with an ellipsis (lists, bar, titles row); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
+| Long titles end at a whole word with an ellipsis (lists, bar, end popup); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
 | Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |
 | Teaser feeds open as the full page; Full text Never keeps the teaser | NOT RUN |
-| Titles row with the bar (tap opens); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
+| Footer chevrons with the bar (tap a side opens that article; none at the ends of the list); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
 | QR code scans with a phone | NOT RUN |
 | Follow in Inoreader adds a feed from a held link | NOT RUN |

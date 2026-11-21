@@ -464,7 +464,6 @@ pub enum ViewId {
     LinkMenu,
     QrView,
     ArticleFooter,
-    QueueNav,
     ArticleEnd,
 }
 
