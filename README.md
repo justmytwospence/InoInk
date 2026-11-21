@@ -37,7 +37,8 @@ public API and does not try to match the Inoreader website feature for feature; 
   offline mark stacked at the right.
 - You always know how far there is to go: lists show "2 / 7" and articles a bar along the
   bottom, split into one segment per page while they fit across the screen.
-- Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
+- Reading built for e-ink: Plato's typesetting with hyphenation and justification, hanging
+  quotes, small caps and underlines that skip descenders, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
   to every article. Dragging a slider reflows the page as you go, the font list shows each
   font in its own face, and text presets save a font, size, line spacing and alignment to
