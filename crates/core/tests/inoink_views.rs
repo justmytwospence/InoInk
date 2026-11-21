@@ -1220,3 +1220,23 @@ fn the_footer_has_no_chevron_without_a_neighbour() {
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(Point::new(r.min.x + 30, y))));
     assert!(opens(&sent(&e)).is_empty());
 }
+
+#[test]
+fn the_next_article_button_continues_with_the_state() {
+    let mut e = env();
+    let mut reader = show_end(&mut e, &[4, 3], false, 4);
+    let next = end_popup(&reader).continue_rect().expect("a Next article button");
+    let back = end_popup(&reader).back_rect();
+    assert_eq!(next.min.y, back.min.y, "side by side");
+    assert!(back.max.x <= next.min.x, "Back to list on the left");
+    drive(&mut reader, &mut e, tap_rect(next));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
+    assert!(flags(&e, 4).0);
+}
+
+#[test]
+fn the_last_article_has_no_next_button() {
+    let mut e = env();
+    let reader = show_end(&mut e, &[4], false, 4);
+    assert!(end_popup(&reader).continue_rect().is_none());
+}

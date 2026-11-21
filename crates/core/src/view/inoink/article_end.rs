@@ -1,6 +1,6 @@
 //! The end-of-article popup: what to do with the finished article (Mark read by default), the
-//! next article of the list, and Back to list. Swiping on (or the forward button) opens the next
-//! article; swiping back, the back button or a tap outside closes the popup. Opened by paging past
+//! next article of the list, and Back to list / Next article. Swiping on (or the forward button)
+//! also opens the next article; swiping back, the back button or a tap outside closes the popup. Opened by paging past
 //! the last page.
 
 use crate::color::{Color, BLACK, GRAY06, GRAY10, TEXT_INVERTED_HARD, TEXT_NORMAL, WHITE};
@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 const TITLE: &str = "End of article";
 const BACK: &str = "Back to list";
+const NEXT: &str = "Next article";
 /// Onward swipes and forward presses this soon after the popup opens are ignored, so a quick run
 /// of page turns does not overshoot into the next article.
 pub const CONTINUE_GRACE: Duration = Duration::from_millis(600);
@@ -53,6 +54,7 @@ pub struct ArticleEnd {
     next_rect: Rectangle,
     next_title: Option<String>,
     back_rect: Rectangle,
+    continue_rect: Option<Rectangle>,
     opened: Instant,
 }
 
@@ -114,8 +116,15 @@ impl ArticleEnd {
         y += 1 + padding;
         let next_rect = rect![x, y, x_end, y + block_h];
         y += block_h + padding;
-        let back_rect = rect![x, y, x_end, y + row_h];
-        ArticleEnd { id: ID_FEEDER.next(), rect, children: Vec::new(), title_rect, toggle, state, separator, next_rect, next_title, back_rect, opened: Instant::now() }
+        // Back to list and, when there is one, Next article side by side (swiping does the same).
+        let (back_rect, continue_rect) = if next_title.is_some() {
+            let mid = (x + x_end) / 2;
+            let gap = padding / 2;
+            (rect![x, y, mid - gap / 2, y + row_h], Some(rect![mid + (gap - gap / 2), y, x_end, y + row_h]))
+        } else {
+            (rect![x, y, x_end, y + row_h], None)
+        };
+        ArticleEnd { id: ID_FEEDER.next(), rect, children: Vec::new(), title_rect, toggle, state, separator, next_rect, next_title, back_rect, continue_rect, opened: Instant::now() }
     }
 
     /// The states offered, left to right (just the default when there is nothing to choose).
@@ -137,6 +146,11 @@ impl ArticleEnd {
 
     pub fn back_rect(&self) -> Rectangle {
         self.back_rect
+    }
+
+    /// The Next article button, when there is a next article.
+    pub fn continue_rect(&self) -> Option<Rectangle> {
+        self.continue_rect
     }
 
     pub fn next_title(&self) -> Option<&str> {
@@ -161,6 +175,9 @@ impl View for ArticleEnd {
             Event::Gesture(GestureEvent::Tap(c)) => {
                 if !self.rect.includes(c) {
                     bus.push_back(Event::Close(ViewId::ArticleEnd));
+                } else if self.continue_rect.is_some_and(|r| r.includes(c)) {
+                    // A deliberate tap: no grace needed.
+                    bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::Continue(self.state)))));
                 } else if self.back_rect.includes(c) {
                     bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::ArticleEnd(EndChoice::BackToList(self.state)))));
                 } else if let Some(&(_, state, _)) = self.toggle.iter().find(|t| t.0.includes(c)) {
@@ -253,12 +270,16 @@ impl View for ArticleEnd {
             }
         }
         let font = font_from_style(fonts, &LIST_META, dpi);
-        let hint = font.plan(if self.next_title.is_some() { "Swipe to continue" } else { "Swipe to return to the list" }, None, None);
+        let hint = font.plan(if self.next_title.is_some() { "Swipe or tap Next article to continue" } else { "Swipe to return to the list" }, None, None);
         let y = top + llh + llh / 4 + lines_count * tlh + tlh / 3 + font.ascender();
         font.render(fb, GRAY06, &hint, pt!(center(hint.width), y));
 
         fb.draw_rounded_rectangle_with_border(&self.back_rect, &CornerSpec::Uniform(button_radius), &border, &WHITE);
         render_text(fb, fonts, &self.back_rect, BACK, BLACK);
+        if let Some(r) = self.continue_rect.as_ref() {
+            fb.draw_rounded_rectangle_with_border(r, &CornerSpec::Uniform(button_radius), &border, &WHITE);
+            render_text(fb, fonts, r, NEXT, BLACK);
+        }
     }
 
     fn rect(&self) -> &Rectangle {
