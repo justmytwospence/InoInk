@@ -3,18 +3,18 @@
 use crate::context::Context;
 use crate::framebuffer::Framebuffer;
 use crate::font::Fonts;
-use crate::geom::{CycleDir, Rectangle};
+use crate::geom::{CycleDir, Rectangle, CornerSpec, BorderSpec};
 use crate::gesture::GestureEvent;
-use crate::input::DeviceEvent;
+use crate::input::{DeviceEvent, FingerStatus};
 use crate::view::icon::{Icon, ICONS_PIXMAPS};
 use crate::view::inoink::actions::{ArticleAction, DocKind, InoInkEntry};
 use crate::view::label::Label;
-use crate::color::{BLACK, WHITE};
+use crate::color::{BLACK, WHITE, GRAY06, GRAY11};
 use crate::device::CURRENT_DEVICE;
-use crate::font::{font_from_style, NORMAL_STYLE};
+use crate::font::{font_from_style, Font, RenderPlan, MD_KIND, NORMAL_STYLE};
 use crate::geom::Point;
 use crate::unit::scale_by_dpi;
-use crate::view::THICKNESS_SMALL;
+use crate::view::{THICKNESS_SMALL, THICKNESS_MEDIUM, BORDER_RADIUS_LARGE};
 use crate::view::{Align, Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::framebuffer::UpdateMode;
 use inoink::model::ArticleId;
@@ -284,42 +284,103 @@ impl View for ArticleFooter {
     }
 }
 
-/// Above the footer while the bar is showing: the previous and next articles of the list.
-/// Tapping a side opens that article, as swiping does.
+/// Height of the titles row above the footer.
+pub const QUEUE_NAV_HEIGHT: f32 = 200.0;
+// Space around and between the cards, the padding inside them, and the label's tracking.
+const CARD_MARGIN: f32 = 16.0;
+const CARD_PADDING: f32 = 24.0;
+const LABEL_TRACKING: f32 = 2.0;
+
+/// The title on one line, or two with the second ending at a whole word with an ellipsis.
+fn title_lines(font: &mut Font, title: &str, max_width: i32) -> (RenderPlan, Option<RenderPlan>) {
+    if max_width <= 0 {
+        return (font.plan(title, Some(1), None), None);
+    }
+    let mut plan = font.plan(title, None, None);
+    if plan.width > max_width {
+        let (index, usable) = font.cut_point(&plan, max_width);
+        let mut second = plan.split_off(index, usable);
+        font.trim_left(&mut second);
+        font.crop_right(&mut second, max_width);
+        (plan, Some(second))
+    } else {
+        (plan, None)
+    }
+}
+
+/// Above the footer while the bar is showing: the previous and next articles of the list as
+/// cards (one across the row when alone). Tapping a card opens that article, as swiping does;
+/// pressing inverts it.
 pub struct QueueNav {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     previous: Option<String>,
     next: Option<String>,
+    active: Option<CycleDir>,
 }
 
 impl QueueNav {
     pub fn new(rect: Rectangle, previous: Option<String>, next: Option<String>) -> QueueNav {
-        QueueNav { id: ID_FEEDER.next(), rect, children: Vec::new(), previous, next }
+        QueueNav { id: ID_FEEDER.next(), rect, children: Vec::new(), previous, next, active: None }
     }
 
-    fn halves(&self) -> (Rectangle, Rectangle) {
-        let mid = (self.rect.min.x + self.rect.max.x) / 2;
-        (rect![self.rect.min.x, self.rect.min.y, mid, self.rect.max.y], rect![mid, self.rect.min.y, self.rect.max.x, self.rect.max.y])
+    /// The previous and next cards: side by side, or one across the row when it is alone.
+    fn cards(&self) -> (Option<Rectangle>, Option<Rectangle>) {
+        let dpi = CURRENT_DEVICE.dpi;
+        let m = scale_by_dpi(CARD_MARGIN, dpi) as i32;
+        let line = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
+        let inner = rect![self.rect.min.x + m, self.rect.min.y + line + m, self.rect.max.x - m, self.rect.max.y - m];
+        match (self.previous.is_some(), self.next.is_some()) {
+            (true, true) => {
+                let mid = (inner.min.x + inner.max.x) / 2;
+                (Some(rect![inner.min.x, inner.min.y, mid - m / 2, inner.max.y]),
+                 Some(rect![mid + (m - m / 2), inner.min.y, inner.max.x, inner.max.y]))
+            }
+            (true, false) => (Some(inner), None),
+            (false, true) => (None, Some(inner)),
+            (false, false) => (None, None),
+        }
     }
 }
 
 impl View for QueueNav {
-    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
+    fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
             Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
-                let (left, right) = self.halves();
-                if left.includes(c) && self.previous.is_some() {
+                let (previous, next) = self.cards();
+                if previous.is_some_and(|r| r.includes(c)) {
                     bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Previous))));
-                } else if right.includes(c) && self.next.is_some() {
+                } else if next.is_some_and(|r| r.includes(c)) {
                     bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::QueueArticle(CycleDir::Next))));
                 }
                 true
             }
             Event::Gesture(GestureEvent::HoldFingerShort(c, ..)) if self.rect.includes(c) => true,
             Event::Gesture(GestureEvent::Swipe { start, end, .. }) if self.rect.includes(start) && self.rect.includes(end) => true,
-            Event::Device(DeviceEvent::Finger { position, .. }) if self.rect.includes(position) => true,
+            Event::Device(DeviceEvent::Finger { status, position, .. }) if self.rect.includes(position) || self.active.is_some() => {
+                match status {
+                    FingerStatus::Down => {
+                        let (previous, next) = self.cards();
+                        self.active = if previous.is_some_and(|r| r.includes(position)) {
+                            Some(CycleDir::Previous)
+                        } else if next.is_some_and(|r| r.includes(position)) {
+                            Some(CycleDir::Next)
+                        } else {
+                            None
+                        };
+                        if self.active.is_some() {
+                            rq.add(RenderData::new(self.id, self.rect, UpdateMode::Fast));
+                        }
+                    }
+                    FingerStatus::Up if self.active.is_some() => {
+                        self.active = None;
+                        rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
+                    }
+                    _ => (),
+                }
+                self.rect.includes(position)
+            }
             _ => false,
         }
     }
@@ -329,35 +390,59 @@ impl View for QueueNav {
         fb.draw_rectangle(&self.rect, WHITE);
         let thickness = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
         fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + thickness], BLACK);
-        let (left, right) = self.halves();
-        let inset = self.rect.height() as i32 / 4;
-        fb.draw_rectangle(&rect![left.max.x, self.rect.min.y + inset, left.max.x + thickness, self.rect.max.y - inset], BLACK);
-        let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-        let pad = scale_by_dpi(24.0, dpi) as i32;
-        let x_height = font.x_heights.0 as i32;
-        if let Some(title) = self.previous.as_ref() {
-            let mut x = left.min.x + pad;
+        let (previous, next) = self.cards();
+        let radius = scale_by_dpi(BORDER_RADIUS_LARGE, dpi) as i32;
+        let border = BorderSpec { thickness: scale_by_dpi(THICKNESS_MEDIUM, dpi) as u16, color: BLACK };
+        let pad = scale_by_dpi(CARD_PADDING, dpi) as i32;
+        let cards = [(previous, self.previous.as_ref(), CycleDir::Previous), (next, self.next.as_ref(), CycleDir::Next)];
+        for (card, title, dir) in cards {
+            let (Some(card), Some(title)) = (card, title) else { continue };
+            let left = dir == CycleDir::Previous;
+            let active = self.active == Some(dir);
+            let (paper, ink, label_color) = if active { (BLACK, WHITE, GRAY11) } else { (WHITE, BLACK, GRAY06) };
+            fb.draw_rounded_rectangle_with_border(&card, &CornerSpec::Uniform(radius), &border, &paper);
+
             let mut icon_w = 0;
-            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-left-small") {
+            if let Some(pixmap) = ICONS_PIXMAPS.get(if left { "angle-left-small" } else { "angle-right-small" }) {
                 icon_w = pixmap.width as i32;
-                let y = left.min.y + (left.height() as i32 - pixmap.height as i32) / 2;
-                fb.draw_blended_pixmap(pixmap, Point::new(x, y), BLACK);
-                x += icon_w + pad;
+                let x = if left { card.min.x + pad } else { card.max.x - pad - icon_w };
+                let y = card.min.y + (card.height() as i32 - pixmap.height as i32) / 2;
+                fb.draw_blended_pixmap(pixmap, Point::new(x, y), ink);
             }
-            let plan = font.plan(title, Some((left.width() as i32 - 3 * pad - icon_w).max(0)), None);
-            font.render(fb, BLACK, &plan, Point::new(x, left.min.y + (left.height() as i32 + x_height) / 2));
-        }
-        if let Some(title) = self.next.as_ref() {
-            let mut x_end = right.max.x - pad;
-            let mut icon_w = 0;
-            if let Some(pixmap) = ICONS_PIXMAPS.get("angle-right-small") {
-                icon_w = pixmap.width as i32;
-                let y = right.min.y + (right.height() as i32 - pixmap.height as i32) / 2;
-                fb.draw_blended_pixmap(pixmap, Point::new(x_end - icon_w, y), BLACK);
-                x_end -= icon_w + pad;
+            let (col_min, col_max) = if left {
+                (card.min.x + pad + icon_w + pad / 2, card.max.x - pad)
+            } else {
+                (card.min.x + pad, card.max.x - pad - icon_w - pad / 2)
+            };
+            let col_w = col_max - col_min;
+
+            let (llh, lasc, label) = {
+                let font = font_from_style(fonts, &MD_KIND, dpi);
+                let mut plan = font.plan(if left { "PREVIOUS" } else { "NEXT" }, Some(col_w.max(1)), None);
+                plan.space_out(scale_by_dpi(LABEL_TRACKING, dpi) as i32);
+                (font.line_height(), font.ascender(), plan)
+            };
+            let (tlh, tasc, first, second) = {
+                let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+                let (first, second) = title_lines(font, title, col_w);
+                (font.line_height(), font.ascender(), first, second)
+            };
+            let gap = llh / 4;
+            let lines = 1 + second.is_some() as i32;
+            let block = llh + gap + lines * tlh;
+            let top = card.min.y + (card.height() as i32 - block) / 2;
+            let x_for = |width: i32| if left { col_min } else { col_max - width };
+
+            {
+                let font = font_from_style(fonts, &MD_KIND, dpi);
+                font.render(fb, label_color, &label, Point::new(x_for(label.width), top + lasc));
             }
-            let plan = font.plan(title, Some((right.width() as i32 - 3 * pad - icon_w).max(0)), None);
-            font.render(fb, BLACK, &plan, Point::new(x_end - plan.width, right.min.y + (right.height() as i32 + x_height) / 2));
+            let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+            let y0 = top + llh + gap + tasc;
+            font.render(fb, ink, &first, Point::new(x_for(first.width), y0));
+            if let Some(second) = &second {
+                font.render(fb, ink, second, Point::new(x_for(second.width), y0 + tlh));
+            }
         }
     }
 

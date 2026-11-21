@@ -3030,7 +3030,7 @@ impl Reader {
     }
 
     fn toggle_article_bar(&mut self, enable: Option<bool>, rq: &mut RenderQueue, context: &mut Context) {
-        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter, QueueNav};
+        use crate::view::inoink::article_bar::{ArticleBar, ArticleFooter, QueueNav, QUEUE_NAV_HEIGHT};
         if let Some(index) = locate::<ArticleBar>(self) {
             if let Some(true) = enable {
                 return;
@@ -3082,7 +3082,8 @@ impl Reader {
                 self.children.push(Box::new(footer) as Box<dyn View>);
             }
             if self.is_article() && (self.queue_titles.0.is_some() || self.queue_titles.1.is_some()) {
-                let nav = QueueNav::new(rect![self.rect.min.x, self.rect.max.y - 2 * small_height, self.rect.max.x, self.rect.max.y - small_height], self.queue_titles.0.clone(), self.queue_titles.1.clone());
+                let nav_height = scale_by_dpi(QUEUE_NAV_HEIGHT, dpi) as i32;
+                let nav = QueueNav::new(rect![self.rect.min.x, self.rect.max.y - small_height - nav_height, self.rect.max.x, self.rect.max.y - small_height], self.queue_titles.0.clone(), self.queue_titles.1.clone());
                 rq.add(RenderData::new(nav.id(), *nav.rect(), UpdateMode::Gui));
                 self.children.push(Box::new(nav) as Box<dyn View>);
             }

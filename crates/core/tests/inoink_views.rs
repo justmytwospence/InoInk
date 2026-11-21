@@ -18,11 +18,11 @@ use plato_core::geom::{Point, Rectangle};
 use plato_core::gesture::GestureEvent as Gest;
 use inoink::store::ListSpan;
 use plato_core::view::EntryKind;
-use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent};
+use plato_core::input::{ButtonCode, ButtonStatus, DeviceEvent, FingerStatus};
 use plato_core::geom::{CycleDir, Dir};
 use plato_core::settings::{AfterEnd, ButtonScheme, QueueTitles};
 use plato_core::view::inoink::article_end::ArticleEnd;
-use plato_core::view::inoink::article_bar::{ArticleBar, CommentsButton};
+use plato_core::view::inoink::article_bar::{ArticleBar, CommentsButton, QueueNav};
 use plato_core::gesture::GestureEvent;
 use plato_core::view::common::locate_by_id;
 use plato_core::view::reader::Reader;
@@ -1147,4 +1147,59 @@ fn latest_successful_action_replaces_menu_undo() {
     assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
     assert!(e.context.inoink.last_undo.is_none());
     assert!(!has_undo(&e));
+}
+
+fn render_nav(e: &mut Env, nav: &QueueNav) -> Pixmap {
+    let mut image = Pixmap::new(1264, 200, 3);
+    nav.render(&mut image, *nav.rect(), &mut e.context.fonts);
+    image
+}
+
+fn nav_rect() -> Rectangle {
+    Rectangle::new(Point::new(0, 0), Point::new(1264, 200))
+}
+
+fn dark_in_row(image: &Pixmap, y: u32, xs: std::ops::Range<u32>) -> bool {
+    xs.into_iter().any(|x| image.get_pixel(x, y).gray() < 128)
+}
+
+#[test]
+fn a_lone_neighbour_card_spans_the_row() {
+    let mut e = env();
+    let lone = QueueNav::new(nav_rect(), None, Some("Photo essay".into()));
+    let image = render_nav(&mut e, &lone);
+    assert!(dark_in_row(&image, 100, 0..40), "the card's left border");
+    assert!(!dark_in_row(&image, 100, 560..700), "no divider or second card in the middle");
+    let both = QueueNav::new(nav_rect(), Some("Older".into()), Some("Photo essay".into()));
+    let image = render_nav(&mut e, &both);
+    assert!(dark_in_row(&image, 100, 600..664), "the two inner borders");
+}
+
+#[test]
+fn pressing_a_card_inverts_it_until_the_finger_lifts() {
+    let mut e = env();
+    let mut nav = QueueNav::new(nav_rect(), Some("Older".into()), Some("Photo essay".into()));
+    let finger = |status| Event::Device(DeviceEvent::Finger { id: 0, time: 0.0, status, position: Point::new(1100, 100) });
+    let mut press = |nav: &mut QueueNav, e: &mut Env, status| {
+        nav.handle_event(&finger(status), &e.tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut e.context);
+    };
+    press(&mut nav, &mut e, FingerStatus::Down);
+    let image = render_nav(&mut e, &nav);
+    assert!(image.get_pixel(700, 175).gray() < 128, "the pressed card is black");
+    assert!(image.get_pixel(100, 175).gray() > 128, "the other card is not");
+    press(&mut nav, &mut e, FingerStatus::Up);
+    let image = render_nav(&mut e, &nav);
+    assert!(image.get_pixel(700, 175).gray() > 128, "released");
+}
+
+#[test]
+fn tapping_anywhere_on_the_only_card_opens_it() {
+    let mut e = env();
+    let mut reader = open(&mut e, &[4, 3], false, 4);
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(632, 840))));
+    let index = locate_by_id(&reader, ViewId::QueueNav).expect("titles row");
+    let r = *reader.children()[index].rect();
+    sent(&e);
+    drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(r.min.x + r.width() as i32 / 8, (r.min.y + r.max.y) / 2))));
+    assert_eq!(opens(&sent(&e)), vec![ArticleId(3)]);
 }
