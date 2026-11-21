@@ -196,7 +196,7 @@ that was merged.
 | Long titles end at a whole word with an ellipsis (lists, bar, titles row); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
 | Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |
 | Teaser feeds open as the full page; Full text Never keeps the teaser | NOT RUN |
-| Titles row with the bar: cards with Previous/Next labels and two-line titles, one across the row when alone; pressing inverts, tap opens; Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
+| Titles row with the bar: ‹ PREVIOUS / NEXT › labels over two-line titles, each in its half (a lone one stays in its half but the whole row opens it); pressing highlights, tap opens; Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
 | QR code scans with a phone | NOT RUN |
 | Follow in Inoreader adds a feed from a held link | NOT RUN |

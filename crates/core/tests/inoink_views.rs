@@ -1156,44 +1156,45 @@ fn render_nav(e: &mut Env, nav: &QueueNav) -> Pixmap {
 }
 
 fn nav_rect() -> Rectangle {
-    Rectangle::new(Point::new(0, 0), Point::new(1264, 200))
+    Rectangle::new(Point::new(0, 0), Point::new(1264, 170))
 }
 
-fn dark_in_row(image: &Pixmap, y: u32, xs: std::ops::Range<u32>) -> bool {
-    xs.into_iter().any(|x| image.get_pixel(x, y).gray() < 128)
+fn dark_in(image: &Pixmap, ys: std::ops::Range<u32>, xs: std::ops::Range<u32>) -> bool {
+    ys.into_iter().any(|y| xs.clone().any(|x| image.get_pixel(x, y).gray() < 128))
 }
 
 #[test]
-fn a_lone_neighbour_card_spans_the_row() {
+fn a_lone_neighbour_keeps_to_its_half() {
     let mut e = env();
     let lone = QueueNav::new(nav_rect(), None, Some("Photo essay".into()));
     let image = render_nav(&mut e, &lone);
-    assert!(dark_in_row(&image, 100, 0..40), "the card's left border");
-    assert!(!dark_in_row(&image, 100, 560..700), "no divider or second card in the middle");
+    assert!(!dark_in(&image, 5..165, 0..632), "nothing in the left half, no divider");
+    assert!(dark_in(&image, 5..165, 632..1264), "the label and title on the right");
     let both = QueueNav::new(nav_rect(), Some("Older".into()), Some("Photo essay".into()));
     let image = render_nav(&mut e, &both);
-    assert!(dark_in_row(&image, 100, 600..664), "the two inner borders");
+    assert!(dark_in(&image, 5..165, 0..632), "the previous article on the left");
+    assert!(dark_in(&image, 80..90, 630..635), "a rule between the halves");
 }
 
 #[test]
-fn pressing_a_card_inverts_it_until_the_finger_lifts() {
+fn pressing_a_side_highlights_it_until_the_finger_lifts() {
     let mut e = env();
     let mut nav = QueueNav::new(nav_rect(), Some("Older".into()), Some("Photo essay".into()));
-    let finger = |status| Event::Device(DeviceEvent::Finger { id: 0, time: 0.0, status, position: Point::new(1100, 100) });
-    let mut press = |nav: &mut QueueNav, e: &mut Env, status| {
+    let finger = |status| Event::Device(DeviceEvent::Finger { id: 0, time: 0.0, status, position: Point::new(1100, 85) });
+    let press = |nav: &mut QueueNav, e: &mut Env, status| {
         nav.handle_event(&finger(status), &e.tx, &mut VecDeque::new(), &mut RenderQueue::new(), &mut e.context);
     };
     press(&mut nav, &mut e, FingerStatus::Down);
     let image = render_nav(&mut e, &nav);
-    assert!(image.get_pixel(700, 175).gray() < 128, "the pressed card is black");
-    assert!(image.get_pixel(100, 175).gray() > 128, "the other card is not");
+    assert!(image.get_pixel(700, 150).gray() < 128, "the pressed side is black");
+    assert!(image.get_pixel(100, 150).gray() > 128, "the other side is not");
     press(&mut nav, &mut e, FingerStatus::Up);
     let image = render_nav(&mut e, &nav);
-    assert!(image.get_pixel(700, 175).gray() > 128, "released");
+    assert!(image.get_pixel(700, 150).gray() > 128, "released");
 }
 
 #[test]
-fn tapping_anywhere_on_the_only_card_opens_it() {
+fn tapping_anywhere_on_a_lone_neighbour_opens_it() {
     let mut e = env();
     let mut reader = open(&mut e, &[4, 3], false, 4);
     drive(&mut reader, &mut e, Event::Gesture(GestureEvent::Tap(plato_core::geom::Point::new(632, 840))));

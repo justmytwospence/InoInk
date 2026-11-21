@@ -3,18 +3,18 @@
 use crate::context::Context;
 use crate::framebuffer::Framebuffer;
 use crate::font::Fonts;
-use crate::geom::{CycleDir, Rectangle, CornerSpec, BorderSpec};
+use crate::geom::{CycleDir, Rectangle, CornerSpec};
 use crate::gesture::GestureEvent;
 use crate::input::{DeviceEvent, FingerStatus};
 use crate::view::icon::{Icon, ICONS_PIXMAPS};
 use crate::view::inoink::actions::{ArticleAction, DocKind, InoInkEntry};
 use crate::view::label::Label;
-use crate::color::{BLACK, WHITE, GRAY06, GRAY11};
+use crate::color::{BLACK, WHITE, GRAY05, GRAY06, GRAY11};
 use crate::device::CURRENT_DEVICE;
 use crate::font::{font_from_style, Font, RenderPlan, MD_KIND, NORMAL_STYLE};
 use crate::geom::Point;
 use crate::unit::scale_by_dpi;
-use crate::view::{THICKNESS_SMALL, THICKNESS_MEDIUM, BORDER_RADIUS_LARGE};
+use crate::view::{THICKNESS_SMALL, BORDER_RADIUS_LARGE};
 use crate::view::{Align, Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ViewId, ID_FEEDER};
 use crate::framebuffer::UpdateMode;
 use inoink::model::ArticleId;
@@ -285,10 +285,11 @@ impl View for ArticleFooter {
 }
 
 /// Height of the titles row above the footer.
-pub const QUEUE_NAV_HEIGHT: f32 = 200.0;
-// Space around and between the cards, the padding inside them, and the label's tracking.
-const CARD_MARGIN: f32 = 16.0;
-const CARD_PADDING: f32 = 24.0;
+pub const QUEUE_NAV_HEIGHT: f32 = 170.0;
+// The pressed highlight's inset, the text's distance from the edges and the middle, and the
+// label's tracking.
+const CARD_MARGIN: f32 = 12.0;
+const SIDE_PADDING: f32 = 40.0;
 const LABEL_TRACKING: f32 = 2.0;
 
 /// The title on one line, or two with the second ending at a whole word with an ellipsis.
@@ -308,9 +309,9 @@ fn title_lines(font: &mut Font, title: &str, max_width: i32) -> (RenderPlan, Opt
     }
 }
 
-/// Above the footer while the bar is showing: the previous and next articles of the list as
-/// cards (one across the row when alone). Tapping a card opens that article, as swiping does;
-/// pressing inverts it.
+/// Above the footer while the bar is showing: the previous and next articles of the list, each a
+/// small "< PREVIOUS" / "NEXT >" label over its title in its half of the row. Tapping a side (the
+/// whole row when only one is named) opens that article, as swiping does; pressing highlights it.
 pub struct QueueNav {
     id: Id,
     rect: Rectangle,
@@ -325,7 +326,7 @@ impl QueueNav {
         QueueNav { id: ID_FEEDER.next(), rect, children: Vec::new(), previous, next, active: None }
     }
 
-    /// The previous and next cards: side by side, or one across the row when it is alone.
+    /// The tap targets (and pressed highlights): the two halves, or the whole row when alone.
     fn cards(&self) -> (Option<Rectangle>, Option<Rectangle>) {
         let dpi = CURRENT_DEVICE.dpi;
         let m = scale_by_dpi(CARD_MARGIN, dpi) as i32;
@@ -390,54 +391,61 @@ impl View for QueueNav {
         fb.draw_rectangle(&self.rect, WHITE);
         let thickness = scale_by_dpi(THICKNESS_SMALL, dpi) as i32;
         fb.draw_rectangle(&rect![self.rect.min.x, self.rect.min.y, self.rect.max.x, self.rect.min.y + thickness], BLACK);
+        let pad = scale_by_dpi(SIDE_PADDING, dpi) as i32;
+        let mid = (self.rect.min.x + self.rect.max.x) / 2;
         let (previous, next) = self.cards();
+        // A short rule between the two halves when both are named.
+        if previous.is_some() && next.is_some() {
+            let inset = self.rect.height() as i32 / 4;
+            fb.draw_rectangle(&rect![mid, self.rect.min.y + inset, mid + thickness, self.rect.max.y - inset], GRAY05);
+        }
         let radius = scale_by_dpi(BORDER_RADIUS_LARGE, dpi) as i32;
-        let border = BorderSpec { thickness: scale_by_dpi(THICKNESS_MEDIUM, dpi) as u16, color: BLACK };
-        let pad = scale_by_dpi(CARD_PADDING, dpi) as i32;
         let cards = [(previous, self.previous.as_ref(), CycleDir::Previous), (next, self.next.as_ref(), CycleDir::Next)];
         for (card, title, dir) in cards {
             let (Some(card), Some(title)) = (card, title) else { continue };
             let left = dir == CycleDir::Previous;
             let active = self.active == Some(dir);
-            let (paper, ink, label_color) = if active { (BLACK, WHITE, GRAY11) } else { (WHITE, BLACK, GRAY06) };
-            fb.draw_rounded_rectangle_with_border(&card, &CornerSpec::Uniform(radius), &border, &paper);
-
-            let mut icon_w = 0;
-            if let Some(pixmap) = ICONS_PIXMAPS.get(if left { "angle-left-small" } else { "angle-right-small" }) {
-                icon_w = pixmap.width as i32;
-                let x = if left { card.min.x + pad } else { card.max.x - pad - icon_w };
-                let y = card.min.y + (card.height() as i32 - pixmap.height as i32) / 2;
-                fb.draw_blended_pixmap(pixmap, Point::new(x, y), ink);
+            let (ink, label_color) = if active { (WHITE, GRAY11) } else { (BLACK, GRAY06) };
+            if active {
+                fb.draw_rounded_rectangle(&card, &CornerSpec::Uniform(radius), BLACK);
             }
-            let (col_min, col_max) = if left {
-                (card.min.x + pad + icon_w + pad / 2, card.max.x - pad)
-            } else {
-                (card.min.x + pad, card.max.x - pad - icon_w - pad / 2)
-            };
+            // Each side's text stays in its half of the row, even when it is the only one.
+            let (col_min, col_max) = if left { (self.rect.min.x + pad, mid - pad) } else { (mid + pad, self.rect.max.x - pad) };
             let col_w = col_max - col_min;
 
-            let (llh, lasc, label) = {
+            let (llh, lasc, label_x_height, label) = {
                 let font = font_from_style(fonts, &MD_KIND, dpi);
                 let mut plan = font.plan(if left { "PREVIOUS" } else { "NEXT" }, Some(col_w.max(1)), None);
                 plan.space_out(scale_by_dpi(LABEL_TRACKING, dpi) as i32);
-                (font.line_height(), font.ascender(), plan)
+                (font.line_height(), font.ascender(), font.x_heights.1 as i32, plan)
             };
             let (tlh, tasc, first, second) = {
                 let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
                 let (first, second) = title_lines(font, title, col_w);
                 (font.line_height(), font.ascender(), first, second)
             };
-            let gap = llh / 4;
+            let gap = llh / 5;
             let lines = 1 + second.is_some() as i32;
             let block = llh + gap + lines * tlh;
-            let top = card.min.y + (card.height() as i32 - block) / 2;
-            let x_for = |width: i32| if left { col_min } else { col_max - width };
+            let top = self.rect.min.y + (self.rect.height() as i32 - block) / 2;
+            let label_y = top + lasc;
 
+            // The label with its chevron on the outer side: "< PREVIOUS", "NEXT >".
+            let icon = ICONS_PIXMAPS.get(if left { "angle-left-small" } else { "angle-right-small" });
+            let icon_gap = scale_by_dpi(10.0, dpi) as i32;
+            let icon_w = icon.map_or(0, |p| p.width as i32 + icon_gap);
+            let label_x = if left { col_min + icon_w } else { col_max - icon_w - label.width };
+            if let Some(pixmap) = icon {
+                let x = if left { col_min } else { col_max - pixmap.width as i32 };
+                let y = label_y - label_x_height / 2 - pixmap.height as i32 / 2;
+                fb.draw_blended_pixmap(pixmap, Point::new(x, y), label_color);
+            }
             {
                 let font = font_from_style(fonts, &MD_KIND, dpi);
-                font.render(fb, label_color, &label, Point::new(x_for(label.width), top + lasc));
+                font.render(fb, label_color, &label, Point::new(label_x, label_y));
             }
             let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+            let x_for = |width: i32| if left { col_min } else { col_max - width };
             let y0 = top + llh + gap + tasc;
             font.render(fb, ink, &first, Point::new(x_for(first.width), y0));
             if let Some(second) = &second {
