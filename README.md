@@ -26,6 +26,10 @@ public API and does not try to match the Inoreader website feature for feature; 
   and InoInk sends it and fetches new articles right away. Unread headlines you have not seen
   before carry a bar on the left; selection mode (the check-box button in the top bar) marks or
   saves many articles at once.
+- Read later shows how far you got in each saved article ("Finished", "40% · 6 min left"),
+  filters by progress (Not started, In progress, Finished), and sorts by when you saved it. It
+  reads Inoreader's progress (undocumented, read-only) and adds your reading on the Kobo; an
+  article you started on inoreader.com opens near where you stopped.
 - A compact list that uses the full width: bold for unread, the source, a relative date
   ("3 h ago") and the reading time ("6 min read") on one line, with the saved mark and the
   offline mark stacked at the right.

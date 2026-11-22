@@ -188,6 +188,9 @@ that was merged.
 | Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |
+| Read later rows show Finished or "N% · M min left" matching inoreader.com; videos and podcasts show their duration | NOT RUN |
+| Read later Show menu filters Not started / In progress / Finished; Recently saved orders as on inoreader.com | NOT RUN |
+| An article started on inoreader.com opens near the same place; one read to the end on the Kobo shows Finished | NOT RUN |
 | An article opened part-way shows the bar until the first page turn | NOT RUN |
 | Curved and slightly diagonal vertical swipes change article; a stalled download shows "Still downloading" and gives way after 10 s | NOT RUN |
 | The article title shows in the top margin of every page but the first, clear of the text | NOT RUN |

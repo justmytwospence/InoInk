@@ -44,6 +44,19 @@ hours otherwise. An article's annotations are replaced whenever Inoreader return
 made elsewhere arrive. Annotations removed elsewhere disappear only after a complete listing; if
 the listing was cut short they stay until a later complete one. They are read-only here.
 
+## Reading progress
+
+For saved (starred) articles Inoreader keeps how far you read, shown on the website as In progress
+and Finished. Its API does not document this; InoInk reads it from the starred stream with
+`progress=1` (the 200 newest saved articles) on every sync you start and at most hourly otherwise,
+and never writes it. Reading on the Kobo is recorded on the Kobo only, as the furthest point
+reached. A row shows the further of the two, and Finished when either says so (Inoreader's own
+threshold is 95%), so a "Start over" on the website does not undo progress made on the Kobo.
+Progress Inoreader no longer reports (the article was unsaved elsewhere, where Inoreader drops it)
+is forgotten after a complete listing. An article started on the website and not yet opened here
+opens at about the same percentage of its text. Having been started counts as seen, never as read.
+Archive here unsaves the article, so Inoreader forgets its progress.
+
 ## Conflicts
 
 Pending local intent wins until acknowledged; after that, anything the server later reports wins.
