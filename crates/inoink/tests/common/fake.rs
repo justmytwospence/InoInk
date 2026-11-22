@@ -20,6 +20,10 @@ pub struct SArt {
     pub like: bool,
     pub labels: BTreeSet<String>,
     pub annotations: Vec<serde_json::Value>,
+    /// The `savedProgress` object served for a starred article (a default one when None).
+    pub progress: Option<serde_json::Value>,
+    /// The `starred` timestamp served for a starred article (seconds; 0 omits it).
+    pub starred_at: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +129,8 @@ impl Fake {
                 like: false,
                 labels: BTreeSet::new(),
                 annotations: vec![],
+                progress: None,
+                starred_at: 0,
             },
         );
     }
@@ -158,7 +164,7 @@ impl Fake {
     }
 }
 
-fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool) -> serde_json::Value {
+fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool, with_progress: bool) -> serde_json::Value {
     let items: Vec<_> = arts
         .iter()
         .map(|a| {
@@ -195,6 +201,14 @@ fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool) -> serde_jso
             });
             if with_annotations {
                 item["annotations"] = serde_json::Value::Array(a.annotations.clone());
+            }
+            if a.starred && a.starred_at > 0 {
+                item["starred"] = a.starred_at.into();
+            }
+            if with_progress && a.starred {
+                item["savedProgress"] = a.progress.clone().unwrap_or_else(
+                    || serde_json::json!({"kind": "article", "progress": 0, "finished": false, "archiveWhenFinished": false}),
+                );
             }
             item
         })
@@ -379,7 +393,12 @@ impl Transport for Fake {
                         None
                     };
                     let mut body = if contents {
-                        serde_json::json!({"items": items_json(page, &subs, qget("annotations").as_deref() == Some("1"))})
+                        serde_json::json!({"items": items_json(
+                            page,
+                            &subs,
+                            qget("annotations").as_deref() == Some("1"),
+                            qget("progress").as_deref() == Some("1") && stream == "user/-/state/com.google/starred"
+                        )})
                     } else {
                         let refs: Vec<_> = page
                             .iter()
