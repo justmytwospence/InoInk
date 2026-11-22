@@ -109,8 +109,8 @@ impl View for PageProgress {
         fb.draw_rectangle(&self.rect, WHITE);
         let y = (self.rect.min.y + self.rect.max.y) / 2;
         // Only the page shown is dark: a list is not read in order the way an article is.
-        // The list's indicator is also the line above the footer: drawn heavier than an article's.
-        draw_sized(fb, self.rect.min.x + self.inset, self.rect.max.x - self.inset, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 10.0);
+        // Along the footer's bottom edge, a little heavier than an article's.
+        draw_sized(fb, self.rect.min.x + self.inset, self.rect.max.x - self.inset, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 6.0);
     }
 
     fn rect(&self) -> &Rectangle {

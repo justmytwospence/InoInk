@@ -314,7 +314,7 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
   On the Newsfeed's list of folders the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
-  loaded from Inoreader), and the line above the footer is the page indicator: one segment per page with the page shown
+  loaded from Inoreader), and a bar along its bottom edge is the page indicator: one segment per page with the page shown
   dark (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
   buttons to move between pages of a list. Inside a folder, **Feeds ▾** in the top bar opens a menu to switch between the
   folder and its feeds; the arrow at the top left goes back to the list of views.

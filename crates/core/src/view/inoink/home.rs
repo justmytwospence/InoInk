@@ -774,32 +774,27 @@ impl InoInkHome {
             ])
         };
         let dpi = CURRENT_DEVICE.dpi;
-        // With several pages, the line above the footer is the page indicator (one segment per
-        // page while they fit, the page shown dark); it reaches a little into the footer.
-        let edge = scale_by_dpi(18.0, dpi) as i32;
+        // The footer is set off by the same rule as the other bars, whatever the list holds. With
+        // several pages, the page indicator runs along its bottom edge (one segment per page
+        // while they fit, the page shown dark), as an article's does.
+        let strip = scale_by_dpi(20.0, dpi) as i32;
         let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
         let frect = self.children[FOOTER].rect().to_owned();
         let sep_rect = rect![frect.min.x, frect.min.y - thickness, frect.max.x, frect.min.y];
-        let pager: Box<dyn View> = if total > 1 {
-            let pad = scale_by_dpi(12.0, dpi) as i32;
-            // The indicator owns the whole strip, so nothing of the plain line it replaces is left
-            // at the ends.
-            Box::new(PageProgress::new(rect![sep_rect.min.x, sep_rect.min.y, sep_rect.max.x, frect.min.y + edge], page - 1, total).inset(pad))
-        } else {
-            Box::new(Filler::new(sep_rect, BLACK))
-        };
-        let pager_rect = rect![frect.min.x, sep_rect.min.y, frect.max.x, frect.min.y + edge];
-        // Footer menus open above the line (or the page indicator), never across it.
+        // Footer menus open above the rule, never across it.
         let menu_y = sep_rect.min.y;
-        self.children[FOOTER - 1] = pager;
-        rq.add(RenderData::new(self.children[FOOTER - 1].id(), pager_rect, UpdateMode::Gui));
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
         let full = footer.rect;
         footer.children.clear();
-        if total <= 1 {
-            footer.children.push(Box::new(Filler::new(rect![full.min.x, full.min.y, full.max.x, full.min.y + edge], WHITE)));
+        let strip_rect = rect![full.min.x, full.max.y - strip, full.max.x, full.max.y];
+        if total > 1 {
+            let pad = scale_by_dpi(12.0, dpi) as i32;
+            footer.children.push(Box::new(PageProgress::new(strip_rect, page - 1, total).inset(pad)));
+        } else {
+            footer.children.push(Box::new(Filler::new(strip_rect, WHITE)));
         }
-        let rect = rect![full.min.x, full.min.y + edge, full.max.x, full.max.y];
+        // The labels and arrows share the band between the rule and that strip.
+        let rect = rect![full.min.x, full.min.y, full.max.x, full.max.y - strip];
         let side = rect.height() as i32;
         let prev_rect = rect![rect.min, rect.min + side];
         if prev {
@@ -832,7 +827,7 @@ impl InoInkHome {
                     Some(a) => Event::Select(EntryId::InoInk(InoInkEntry::BulkApply(*a))),
                     None => Event::ToggleNear(ViewId::SortMenu, rect![r.min.x, menu_y, r.max.x, r.max.y]),
                 };
-                footer.children.push(Box::new(Label::new(r, label.to_string(), Align::Center).event(Some(event))));
+                footer.children.push(Box::new(Label::new(r, label.to_string(), Align::Center).bold().event(Some(event))));
                 x += w;
             }
             rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
@@ -845,10 +840,10 @@ impl InoInkHome {
             let mut x = x0;
             for (text, id) in controls {
                 let r = rect![x, rect.min.y, x + cw, rect.max.y];
-                footer.children.push(Box::new(Label::new(r, text, Align::Center).event(Some(Event::ToggleNear(id, rect![r.min.x, menu_y, r.max.x, r.max.y])))));
+                footer.children.push(Box::new(Label::new(r, text, Align::Center).bold().event(Some(Event::ToggleNear(id, rect![r.min.x, menu_y, r.max.x, r.max.y])))));
                 x += cw;
             }
-            footer.children.push(Box::new(Label::new(rect![x, rect.min.y, x1, rect.max.y], count, Align::Center)));
+            footer.children.push(Box::new(Label::new(rect![x, rect.min.y, x1, rect.max.y], count, Align::Center).bold()));
         } else {
             // One row: the choice centred, the page number to its right; the equal space on its
             // left keeps the choice centred.
@@ -858,9 +853,9 @@ impl InoInkHome {
             if picker_sort.is_empty() {
                 footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
             } else {
-                footer.children.push(Box::new(Label::new(view_rect, picker_sort, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, rect![view_rect.min.x, menu_y, view_rect.max.x, view_rect.max.y])))));
+                footer.children.push(Box::new(Label::new(view_rect, picker_sort, Align::Center).bold().event(Some(Event::ToggleNear(ViewId::SortMenu, rect![view_rect.min.x, menu_y, view_rect.max.x, view_rect.max.y])))));
             }
-            footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center)));
+            footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center).bold()));
         }
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
