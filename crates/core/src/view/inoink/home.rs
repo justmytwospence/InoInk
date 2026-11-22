@@ -176,15 +176,14 @@ impl View for Footer {
 pub fn collection_title(context: &Context, c: &Collection) -> String {
     match c {
         Collection::Starred => "Read later".into(),
+        Collection::Archived => "Archive".into(),
         Collection::Unread => "Unread".into(),
         Collection::All => "Newsfeed".into(),
         Collection::Feed(s) => context.inoink.store().and_then(|st| st.subscription(s.as_str()).ok().flatten()).map(|s| s.title).unwrap_or_else(|| "Feed".into()),
         Collection::Folder(n) => n.clone(),
-        Collection::Tag(n) => format!("Tag: {n}"),
-        Collection::SavedPages => "Saved pages".into(),
-        Collection::Annotated => "Annotated".into(),
-        Collection::Liked => "Liked".into(),
-        Collection::Broadcast => "Broadcast".into(),
+        Collection::Tag(n) => n.clone(),
+        Collection::SavedPages => "Web pages".into(),
+        Collection::Annotated => "Annotations".into(),
         Collection::Monitoring(s) => s.as_str().rsplit('/').next().unwrap_or("Monitoring").to_string(),
     }
 }
@@ -209,7 +208,7 @@ impl InoInkHome {
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.min.y + small_height - small_thickness, rect.max.x, rect.min.y + small_height + big_thickness], BLACK)));
 
         let tabs_rect = rect![rect.min.x, rect.min.y + small_height + big_thickness, rect.max.x, rect.min.y + 2 * small_height - small_thickness];
-        children.push(Box::new(TabBar::new(tabs_rect, context.inoink.tab, [String::new(), String::new(), String::new()])));
+        children.push(Box::new(TabBar::new(tabs_rect, context.inoink.tab, std::array::from_fn(|_| String::new()))));
         children.push(Box::new(Filler::new(rect![rect.min.x, tabs_rect.max.y, rect.max.x, rect.min.y + 2 * small_height + big_thickness], BLACK)));
 
         let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - small_height - small_thickness];
@@ -256,7 +255,7 @@ impl InoInkHome {
 
     /// The list of categories is showing (Categories tab, nothing opened, no search).
     fn showing_categories(&self, context: &Context) -> bool {
-        self.search.is_none() && context.inoink.tab == Tab::Categories && context.inoink.show_categories
+        self.search.is_none() && context.inoink.tab.lists_categories() && context.inoink.show_categories
     }
 
     /// How rows answer taps and holds: a tap opens (or saves, on the ribbon), a hold shows the
@@ -300,7 +299,7 @@ impl InoInkHome {
 
     /// An unread list is finished with a "Mark N read" card.
     fn end_card_applies(&self, context: &Context) -> bool {
-        self.search.is_none() && Self::effective_options(context).unread_only && !matches!(context.inoink.collection, Collection::Starred)
+        self.search.is_none() && Self::effective_options(context).unread_only && !matches!(context.inoink.collection, Collection::Starred | Collection::Archived)
     }
 
     /// Reloads the current page from the local database. Never touches the network.
@@ -319,7 +318,7 @@ impl InoInkHome {
     }
 
     fn load_categories(&mut self, rq: &mut RenderQueue, context: &mut Context) {
-        self.cat_items = category_items(context);
+        self.cat_items = category_items(context, context.inoink.tab);
         let units = 2 * self.rows;
         let mut pages = vec![0usize];
         let mut used = 0;
@@ -548,9 +547,9 @@ impl InoInkHome {
 
     /// Title, back/search icon and tab labels.
     fn update_chrome(&mut self, rq: &mut RenderQueue, context: &Context) {
-        let in_category = context.inoink.tab == Tab::Categories && !context.inoink.show_categories;
-        // The tabs already name the Newsfeed, Categories and Read later: the title only says
-        // where you are inside Categories, or what you searched for.
+        let in_category = context.inoink.tab.lists_categories() && !context.inoink.show_categories;
+        // The tabs already name where you are: the title only says which entry of Feeds or
+        // Saved is open, or what you searched for.
         let title = if let Some(sel) = &self.selecting {
             format!("{} selected", sel.ids.len())
         } else if let Some(q) = &self.search {
@@ -575,7 +574,13 @@ impl InoInkHome {
             context.inoink.store().and_then(|s| s.count_articles(&ArticleQuery { collection: Some(c), unread_only: unread, ..Default::default() }).ok()).unwrap_or(0)
         };
         let label = |name: &str, n: usize| if n > 0 { format!("{name} ({n})") } else { name.to_string() };
-        let labels = [label("Newsfeed", count(Collection::All, true)), "Categories".to_string(), label("Read later", count(Collection::Starred, false))];
+        let labels = [
+            label("Newsfeed", count(Collection::All, true)),
+            "Feeds".to_string(),
+            label("Read later", count(Collection::Starred, false)),
+            "Archive".to_string(),
+            "Saved".to_string(),
+        ];
         if let Some(tabs) = self.children[TABS].downcast_mut::<TabBar>() {
             tabs.update(context.inoink.tab, labels, rq);
         }
@@ -596,10 +601,13 @@ impl InoInkHome {
                     return ("No folders yet".into(), "Folders appear after the first sync.".into());
                 }
                 match context.inoink.collection {
-                    Collection::Starred => match Self::effective_options(context).progress {
+                    Collection::Starred | Collection::Archived => match Self::effective_options(context).progress {
                         ProgressFilter::InProgress => ("Nothing in progress".into(), String::new()),
                         ProgressFilter::Finished => ("Nothing finished yet".into(), String::new()),
                         ProgressFilter::NotStarted => ("Everything here is started".into(), String::new()),
+                        ProgressFilter::All if context.inoink.collection == Collection::Archived => {
+                            ("Nothing in the Archive".into(), "Archive an article you finished to keep it here.".into())
+                        }
                         ProgressFilter::All => ("Nothing in Read later".into(), "Tap a headline in the Newsfeed to save it here.".into()),
                     },
                     _ if Self::effective_options(context).unread_only => ("All caught up".into(), String::new()),
@@ -699,9 +707,9 @@ impl InoInkHome {
         let view_text = if self.search.is_some() {
             String::new()
         } else if self.showing_cats {
-            format!("{} \u{25be}", context.inoink.category_sort().short())
+            if context.inoink.tab == Tab::Feeds { format!("{} \u{25be}", context.inoink.category_sort().short()) } else { String::new() }
         } else {
-            let shown = if matches!(context.inoink.collection, Collection::Starred) {
+            let shown = if matches!(context.inoink.collection, Collection::Starred | Collection::Archived) {
                 opts.progress.short()
             } else if opts.unread_only {
                 "Unread"
@@ -832,7 +840,7 @@ impl InoInkHome {
     /// first" views.
     fn can_browse(&self, context: &Context) -> bool {
         let o = Self::effective_options(context);
-        matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages) && !o.unread_only && o.group == ArticleGroup::None && o.sort == ArticleSort::Newest
+        matches!(context.inoink.collection, Collection::All | Collection::Feed(_) | Collection::Folder(_) | Collection::Tag(_) | Collection::SavedPages | Collection::Archived) && !o.unread_only && o.group == ArticleGroup::None && o.sort == ArticleSort::Newest
     }
 
     fn reset(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -940,12 +948,26 @@ impl InoInkHome {
         let e = |a: ArticleAction| EntryId::InoInk(InoInkEntry::Article(a));
         let i = |a: InoInkEntry| EntryId::InoInk(a);
         let mut entries = vec![
-            EntryKind::Command(if item.starred { "Remove from Read later" } else { "Save for later" }.to_string(), e(ArticleAction::ToggleStar)),
+            EntryKind::Command(
+                if item.starred {
+                    "Remove from Read later"
+                } else if item.archived {
+                    "Restore to Read later"
+                } else {
+                    "Save for later"
+                }
+                .to_string(),
+                e(ArticleAction::ToggleStar),
+            ),
             EntryKind::Command(if item.read { "Mark unread" } else { "Mark read" }.to_string(), e(ArticleAction::ToggleRead)),
-            EntryKind::Command("Archive".to_string(), e(ArticleAction::Done)),
+            if item.archived {
+                EntryKind::Command("Remove from Archive".to_string(), i(InoInkEntry::RemoveFromArchive(item.id)))
+            } else {
+                EntryKind::Command("Archive".to_string(), e(ArticleAction::Archive))
+            },
         ];
         // Everything in Read later is saved, so these would never mark anything there.
-        if !(self.search.is_none() && context.inoink.collection == Collection::Starred) {
+        if !(self.search.is_none() && matches!(context.inoink.collection, Collection::Starred | Collection::Archived)) {
             entries.push(EntryKind::Command("Mark read up to here".to_string(), i(InoInkEntry::MarkRead(ListSpan::UpTo(item.id)))));
             entries.push(EntryKind::Command("Mark read from here down".to_string(), i(InoInkEntry::MarkRead(ListSpan::From(item.id)))));
         }
@@ -1168,6 +1190,15 @@ impl InoInkHome {
             InoInkEntry::Unsubscribe(f) => self.confirm("Unfollow this feed? Its articles stay.".into(), InoInkEntry::ConfirmUnsubscribe(f.clone()), rq, context),
             InoInkEntry::DeleteFolder(f) => self.confirm("Delete this folder? Its feeds are kept.".into(), InoInkEntry::ConfirmDeleteFolder(f.clone()), rq, context),
             InoInkEntry::DeleteMonitoring(m) => self.confirm("Delete this monitoring search?".into(), InoInkEntry::ConfirmDeleteMonitoring(m.clone()), rq, context),
+            InoInkEntry::RemoveFromArchive(id) => {
+                self.confirm("Remove from the Archive? Inoreader forgets its reading progress.".into(), InoInkEntry::ConfirmRemoveFromArchive(*id), rq, context)
+            }
+            InoInkEntry::ConfirmRemoveFromArchive(id) => {
+                if let Err(m) = apply_article_action(context, *id, &ArticleAction::RemoveFromArchive) {
+                    self.notify(&m, hub, rq, context);
+                }
+                self.load_page(hub, rq, context);
+            }
             InoInkEntry::OpenDetails(id) => {
                 hub.send(Event::OpenDetails(*id)).ok();
             }
@@ -1305,9 +1336,10 @@ impl View for InoInkHome {
             }
             Event::ToggleNear(ViewId::SortMenu, rect) => {
                 let stored = context.inoink.view_options();
+                let saved_list = matches!(context.inoink.collection, Collection::Starred | Collection::Archived);
                 let read_later = matches!(context.inoink.collection, Collection::Starred);
                 let mut entries = vec![EntryKind::Message("Show".to_string(), None)];
-                if read_later {
+                if saved_list {
                     for p in ProgressFilter::ALL {
                         entries.push(EntryKind::RadioButton(p.label().to_string(), EntryId::InoInk(InoInkEntry::ProgressFilter(p)), p == stored.progress));
                     }
@@ -1362,7 +1394,7 @@ impl View for InoInkHome {
                 } else if self.search.is_some() {
                     self.search = None;
                     self.reset(hub, rq, context);
-                } else if context.inoink.tab == Tab::Categories && !context.inoink.show_categories {
+                } else if context.inoink.tab.lists_categories() && !context.inoink.show_categories {
                     context.inoink.show_category_list();
                     self.reset(hub, rq, context);
                 } else {

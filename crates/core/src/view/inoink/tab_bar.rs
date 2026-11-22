@@ -1,9 +1,9 @@
-//! The three tabs under the top bar: Newsfeed, Categories and Read later.
+//! The five tabs under the top bar: Newsfeed, Feeds, Read later, Archive and Saved.
 
 use crate::color::{BLACK, SEPARATOR_NORMAL, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::font::{font_from_style, Fonts, NORMAL_STYLE};
+use crate::font::{font_from_style, Fonts, NORMAL_STYLE, SMALL_STYLE};
 use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
@@ -12,23 +12,23 @@ use crate::view::inoink::actions::InoInkEntry;
 use crate::view::inoink::state::Tab;
 use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
 
-pub const TABS: [Tab; 3] = [Tab::Newsfeed, Tab::Categories, Tab::ReadLater];
+pub const TABS: [Tab; 5] = [Tab::Newsfeed, Tab::Feeds, Tab::ReadLater, Tab::Archive, Tab::Saved];
 
 pub struct TabBar {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     current: Tab,
-    labels: [String; 3],
+    labels: [String; 5],
 }
 
 impl TabBar {
-    pub fn new(rect: Rectangle, current: Tab, labels: [String; 3]) -> TabBar {
+    pub fn new(rect: Rectangle, current: Tab, labels: [String; 5]) -> TabBar {
         TabBar { id: ID_FEEDER.next(), rect, children: Vec::new(), current, labels }
     }
 
     /// Redraws only when the selected tab or a label changed.
-    pub fn update(&mut self, current: Tab, labels: [String; 3], rq: &mut RenderQueue) {
+    pub fn update(&mut self, current: Tab, labels: [String; 5], rq: &mut RenderQueue) {
         if self.current != current || self.labels != labels {
             self.current = current;
             self.labels = labels;
@@ -38,7 +38,7 @@ impl TabBar {
 
     fn cell(&self, i: usize) -> Rectangle {
         let w = self.rect.width() as i32;
-        rect![self.rect.min.x + w * i as i32 / 3, self.rect.min.y, self.rect.min.x + w * (i as i32 + 1) / 3, self.rect.max.y]
+        rect![self.rect.min.x + w * i as i32 / TABS.len() as i32, self.rect.min.y, self.rect.min.x + w * (i as i32 + 1) / TABS.len() as i32, self.rect.max.y]
     }
 }
 
@@ -46,7 +46,7 @@ impl View for TabBar {
     fn handle_event(&mut self, evt: &Event, _hub: &Hub, bus: &mut Bus, _rq: &mut RenderQueue, _context: &mut Context) -> bool {
         match *evt {
             Event::Gesture(GestureEvent::Tap(c)) if self.rect.includes(c) => {
-                if let Some(i) = (0..3).find(|i| self.cell(*i).includes(c)) {
+                if let Some(i) = (0..TABS.len()).find(|i| self.cell(*i).includes(c)) {
                     bus.push_back(Event::Select(EntryId::InoInk(InoInkEntry::Tab(TABS[i]))));
                 }
                 true
@@ -60,8 +60,14 @@ impl View for TabBar {
 
     fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
         let dpi = CURRENT_DEVICE.dpi;
-        let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-        for i in 0..3 {
+        // Every label in the normal size when they all fit their cell, else all in the small one.
+        let fits = {
+            let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
+            let pad = font.em() as i32 / 2;
+            (0..TABS.len()).all(|i| font.plan(&self.labels[i], None, None).width <= self.cell(i).width() as i32 - 2 * pad)
+        };
+        let font = font_from_style(fonts, if fits { &NORMAL_STYLE } else { &SMALL_STYLE }, dpi);
+        for i in 0..TABS.len() {
             let cell = self.cell(i);
             let active = TABS[i] == self.current;
             fb.draw_rectangle(&cell, if active { BLACK } else { WHITE });

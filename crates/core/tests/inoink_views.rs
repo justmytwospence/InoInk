@@ -142,11 +142,11 @@ fn sandbox_actions_persist_locally_and_sync_stays_offline() {
     e.context.inoink = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Done).unwrap();
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
     undo_done(&mut e.context).unwrap();
-    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Archived).unwrap());
     assert!(e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Starred).unwrap());
-    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Done).unwrap();
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
     apply_article_action(&mut e.context, ArticleId(3), &ArticleAction::ToggleStar).unwrap();
     apply_article_action(&mut e.context, ArticleId(2), &ArticleAction::ToggleRead).unwrap();
     apply_bulk_action(&mut e.context, &[ArticleId(4)], BulkAction::MarkRead).unwrap();
@@ -161,7 +161,7 @@ fn sandbox_actions_persist_locally_and_sync_stays_offline() {
     e.context.inoink = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
     assert!(e.context.inoink.handle.is_none());
     let store = e.context.inoink.store().unwrap();
-    assert!(store.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(store.effective(ArticleId(1), &Membership::Archived).unwrap());
     assert!(!store.effective(ArticleId(1), &Membership::Starred).unwrap());
     assert!(store.effective(ArticleId(2), &Membership::Read).unwrap());
     assert!(store.effective(ArticleId(3), &Membership::Starred).unwrap());
@@ -184,7 +184,7 @@ fn tab_and_category_are_remembered() {
     e.context.inoink.open_collection(Collection::Folder("X".into()));
     drop(e.context.inoink.store.take());
     let s = Store::open(&e.context.inoink.data_dir.join("inoink.db"), "local").unwrap();
-    assert!(s.get_meta("ui_tab").unwrap().unwrap().contains("Categories"));
+    assert!(s.get_meta("ui_tab").unwrap().unwrap().contains("Feeds"));
     assert!(s.get_meta("ui_collection").unwrap().unwrap().contains("Folder"));
     assert_eq!(s.get_meta("ui_show_categories").unwrap().as_deref(), Some("0"));
 }
@@ -256,7 +256,7 @@ fn categories_list_folders_in_inoreader_order() {
         st.replace_tags(&[tag("Alpha", "00000001"), tag("Beta", "00000002")]).unwrap();
         st.set_stream_order(STATE_ROOT, "0000000200000001").unwrap();
     }
-    e.context.inoink.set_tab(Tab::Categories);
+    e.context.inoink.set_tab(Tab::Feeds);
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     let labels = home.category_labels();
@@ -267,18 +267,19 @@ fn categories_list_folders_in_inoreader_order() {
 }
 
 #[test]
-fn done_marks_read_and_unstars_and_can_be_undone_while_mark_read_keeps_the_star() {
+fn archive_moves_to_the_archive_without_touching_read_and_can_be_undone_while_mark_read_keeps_the_star() {
     let mut e = env();
-    let out = apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Done).unwrap();
+    let out = apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
     assert!(out.close);
     let st = e.context.inoink.store().unwrap();
-    assert!(st.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap(), "read state is untouched");
     assert!(!st.effective(ArticleId(1), &Membership::Starred).unwrap());
+    assert!(st.effective(ArticleId(1), &Membership::Archived).unwrap());
     assert!(e.context.inoink.last_undo.is_some());
 
     undo_done(&mut e.context).unwrap();
     let st = e.context.inoink.store().unwrap();
-    assert!(!st.effective(ArticleId(1), &Membership::Read).unwrap());
+    assert!(!st.effective(ArticleId(1), &Membership::Archived).unwrap());
     assert!(st.effective(ArticleId(1), &Membership::Starred).unwrap());
 
     apply_article_action(&mut e.context, ArticleId(2), &ArticleAction::ToggleRead).unwrap();
@@ -687,7 +688,7 @@ fn grouped_list_pages_are_counted_exactly() {
 #[test]
 fn categories_show_their_page_count() {
     let mut e = env();
-    e.context.inoink.set_tab(Tab::Categories);
+    e.context.inoink.set_tab(Tab::Feeds);
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(home.page_status(), (1, 1, false));
@@ -990,8 +991,8 @@ fn archive_is_silent_and_menu_undo_survives_paging() {
     let before = rows(&home).len();
     let children = home.children().len();
     send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
-    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Done(_))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Archive))));
+    assert!(matches!(e.context.inoink.last_undo, Some(Undo::Archive(_))));
     assert!(locate::<Notification>(&home).is_none());
     assert_eq!(home.children().len(), children);
     assert_eq!(rows(&home).len(), before, "full row capacity remains");
@@ -1011,12 +1012,12 @@ fn menu_undo_restores_silently_and_disappears() {
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert!(!has_undo(&e));
     send(&mut home, &mut e, Event::ToggleBookMenu(plato_core::geom::Rectangle::default(), 0));
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Done))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Article(ArticleAction::Archive))));
     assert!(has_undo(&e));
-    assert!(e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Archived).unwrap());
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
     assert!(locate::<Notification>(&home).is_none());
-    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(!e.context.inoink.store().unwrap().effective(ArticleId(4), &Membership::Archived).unwrap());
     assert_eq!(rows(&home), vec![4, 3, 2, 1]);
     assert!(e.context.inoink.last_undo.is_none());
     assert!(!has_undo(&e));
@@ -1028,10 +1029,10 @@ fn menu_undo_restores_silently_and_disappears() {
 #[test]
 fn latest_successful_action_replaces_menu_undo() {
     let mut e = env();
-    let outcome = apply_article_action(&mut e.context, ArticleId(4), &ArticleAction::Done).unwrap();
+    let outcome = apply_article_action(&mut e.context, ArticleId(4), &ArticleAction::Archive).unwrap();
     assert!(outcome.message.is_none());
     let first = e.context.inoink.last_undo;
-    assert!(matches!(first, Some(Undo::Done(_))));
+    assert!(matches!(first, Some(Undo::Archive(_))));
     let store = e.context.inoink.store.take();
     assert_eq!(apply_bulk_action(&mut e.context, &[ArticleId(3)], BulkAction::MarkRead).unwrap_err(), SAVE_FAILED);
     assert_eq!(e.context.inoink.last_undo, first);
@@ -1043,7 +1044,7 @@ fn latest_successful_action_replaces_menu_undo() {
     assert!(has_undo(&e));
     assert!(undo_done(&mut e.context).unwrap().message.is_none());
     let st = e.context.inoink.store().unwrap();
-    assert!(st.effective(ArticleId(4), &Membership::Read).unwrap());
+    assert!(st.effective(ArticleId(4), &Membership::Archived).unwrap());
     assert!(!st.effective(ArticleId(3), &Membership::Read).unwrap());
     assert!(e.context.inoink.last_undo.is_none());
     assert!(!has_undo(&e));
@@ -1207,7 +1208,7 @@ fn swiping_on_marks_read_and_opens_the_next() {
 }
 
 #[test]
-fn archive_then_swipe_up_unstars_and_opens_the_next() {
+fn archive_then_swipe_up_archives_and_opens_the_next() {
     let mut e = env();
     let mut reader = show_end(&mut e, &[2, 1], true, 2);
     let r = end_popup(&reader).toggle_rects()[1];
@@ -1216,7 +1217,8 @@ fn archive_then_swipe_up_unstars_and_opens_the_next() {
     wait_grace();
     drive(&mut reader, &mut e, swipe_v(1400, 600));
     assert_eq!(opens(&sent(&e)), vec![ArticleId(1)]);
-    assert_eq!(flags(&e, 2), (true, false));
+    assert_eq!(flags(&e, 2), (false, false), "unread, out of Read later");
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(2), &Membership::Archived).unwrap());
     assert!(e.context.inoink.last_undo.is_some(), "undoable");
 }
 
@@ -1387,4 +1389,101 @@ fn wifi_policy_defaults_to_wait_and_is_saved() {
     assert_eq!(e.context.inoink.status_text(), "Turning on Wi-Fi");
     e.context.inoink.status = SyncStatus::Stopped;
     assert_eq!(e.context.inoink.status_text(), "Sync stopped after 3 failures: tap sync to retry");
+}
+
+fn set_tags(e: &mut Env, tags: &[(&str, &str)]) {
+    let list: Vec<inoink::store::TagInfo> =
+        tags.iter().map(|(n, k)| inoink::store::TagInfo { id: format!("user/-/label/{n}"), kind: (*k).into(), sort_id: "00000001".into() }).collect();
+    e.context.inoink.store_mut().unwrap().replace_tags(&list).unwrap();
+}
+
+#[test]
+fn tabs_mirror_inoreader() {
+    use plato_core::view::inoink::tab_bar::TABS;
+    assert_eq!(TABS, [Tab::Newsfeed, Tab::Feeds, Tab::ReadLater, Tab::Archive, Tab::Saved]);
+}
+
+#[test]
+fn saved_tab_lists_web_pages_annotations_then_tags() {
+    let mut e = env();
+    set_tags(&mut e, &[("savelog", "tag"), ("Tech", "folder")]);
+    e.context.inoink.set_tab(Tab::Saved);
+    let mut rq = RenderQueue::new();
+    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(home.category_labels(), vec!["Web pages", "Annotations", "Tags", "savelog"]);
+}
+
+#[test]
+fn feeds_tab_lists_folders_then_monitoring_feeds() {
+    let mut e = env();
+    set_tags(&mut e, &[("Tech", "folder"), ("rust", "active_search")]);
+    e.context.inoink.set_tab(Tab::Feeds);
+    let mut rq = RenderQueue::new();
+    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let labels = home.category_labels();
+    assert_eq!(labels.first().map(String::as_str), Some("Folders"));
+    assert_eq!(&labels[labels.len() - 2..], &["Monitoring feeds".to_string(), "rust".to_string()]);
+}
+
+#[test]
+fn opening_a_tag_switches_to_saved_and_back_shows_its_list() {
+    let mut e = env();
+    set_tags(&mut e, &[("savelog", "tag")]);
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Tag("savelog".into())))));
+    assert_eq!(e.context.inoink.tab, Tab::Saved);
+    assert!(!e.context.inoink.show_categories);
+    send(&mut home, &mut e, Event::Toggle(ViewId::SearchBar));
+    assert!(e.context.inoink.show_categories);
+    assert_eq!(home.category_labels(), vec!["Web pages", "Annotations", "Tags", "savelog"]);
+}
+
+#[test]
+fn archive_tab_lists_archived_articles_and_read_later_drops_them() {
+    let mut e = env();
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Archive))));
+    assert_eq!(e.context.inoink.collection, Collection::Archived);
+    assert_eq!(rows(&home), vec![1]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    assert_eq!(rows(&home), vec![2]);
+}
+
+fn menu_commands(home: &InoInkHome, e: &Env, id: u64) -> Vec<String> {
+    let q = ArticleQuery { collection: None, limit: 10, visit_start_usec: 1, ..Default::default() };
+    let item = e.context.inoink.store().unwrap().query_articles(&q).unwrap().items.into_iter().find(|i| i.id.0 == id).unwrap();
+    home.row_menu_entries(&item, &e.context).into_iter().filter_map(|k| if let EntryKind::Command(l, _) = k { Some(l) } else { None }).collect()
+}
+
+#[test]
+fn archived_row_menu_offers_restore_and_remove() {
+    let mut e = env();
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
+    let mut rq = RenderQueue::new();
+    let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let cmds = menu_commands(&home, &e, 1);
+    assert!(cmds.contains(&"Restore to Read later".to_string()), "{cmds:?}");
+    assert!(cmds.contains(&"Remove from Archive".to_string()), "{cmds:?}");
+    assert!(!cmds.contains(&"Archive".to_string()), "{cmds:?}");
+    let cmds = menu_commands(&home, &e, 2);
+    assert!(cmds.contains(&"Archive".to_string()) && cmds.contains(&"Remove from Read later".to_string()), "{cmds:?}");
+}
+
+#[test]
+fn remove_from_archive_asks_then_applies_and_undoes() {
+    let mut e = env();
+    apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::RemoveFromArchive(ArticleId(1)))));
+    assert!(locate_by_id(&home, ViewId::ConfirmDialog).is_some(), "asks first");
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Archived).unwrap());
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmRemoveFromArchive(ArticleId(1)))));
+    let st = e.context.inoink.store().unwrap();
+    assert!(!st.effective(ArticleId(1), &Membership::Archived).unwrap() && !st.effective(ArticleId(1), &Membership::Starred).unwrap());
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
+    assert!(e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Archived).unwrap());
 }

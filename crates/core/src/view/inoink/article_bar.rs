@@ -55,7 +55,7 @@ impl ArticleBar {
             None => children.push(Box::new(title_label(title_rect, title))),
         }
         children.push(Box::new(Icon::new(if starred { "bookmark-filled" } else { "bookmark" }, star_rect, Event::ArticleAction(article, ArticleAction::ToggleStar))));
-        children.push(Box::new(Icon::new("archive", done_rect, Event::ArticleAction(article, ArticleAction::Done))));
+        children.push(Box::new(Icon::new("archive", done_rect, Event::ArticleAction(article, ArticleAction::Archive))));
         children.push(Box::new(Icon::new("more", more_rect, Event::ToggleNear(ViewId::ArticleMenu, more_rect))));
         children.push(Box::new(Label::new(aa_rect, "Aa".to_string(), Align::Center).cap_centered().event(Some(Event::Toggle(ViewId::TextPanel)))));
         if let Some(button) = comments_button {

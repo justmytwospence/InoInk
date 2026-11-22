@@ -799,7 +799,7 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Wait(600));
     t.push_back(TourStep::Shot("02b-row-menu"));
     t.push_back(select(InoInkEntry::CancelSelection));
-    t.push_back(select(InoInkEntry::Tab(Tab::Categories)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Feeds)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("03-categories"));
     t.push_back(select(InoInkEntry::OpenCategory(Collection::Folder("Reading".into()))));

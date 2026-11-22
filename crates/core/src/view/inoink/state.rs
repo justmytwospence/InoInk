@@ -23,20 +23,44 @@ pub const DB_FILE: &str = "inoink.db";
 /// What the Undo command reverts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Undo {
-    Done(UndoId),
+    /// An Archive or a Remove from Archive.
+    Archive(UndoId),
     /// A bulk selection that was applied.
     Bulk(i64),
 }
 
-/// The three places the interface opens into.
+/// The places the interface opens into, as Inoreader names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
-    /// Inoreader's overall view of all feeds; unread articles by default.
+    /// Inoreader's Newsfeed: everything you follow; unread articles by default.
     Newsfeed,
-    /// Folders, tags and the other streams.
-    Categories,
-    /// What was starred: the reading queue.
+    /// Inoreader's Feeds: folders and monitoring feeds.
+    #[serde(alias = "Categories")]
+    Feeds,
+    /// What was saved: the reading queue (starred).
     ReadLater,
+    /// Inoreader's Archive: saved articles you finished and kept.
+    Archive,
+    /// The rest of Inoreader's Saved section: Web pages, Annotations and tags.
+    Saved,
+}
+
+impl Tab {
+    /// Tabs that open on a list of entries (folders, tags...) rather than on articles.
+    pub fn lists_categories(self) -> bool {
+        matches!(self, Tab::Feeds | Tab::Saved)
+    }
+
+    /// The tab an opened collection belongs to.
+    pub fn for_collection(c: &Collection) -> Tab {
+        match c {
+            Collection::All | Collection::Unread => Tab::Newsfeed,
+            Collection::Starred => Tab::ReadLater,
+            Collection::Archived => Tab::Archive,
+            Collection::Feed(_) | Collection::Folder(_) | Collection::Monitoring(_) => Tab::Feeds,
+            Collection::SavedPages | Collection::Annotated | Collection::Tag(_) => Tab::Saved,
+        }
+    }
 }
 
 /// How an article that had to be downloaded first is shown once it arrives.
@@ -92,10 +116,10 @@ pub struct InoInk {
     pub cache: Cache,
     /// The tab shown.
     pub tab: Tab,
-    /// The article list shown: All for the Newsfeed, Starred for Read later, or the category
-    /// opened from Categories.
+    /// The article list shown: All for the Newsfeed, Starred for Read later, or the entry
+    /// opened from Feeds or Saved.
     pub collection: Collection,
-    /// In Categories: the list of categories rather than the articles of one.
+    /// In Feeds or Saved: the list of entries rather than the articles of one.
     pub show_categories: bool,
     /// The list the open article came from, for "next article".
     pub queue: Option<ReadingQueue>,
@@ -259,13 +283,15 @@ impl InoInk {
         self.normalize_view();
     }
 
-    /// The collection each tab shows: All for the Newsfeed, Starred for Read later.
+    /// The collection each tab shows: All for the Newsfeed, Starred for Read later, Archived
+    /// for the Archive; Feeds and Saved show a list of entries unless one of theirs is open.
     fn normalize_view(&mut self) {
         match self.tab {
             Tab::Newsfeed => self.collection = Collection::All,
             Tab::ReadLater => self.collection = Collection::Starred,
-            Tab::Categories => {
-                if matches!(self.collection, Collection::All | Collection::Starred | Collection::Unread) {
+            Tab::Archive => self.collection = Collection::Archived,
+            Tab::Feeds | Tab::Saved => {
+                if Tab::for_collection(&self.collection) != self.tab {
                     self.show_categories = true;
                 }
             }
@@ -281,21 +307,22 @@ impl InoInk {
         }
     }
 
-    /// Switches tab. Categories opens on its list of categories.
+    /// Switches tab. Feeds and Saved open on their list of entries.
     pub fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        if tab == Tab::Categories {
+        if tab.lists_categories() {
             self.show_categories = true;
         }
         self.normalize_view();
         self.persist_view();
     }
 
-    /// Opens one category (folder, feed, tag...) from the Categories tab.
+    /// Opens one entry (folder, feed, tag...) of the Feeds or Saved tab.
     pub fn open_collection(&mut self, c: Collection) {
-        self.tab = Tab::Categories;
+        self.tab = Tab::for_collection(&c);
         self.collection = c;
         self.show_categories = false;
+        self.normalize_view();
         self.persist_view();
     }
 
@@ -305,7 +332,7 @@ impl InoInk {
         self.persist_view();
     }
 
-    /// The order of the Categories tab.
+    /// The order of the folders in the Feeds tab.
     pub fn category_sort(&self) -> CategorySort {
         self.store
             .as_ref()
@@ -490,6 +517,13 @@ pub fn ago_text(t: i64, now: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::ago_text;
+
+    #[test]
+    fn categories_tab_is_now_feeds() {
+        use super::Tab;
+        assert_eq!(serde_json::from_str::<Tab>("\"Categories\"").unwrap(), Tab::Feeds);
+        assert_eq!(serde_json::to_string(&Tab::Archive).unwrap(), "\"Archive\"");
+    }
 
     #[test]
     fn ago_text_buckets() {
