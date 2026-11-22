@@ -5,8 +5,7 @@ use std::fmt;
 pub const LONG_ID_PREFIX: &str = "tag:google.com,2005:reader/item/";
 pub const STATE_READ: &str = "user/-/state/com.google/read";
 pub const STATE_STARRED: &str = "user/-/state/com.google/starred";
-pub const STATE_LIKE: &str = "user/-/state/com.google/like";
-pub const STATE_BROADCAST: &str = "user/-/state/com.google/broadcast";
+pub const STATE_ARCHIVED: &str = "user/-/state/com.google/archived";
 pub const STATE_SAVED: &str = "user/-/state/com.google/saved-web-pages";
 pub const STATE_ANNOTATED: &str = "user/-/state/com.google/annotated";
 pub const STATE_READING_LIST: &str = "user/-/state/com.google/reading-list";
@@ -106,8 +105,8 @@ pub fn normalize_user(s: &str) -> String {
 pub enum Membership {
     Read,
     Starred,
-    Like,
-    Broadcast,
+    /// Inoreader's Archive (undocumented stream); exclusive with Starred.
+    Archived,
     /// A user tag, by bare name (no `user/-/label/` prefix).
     Label(String),
 }
@@ -118,8 +117,7 @@ impl Membership {
         match self {
             Membership::Read => "read".into(),
             Membership::Starred => "starred".into(),
-            Membership::Like => "like".into(),
-            Membership::Broadcast => "broadcast".into(),
+            Membership::Archived => "archived".into(),
             Membership::Label(n) => format!("label:{n}"),
         }
     }
@@ -128,8 +126,7 @@ impl Membership {
         Ok(match key {
             "read" => Membership::Read,
             "starred" => Membership::Starred,
-            "like" => Membership::Like,
-            "broadcast" => Membership::Broadcast,
+            "archived" => Membership::Archived,
             k => match k.strip_prefix("label:") {
                 Some(n) if !n.is_empty() => Membership::Label(n.to_string()),
                 _ => return Err(Error::Data(format!("bad membership key {k:?}"))),
@@ -142,8 +139,7 @@ impl Membership {
         match self {
             Membership::Read => STATE_READ.into(),
             Membership::Starred => STATE_STARRED.into(),
-            Membership::Like => STATE_LIKE.into(),
-            Membership::Broadcast => STATE_BROADCAST.into(),
+            Membership::Archived => STATE_ARCHIVED.into(),
             Membership::Label(n) => format!("user/-/label/{n}"),
         }
     }
@@ -154,8 +150,7 @@ impl Membership {
         match t.as_str() {
             STATE_READ => Some(Membership::Read),
             STATE_STARRED => Some(Membership::Starred),
-            STATE_LIKE => Some(Membership::Like),
-            STATE_BROADCAST => Some(Membership::Broadcast),
+            STATE_ARCHIVED => Some(Membership::Archived),
             _ => t.strip_prefix("user/-/label/").map(|n| Membership::Label(n.to_string())),
         }
     }
@@ -165,6 +160,8 @@ impl Membership {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Collection {
     Starred,
+    /// Inoreader's Archive.
+    Archived,
     Unread,
     All,
     Feed(StreamId),
@@ -172,8 +169,6 @@ pub enum Collection {
     Tag(String),
     SavedPages,
     Annotated,
-    Liked,
-    Broadcast,
     /// An Active Search (monitoring) stream.
     Monitoring(StreamId),
 }
@@ -183,13 +178,12 @@ impl Collection {
     pub fn stream_id(&self) -> StreamId {
         match self {
             Collection::Starred => StreamId::new(STATE_STARRED),
+            Collection::Archived => StreamId::new(STATE_ARCHIVED),
             Collection::Unread | Collection::All => StreamId::new(STATE_READING_LIST),
             Collection::Feed(s) | Collection::Monitoring(s) => s.clone(),
             Collection::Folder(n) | Collection::Tag(n) => StreamId::label(n),
             Collection::SavedPages => StreamId::new(STATE_SAVED),
             Collection::Annotated => StreamId::new(STATE_ANNOTATED),
-            Collection::Liked => StreamId::new(STATE_LIKE),
-            Collection::Broadcast => StreamId::new(STATE_BROADCAST),
         }
     }
 }
@@ -241,6 +235,8 @@ pub struct ArticleSummary {
     pub timestamp_usec: i64,
     pub read: bool,
     pub starred: bool,
+    /// In Inoreader's Archive.
+    pub archived: bool,
     pub download: DownloadState,
     pub words: u32,
     /// Unread and not seen on this device before the current visit (see ArticleQuery::visit_start_usec).
@@ -328,9 +324,9 @@ impl ProgressFilter {
 }
 
 impl ArticleSummary {
-    /// "Finished", or "40% \u{b7} 6 min left"; only for saved articles that were started.
+    /// "Finished", or "40% \u{b7} 6 min left"; only for saved (Read later or Archive) articles that were started.
     pub fn progress_label(&self) -> Option<String> {
-        if !self.starred {
+        if !self.starred && !self.archived {
             return None;
         }
         if self.finished {
@@ -521,25 +517,28 @@ impl ViewOptions {
             Collection::Starred => {
                 ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Saved, progress: ProgressFilter::All }
             }
+            Collection::Archived => {
+                ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Newest, progress: ProgressFilter::All }
+            }
             _ => ViewOptions { unread_only: false, group: ArticleGroup::Unread, sort: ArticleSort::Newest, progress: ProgressFilter::All },
         }
     }
 
     /// What is actually applied: no "unread first" when only unread is shown, and no source
     /// sort inside a source grouping. Read later filters by progress instead of by unread; the
-    /// progress filter and the saved-date sort belong to it alone.
+    /// progress filter belongs to Read later and the Archive, the saved-date sort to Read later alone.
     pub fn effective(self, c: &Collection) -> ViewOptions {
         let mut v = self;
         if matches!(c, Collection::Unread) {
             v.unread_only = true;
         }
-        if matches!(c, Collection::Starred) {
+        if matches!(c, Collection::Starred | Collection::Archived) {
             v.unread_only = false;
         } else {
             v.progress = ProgressFilter::All;
-            if v.sort == ArticleSort::Saved {
-                v.sort = ArticleSort::Newest;
-            }
+        }
+        if !matches!(c, Collection::Starred) && v.sort == ArticleSort::Saved {
+            v.sort = ArticleSort::Newest;
         }
         if v.group == ArticleGroup::Unread && v.unread_only {
             v.group = ArticleGroup::None;
@@ -718,6 +717,9 @@ mod view_option_tests {
         assert_eq!((e.unread_only, e.sort, e.progress), (false, ArticleSort::Saved, ProgressFilter::InProgress));
         let f = v.effective(&Collection::Folder("x".into()));
         assert_eq!((f.sort, f.progress), (ArticleSort::Newest, ProgressFilter::All));
+        let a = v.effective(&Collection::Archived);
+        assert_eq!((a.unread_only, a.sort, a.progress), (false, ArticleSort::Newest, ProgressFilter::InProgress));
+        assert_eq!(ViewOptions::default_for(&Collection::Archived).sort, ArticleSort::Newest);
     }
 
     #[test]
@@ -730,6 +732,7 @@ mod view_option_tests {
             timestamp_usec: 0,
             read: false,
             starred: true,
+            archived: false,
             download: DownloadState::NotDownloaded,
             words: 2300,
             new: false,
@@ -770,6 +773,7 @@ mod view_option_tests {
             timestamp_usec: 0,
             read: false,
             starred: false,
+            archived: false,
             download: DownloadState::NotDownloaded,
             words: 0,
             new: false,

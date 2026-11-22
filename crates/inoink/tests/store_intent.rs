@@ -47,13 +47,14 @@ fn intent_is_durable_before_success_and_survives_restart() {
 }
 
 #[test]
-fn done_marks_read_and_unstars_but_mark_read_preserves_star() {
+fn archive_unstars_without_touching_read_but_mark_read_preserves_star() {
     let mut s = store();
     s.upsert_article(&rec(1, 10, &[STARRED]), 0).unwrap();
     s.upsert_article(&rec(2, 20, &[STARRED]), 0).unwrap();
-    s.done(id(1)).unwrap();
-    assert!(s.effective(id(1), &Membership::Read).unwrap());
+    s.archive(id(1)).unwrap();
+    assert!(!s.effective(id(1), &Membership::Read).unwrap());
     assert!(!s.effective(id(1), &Membership::Starred).unwrap());
+    assert!(s.effective(id(1), &Membership::Archived).unwrap());
     s.apply_intent(id(2), &Membership::Read, true).unwrap();
     assert!(s.effective(id(2), &Membership::Read).unwrap());
     assert!(s.effective(id(2), &Membership::Starred).unwrap());
@@ -64,7 +65,7 @@ fn undo_before_and_after_acknowledgement() {
     let mut s = store();
     s.upsert_article(&rec(1, 10, &[STARRED]), 0).unwrap();
     // Before acknowledgement: collapses back to the server state, nothing left to send.
-    let u = s.done(id(1)).unwrap();
+    let u = s.archive(id(1)).unwrap();
     s.undo(u).unwrap();
     assert_eq!(s.pending_count().unwrap(), 0);
     assert!(s.effective(id(1), &Membership::Starred).unwrap());
@@ -72,7 +73,7 @@ fn undo_before_and_after_acknowledgement() {
     assert!(s.undo(u).is_err(), "undo is single use");
 
     // After acknowledgement: undo is a durable compensating change that must be sent.
-    let u = s.done(id(1)).unwrap();
+    let u = s.archive(id(1)).unwrap();
     for b in s.begin_send(100).unwrap() {
         s.acknowledge(&b).unwrap();
     }
@@ -81,6 +82,78 @@ fn undo_before_and_after_acknowledgement() {
     assert!(s.effective(id(1), &Membership::Starred).unwrap());
     assert!(!s.effective(id(1), &Membership::Read).unwrap());
     assert_eq!(s.pending_count().unwrap(), 2);
+    assert!(!s.effective(id(1), &Membership::Archived).unwrap());
+}
+
+#[test]
+fn archive_pair_stays_together_with_other_changes() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[STARRED, "user/1/label/x"]), 0).unwrap();
+    s.apply_intent(id(1), &Membership::Read, true).unwrap();
+    s.apply_intent(id(1), &Membership::Label("x".into()), false).unwrap();
+    s.archive(id(1)).unwrap();
+    let batches = s.begin_send(100).unwrap();
+    assert!(batches.iter().any(|b| b.add == Some(Membership::Archived) && b.remove == Some(Membership::Starred)));
+    assert!(
+        batches.iter().all(|b| b.remove != Some(Membership::Starred) || b.add == Some(Membership::Archived)),
+        "the star is never removed on its own"
+    );
+}
+
+#[test]
+fn saving_an_archived_article_restores_it_in_one_request() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    let start = s.seq().unwrap();
+    s.observe(id(1), &Membership::Archived, true, start).unwrap();
+    assert!(s.effective(id(1), &Membership::Archived).unwrap());
+    s.apply_intent(id(1), &Membership::Starred, true).unwrap();
+    assert!(!s.effective(id(1), &Membership::Archived).unwrap());
+    let b = s.begin_send(100).unwrap();
+    assert_eq!(b.len(), 1);
+    assert_eq!((b[0].add.clone(), b[0].remove.clone()), (Some(Membership::Starred), Some(Membership::Archived)));
+    s.acknowledge(&b[0]).unwrap();
+    assert_eq!(s.remote(id(1), &Membership::Archived).unwrap(), Some(false));
+}
+
+#[test]
+fn unarchive_and_undo() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    let start = s.seq().unwrap();
+    s.observe(id(1), &Membership::Archived, true, start).unwrap();
+    let u = s.unarchive(id(1)).unwrap();
+    assert!(!s.effective(id(1), &Membership::Archived).unwrap());
+    s.undo(u).unwrap();
+    assert!(s.effective(id(1), &Membership::Archived).unwrap());
+    assert_eq!(s.pending_count().unwrap(), 0);
+}
+
+#[test]
+fn observing_archived_unstars_and_starred_unarchives() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[STARRED]), 0).unwrap();
+    let start = s.seq().unwrap();
+    s.observe(id(1), &Membership::Archived, true, start).unwrap();
+    assert_eq!(s.remote(id(1), &Membership::Starred).unwrap(), Some(false));
+    let start = s.seq().unwrap();
+    s.observe(id(1), &Membership::Starred, true, start).unwrap();
+    assert_eq!(s.remote(id(1), &Membership::Archived).unwrap(), Some(false));
+}
+
+#[test]
+fn archived_progress_survives_a_starred_listing() {
+    let mut s = store();
+    for n in [1, 2] {
+        let mut r = rec(n, n as i64, &[STARRED]);
+        r.saved_progress = Some(SavedProgress { kind: SavedKind::Article, length_secs: None, percent: 50, finished: false });
+        s.upsert_article(&r, 0).unwrap();
+    }
+    let start = s.seq().unwrap();
+    s.observe(id(1), &Membership::Archived, true, start).unwrap();
+    s.reset_saved_progress_except(&Default::default()).unwrap();
+    assert!(s.saved_progress(id(1)).unwrap().is_some(), "archived keeps its progress");
+    assert!(s.saved_progress(id(2)).unwrap().is_none());
 }
 
 #[test]
@@ -146,15 +219,15 @@ fn in_flight_recovered_after_crash() {
 }
 
 #[test]
-fn done_is_one_request_and_tags_are_independent() {
+fn archive_is_one_request_and_tags_are_independent() {
     let mut s = store();
     s.upsert_article(&rec(1, 10, &[STARRED]), 0).unwrap();
     s.upsert_article(&rec(2, 20, &[STARRED, "user/1/label/keep"]), 0).unwrap();
-    s.done(id(1)).unwrap();
-    s.done(id(2)).unwrap();
+    s.archive(id(1)).unwrap();
+    s.archive(id(2)).unwrap();
     let batches = s.begin_send(100).unwrap();
-    assert_eq!(batches.len(), 1, "both Dones share one add-read/remove-star request");
-    assert_eq!(batches[0].add, Some(Membership::Read));
+    assert_eq!(batches.len(), 1, "both Archives share one add-archived/remove-star request");
+    assert_eq!(batches[0].add, Some(Membership::Archived));
     assert_eq!(batches[0].remove, Some(Membership::Starred));
     assert_eq!(batches[0].articles(), vec![id(1), id(2)]);
 
@@ -511,14 +584,14 @@ fn disk_full_leaves_no_partial_change() {
     assert!(failed, "database should have filled");
     let before = s.pending_count().unwrap();
     for n in 1..50 {
-        if s.done(id(n)).is_err() {
+        if s.archive(id(n)).is_err() {
             assert_eq!(s.pending_count().unwrap() % 2, 0, "a failed Done leaves no half-applied pair");
             break;
         }
     }
     let _ = before;
     s.conn().pragma_update(None, "max_page_count", 1_000_000).unwrap();
-    assert!(s.done(id(1)).is_ok(), "recovers once space returns");
+    assert!(s.archive(id(1)).is_ok(), "recovers once space returns");
 }
 
 fn words_of(s: &Store, n: u64) -> u32 {
@@ -931,4 +1004,48 @@ fn migration_backfills_saved_at() {
     }
     let s = Store::open(&path, "acct").unwrap();
     assert_eq!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].saved_at, 123);
+}
+
+#[test]
+fn migration_drops_like_and_broadcast_rows_and_adds_undo_column() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    {
+        let mut s = Store::open(&path, "acct").unwrap();
+        s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    }
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch(
+            "INSERT INTO intents(account,article,key,desired,generation,updated) VALUES('acct',1,'like',1,1,0); \
+             INSERT INTO remote_state(account,article,key,present,seq) VALUES('acct',1,'broadcast',1,1);",
+        )
+        .unwrap();
+        c.pragma_update(None, "user_version", SCHEMA_VERSION - 1).unwrap();
+    }
+    let mut s = Store::open(&path, "acct").unwrap();
+    assert_eq!(s.pending_count().unwrap(), 0);
+    let c = s.conn();
+    let n: i64 = c.query_row("SELECT COUNT(*) FROM remote_state WHERE key IN ('like','broadcast')", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 0);
+    c.execute_batch("SELECT prev_archived FROM undos").unwrap();
+    assert!(s.archive(id(1)).is_ok());
+}
+
+#[test]
+fn a_dev_build_at_version_11_without_highlight_styles_is_repaired() {
+    // A development build numbered the Archive migration 0011: its databases are at version 11
+    // without the highlight style and colour that 0011 adds on main.
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    drop(Store::open(&path, "acct").unwrap());
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch(DROP_HIGHLIGHT_STYLES).unwrap();
+        c.pragma_update(None, "user_version", 11).unwrap();
+    }
+    let s = Store::open(&path, "acct").unwrap();
+    assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+    let c = s.conn();
+    c.execute_batch("SELECT style, color FROM highlights; SELECT prev_archived FROM undos").unwrap();
 }

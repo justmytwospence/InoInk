@@ -254,12 +254,11 @@ pub struct ContentsParams {
     pub newer_than: Option<i64>,
     pub exclude_read: bool,
     pub only_starred: bool,
-    pub only_liked: bool,
     pub continuation: Option<String>,
     pub annotations: bool,
     pub summaries: bool,
     /// Ask for each saved article's reading progress (`progress=1`; undocumented, and only the
-    /// starred stream answers).
+    /// starred and archived streams answer).
     pub progress: bool,
     /// Ask only for manually assigned tags in `categories`.
     pub manual_tags_only: bool,
@@ -273,7 +272,6 @@ pub struct IdsParams {
     pub newer_than: Option<i64>,
     pub exclude_read: bool,
     pub only_starred: bool,
-    pub only_liked: bool,
     pub continuation: Option<String>,
     pub direct_ids: bool,
 }
@@ -287,7 +285,6 @@ impl IdsParams {
             newer_than: None,
             exclude_read: false,
             only_starred: false,
-            only_liked: false,
             continuation: None,
             direct_ids: false,
         }

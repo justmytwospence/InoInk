@@ -17,7 +17,8 @@ pub struct SArt {
     pub feed: String,
     pub read: bool,
     pub starred: bool,
-    pub like: bool,
+    /// In the Archive (never listed in an item's categories, as on the real server).
+    pub archived: bool,
     pub labels: BTreeSet<String>,
     pub annotations: Vec<serde_json::Value>,
     /// The `savedProgress` object served for a starred article (a default one when None).
@@ -126,7 +127,7 @@ impl Fake {
                 feed: feed.into(),
                 read: false,
                 starred: false,
-                like: false,
+                archived: false,
                 labels: BTreeSet::new(),
                 annotations: vec![],
                 progress: None,
@@ -175,9 +176,6 @@ fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool, with_progres
             if a.starred {
                 cats.push("user/42/state/com.google/starred".into());
             }
-            if a.like {
-                cats.push("user/42/state/com.google/like".into());
-            }
             for l in &a.labels {
                 cats.push(format!("user/42/label/{l}"));
             }
@@ -205,7 +203,7 @@ fn items_json(arts: &[SArt], subs: &[SSub], with_annotations: bool, with_progres
             if a.starred && a.starred_at > 0 {
                 item["starred"] = a.starred_at.into();
             }
-            if with_progress && a.starred {
+            if with_progress && (a.starred || a.archived) {
                 item["savedProgress"] = a.progress.clone().unwrap_or_else(
                     || serde_json::json!({"kind": "article", "progress": 0, "finished": false, "archiveWhenFinished": false}),
                 );
@@ -336,8 +334,18 @@ impl Transport for Fake {
                                             art.read = val;
                                         }
                                     }
-                                    "user/-/state/com.google/starred" => art.starred = val,
-                                    "user/-/state/com.google/like" => art.like = val,
+                                    "user/-/state/com.google/starred" => {
+                                        art.starred = val;
+                                        if val {
+                                            art.archived = false;
+                                        }
+                                    }
+                                    "user/-/state/com.google/archived" => {
+                                        art.archived = val;
+                                        if val {
+                                            art.starred = false;
+                                        }
+                                    }
                                     t => {
                                         if let Some(l) = t.strip_prefix("user/-/label/") {
                                             if val {
@@ -348,6 +356,10 @@ impl Transport for Fake {
                                         }
                                     }
                                 }
+                            }
+                            // Inoreader drops the reading progress of an article that is in neither list.
+                            if !art.starred && !art.archived {
+                                art.progress = None;
                             }
                         }
                     }
@@ -366,7 +378,7 @@ impl Transport for Fake {
                     list.retain(|a| match stream.as_str() {
                         "user/-/state/com.google/starred" => a.starred,
                         "user/-/state/com.google/reading-list" => true,
-                        "user/-/state/com.google/like" => a.like,
+                        "user/-/state/com.google/archived" => a.archived,
                         "user/-/state/com.google/annotated" => !a.annotations.is_empty(),
                         s if s.starts_with("feed/") => a.feed == s,
                         s if s.starts_with("user/-/label/") => {
@@ -397,7 +409,7 @@ impl Transport for Fake {
                             page,
                             &subs,
                             qget("annotations").as_deref() == Some("1"),
-                            qget("progress").as_deref() == Some("1") && stream == "user/-/state/com.google/starred"
+                            qget("progress").as_deref() == Some("1") && (stream == "user/-/state/com.google/starred" || stream == "user/-/state/com.google/archived")
                         )})
                     } else {
                         let refs: Vec<_> = page

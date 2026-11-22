@@ -268,8 +268,6 @@ impl ApiClient {
         }
         if p.only_starred {
             q.append_pair("it", STATE_STARRED);
-        } else if p.only_liked {
-            q.append_pair("it", STATE_LIKE);
         }
         if let Some(c) = &p.continuation {
             q.append_pair("c", c);
@@ -306,8 +304,6 @@ impl ApiClient {
         }
         if p.only_starred {
             q.append_pair("it", STATE_STARRED);
-        } else if p.only_liked {
-            q.append_pair("it", STATE_LIKE);
         }
         if let Some(c) = &p.continuation {
             q.append_pair("c", c);
