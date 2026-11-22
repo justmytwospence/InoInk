@@ -1,4 +1,5 @@
-//! The end-of-article popup: what to do with the finished article (Mark read by default), the
+//! The end-of-article popup: what to do with the finished article (Mark read by default, Archive
+//! on a saved article when it was chosen last time), the
 //! next article of the list, and Back to list / Next article. Swiping on (or the forward button)
 //! also opens the next article; swiping back, the back button or a tap outside closes the popup. Opened by paging past
 //! the last page.
@@ -60,8 +61,9 @@ pub struct ArticleEnd {
 
 impl ArticleEnd {
     /// `starred`: Archive is offered; `read`: Mark read is not (and Leave is called "Leave as is");
+    /// `prefer_archive`: Archive is preselected when it is offered;
     /// `next_title`: the next article of the list, if any.
-    pub fn new(screen: Rectangle, starred: bool, read: bool, next_title: Option<String>, context: &mut Context) -> ArticleEnd {
+    pub fn new(screen: Rectangle, starred: bool, read: bool, prefer_archive: bool, next_title: Option<String>, context: &mut Context) -> ArticleEnd {
         let dpi = CURRENT_DEVICE.dpi;
         let mut options: Vec<(EndState, &'static str)> = Vec::new();
         if !read {
@@ -71,7 +73,13 @@ impl ArticleEnd {
             options.push((EndState::Archive, "Archive"));
         }
         options.push((EndState::Leave, if read { "Leave as is" } else { "Keep unread" }));
-        let state = if read { EndState::Leave } else { EndState::MarkRead };
+        let state = if starred && prefer_archive {
+            EndState::Archive
+        } else if read {
+            EndState::Leave
+        } else {
+            EndState::MarkRead
+        };
 
         let (x_height, padding, tlh) = {
             let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi);

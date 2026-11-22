@@ -296,6 +296,21 @@ impl InoInk {
             .unwrap_or_default()
     }
 
+    /// Whether the end-of-article popup last archived a saved article (so it preselects Archive).
+    pub fn end_archive(&self) -> bool {
+        self.store
+            .as_ref()
+            .and_then(|s| s.get_meta("ui_end_archive").ok().flatten())
+            .and_then(|v| serde_json::from_str::<bool>(&v).ok())
+            .unwrap_or(false)
+    }
+
+    pub fn set_end_archive(&mut self, v: bool) {
+        if let Some(store) = self.store.as_mut() {
+            let _ = store.set_meta("ui_end_archive", &serde_json::to_string(&v).unwrap_or_default());
+        }
+    }
+
     pub fn set_category_sort(&mut self, s: CategorySort) {
         if let Some(store) = self.store.as_mut() {
             let _ = store.set_meta("ui_category_sort", &serde_json::to_string(&s).unwrap_or_default());

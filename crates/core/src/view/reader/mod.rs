@@ -3455,7 +3455,7 @@ impl Reader {
         let flag = |m: inoink::model::Membership| context.inoink.store().and_then(|s| s.effective(id, &m).ok()).unwrap_or(false);
         let starred = flag(inoink::model::Membership::Starred);
         let read = flag(inoink::model::Membership::Read);
-        let popup = ArticleEnd::new(self.rect, starred, read, self.queue_titles.1.clone(), context);
+        let popup = ArticleEnd::new(self.rect, starred, read, context.inoink.end_archive(), self.queue_titles.1.clone(), context);
         rq.add(RenderData::new(popup.id(), *popup.rect(), UpdateMode::Gui));
         self.children.push(Box::new(popup) as Box<dyn View>);
     }
@@ -3476,6 +3476,10 @@ impl Reader {
             EndChoice::Continue(s) => (s, true),
             EndChoice::BackToList(s) => (s, false),
         };
+        let starred = context.inoink.store().and_then(|s| s.effective(id, &inoink::model::Membership::Starred).ok()).unwrap_or(false);
+        if starred {
+            context.inoink.set_end_archive(state == EndState::Archive);
+        }
         let action = match state {
             EndState::MarkRead => Some(ArticleAction::MarkRead),
             EndState::Archive => Some(ArticleAction::Done),
