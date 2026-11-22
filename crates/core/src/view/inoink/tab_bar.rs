@@ -1,9 +1,9 @@
-//! The five tabs under the top bar: Newsfeed, Feeds, Read later, Archive and Saved.
+//! The two tabs under the top bar, one per Inoreader section; the active one names the current view.
 
 use crate::color::{BLACK, SEPARATOR_NORMAL, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::font::{font_from_style, Fonts, NORMAL_STYLE, SMALL_STYLE};
+use crate::font::{font_from_style, Fonts, NORMAL_STYLE};
 use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
@@ -12,28 +12,32 @@ use crate::view::inoink::actions::InoInkEntry;
 use crate::view::inoink::state::Tab;
 use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
 
-pub const TABS: [Tab; 5] = [Tab::Newsfeed, Tab::Feeds, Tab::ReadLater, Tab::Archive, Tab::Saved];
+pub const TABS: [Tab; 2] = [Tab::Feeds, Tab::Saved];
 
 pub struct TabBar {
     id: Id,
     rect: Rectangle,
     children: Vec<Box<dyn View>>,
     current: Tab,
-    labels: [String; 5],
+    labels: [String; 2],
 }
 
 impl TabBar {
-    pub fn new(rect: Rectangle, current: Tab, labels: [String; 5]) -> TabBar {
+    pub fn new(rect: Rectangle, current: Tab, labels: [String; 2]) -> TabBar {
         TabBar { id: ID_FEEDER.next(), rect, children: Vec::new(), current, labels }
     }
 
     /// Redraws only when the selected tab or a label changed.
-    pub fn update(&mut self, current: Tab, labels: [String; 5], rq: &mut RenderQueue) {
+    pub fn update(&mut self, current: Tab, labels: [String; 2], rq: &mut RenderQueue) {
         if self.current != current || self.labels != labels {
             self.current = current;
             self.labels = labels;
             rq.add(RenderData::new(self.id, self.rect, UpdateMode::Gui));
         }
+    }
+
+    pub fn labels(&self) -> &[String; 2] {
+        &self.labels
     }
 
     fn cell(&self, i: usize) -> Rectangle {
@@ -60,13 +64,7 @@ impl View for TabBar {
 
     fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
         let dpi = CURRENT_DEVICE.dpi;
-        // Every label in the normal size when they all fit their cell, else all in the small one.
-        let fits = {
-            let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
-            let pad = font.em() as i32 / 2;
-            (0..TABS.len()).all(|i| font.plan(&self.labels[i], None, None).width <= self.cell(i).width() as i32 - 2 * pad)
-        };
-        let font = font_from_style(fonts, if fits { &NORMAL_STYLE } else { &SMALL_STYLE }, dpi);
+        let font = font_from_style(fonts, &NORMAL_STYLE, dpi);
         for i in 0..TABS.len() {
             let cell = self.cell(i);
             let active = TABS[i] == self.current;

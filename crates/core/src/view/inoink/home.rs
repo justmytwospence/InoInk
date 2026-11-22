@@ -21,7 +21,7 @@ use crate::view::inoink::manage;
 use crate::view::inoink::page_progress::PageProgress;
 use crate::view::inoink::row::{ArticleRow, RowMode};
 use crate::view::inoink::state::{ReadingQueue, Tab};
-use crate::view::inoink::tab_bar::TabBar;
+use crate::view::inoink::tab_bar::{TabBar, TABS as TAB_ORDER};
 use std::collections::BTreeSet;
 use crate::view::keyboard::Keyboard;
 use crate::view::label::Label;
@@ -188,6 +188,17 @@ pub fn collection_title(context: &Context, c: &Collection) -> String {
     }
 }
 
+/// `name` cut to `max` characters, the last an ellipsis.
+fn shorten(name: &str, max: usize) -> String {
+    if name.chars().count() <= max {
+        return name.to_string();
+    }
+    let mut s: String = name.chars().take(max - 1).collect();
+    s.truncate(s.trim_end().len());
+    s.push('\u{2026}');
+    s
+}
+
 impl InoInkHome {
     pub fn new(rect: Rectangle, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> InoInkHome {
         let id = ID_FEEDER.next();
@@ -253,9 +264,23 @@ impl InoInkHome {
         home
     }
 
-    /// The list of categories is showing (Categories tab, nothing opened, no search).
+    /// The section's picker is showing (and no search).
     fn showing_categories(&self, context: &Context) -> bool {
-        self.search.is_none() && context.inoink.tab.lists_categories() && context.inoink.show_categories
+        self.search.is_none() && context.inoink.show_categories
+    }
+
+    /// A view other than the section's default is open (and the picker is not showing).
+    fn narrowed(context: &Context) -> bool {
+        !context.inoink.show_categories && context.inoink.collection != context.inoink.tab.root()
+    }
+
+    /// The open view is a folder, or a feed that is in one: the title offers the folder's feeds.
+    fn has_feed_menu(context: &Context) -> bool {
+        match &context.inoink.collection {
+            Collection::Folder(_) => true,
+            Collection::Feed(s) => context.inoink.store().and_then(|st| st.subscription(s.as_str()).ok().flatten()).is_some_and(|x| !x.folders.is_empty()),
+            _ => false,
+        }
     }
 
     /// How rows answer taps and holds: a tap opens (or saves, on the ribbon), a hold shows the
@@ -547,21 +572,21 @@ impl InoInkHome {
 
     /// Title, back/search icon and tab labels.
     fn update_chrome(&mut self, rq: &mut RenderQueue, context: &Context) {
-        let in_category = context.inoink.tab.lists_categories() && !context.inoink.show_categories;
-        // The tabs already name where you are: the title only says which entry of Feeds or
-        // Saved is open, or what you searched for.
+        let narrowed = Self::narrowed(context);
+        // The active tab names the view. The title only offers a folder's feeds, or says what
+        // you searched for or selected.
         let title = if let Some(sel) = &self.selecting {
             format!("{} selected", sel.ids.len())
         } else if let Some(q) = &self.search {
             format!("Search: {q}")
-        } else if in_category {
-            format!("{} \u{25be}", collection_title(context, &context.inoink.collection))
+        } else if narrowed && Self::has_feed_menu(context) {
+            "Feeds \u{25be}".to_string()
         } else {
             String::new()
         };
         let icon = if self.selecting.is_some() {
             "close"
-        } else if self.search.is_some() || in_category {
+        } else if self.search.is_some() || narrowed {
             "back"
         } else {
             "search"
@@ -574,13 +599,22 @@ impl InoInkHome {
             context.inoink.store().and_then(|s| s.count_articles(&ArticleQuery { collection: Some(c), unread_only: unread, ..Default::default() }).ok()).unwrap_or(0)
         };
         let label = |name: &str, n: usize| if n > 0 { format!("{name} ({n})") } else { name.to_string() };
-        let labels = [
-            label("Newsfeed", count(Collection::All, true)),
-            "Feeds".to_string(),
-            label("Read later", count(Collection::Starred, false)),
-            "Archive".to_string(),
-            "Saved".to_string(),
-        ];
+        let tab = context.inoink.tab;
+        let root_label = |t: Tab| match t {
+            Tab::Feeds => label("Newsfeed", count(Collection::All, true)),
+            Tab::Saved => label("Read later", count(Collection::Starred, false)),
+        };
+        let current = &context.inoink.collection;
+        let active = if *current == tab.root() {
+            root_label(tab)
+        } else {
+            let name = shorten(&collection_title(context, current), 18);
+            match tab {
+                Tab::Feeds => label(&name, count(current.clone(), true)),
+                Tab::Saved => name,
+            }
+        };
+        let labels = TAB_ORDER.map(|t| if t == tab { format!("{active} \u{25be}") } else { root_label(t) });
         if let Some(tabs) = self.children[TABS].downcast_mut::<TabBar>() {
             tabs.update(context.inoink.tab, labels, rq);
         }
@@ -879,6 +913,11 @@ impl InoInkHome {
         self.items.iter().map(|i| i.id).collect()
     }
 
+    /// The labels of the two tabs.
+    pub fn tab_labels(&self) -> Vec<String> {
+        self.children[TABS].downcast_ref::<TabBar>().map(|t| t.labels().to_vec()).unwrap_or_default()
+    }
+
     /// The headers and categories on screen, in order.
     pub fn category_labels(&self) -> Vec<String> {
         self.layout
@@ -1040,8 +1079,12 @@ impl InoInkHome {
     fn select(&mut self, entry: &InoInkEntry, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         match entry {
             InoInkEntry::Tab(t) => {
-                self.search = None;
-                context.inoink.set_tab(*t);
+                let searching = self.search.take().is_some();
+                if *t != context.inoink.tab {
+                    context.inoink.set_tab(*t);
+                } else if !searching {
+                    context.inoink.toggle_picker();
+                }
                 self.reset(hub, rq, context);
             }
             InoInkEntry::OpenCategory(c) => {
@@ -1394,7 +1437,7 @@ impl View for InoInkHome {
                 } else if self.search.is_some() {
                     self.search = None;
                     self.reset(hub, rq, context);
-                } else if context.inoink.tab.lists_categories() && !context.inoink.show_categories {
+                } else if Self::narrowed(context) {
                     context.inoink.show_category_list();
                     self.reset(hub, rq, context);
                 } else {

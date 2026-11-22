@@ -1,4 +1,5 @@
-//! The Feeds and Saved tabs: folders and monitoring feeds; Web pages, Annotations and tags.
+//! The pickers of the two sections: the Newsfeed, folders and monitoring feeds; Read later, the
+//! Archive, Web pages, Annotations and tags.
 
 use crate::color::{BLACK, GRAY03, TEXT_INVERTED_HARD, TEXT_NORMAL};
 use crate::context::Context;
@@ -19,15 +20,19 @@ pub enum CategoryItem {
     Entry { label: String, count: usize, target: Collection },
 }
 
-/// Everything the Feeds or Saved tab lists. Feeds: the folders in the chosen order, then the
-/// monitoring feeds. Saved: Web pages and Annotations, then the tags A-Z. Sections with nothing
-/// in them are left out.
+/// Everything a section's picker lists, its default view first. Feeds: the Newsfeed, the folders
+/// in the chosen order, then the monitoring feeds. Saved: Read later, the Archive, Web pages and
+/// Annotations, then the tags A-Z. Sections with nothing in them are left out.
 pub fn category_items(context: &Context, tab: Tab) -> Vec<CategoryItem> {
     let mut items = Vec::new();
     let Some(store) = context.inoink.store() else { return items };
     let tags = store.tags().unwrap_or_default();
+    let count = |c: Collection, unread: bool| {
+        store.count_articles(&ArticleQuery { collection: Some(c), unread_only: unread, ..Default::default() }).unwrap_or(0)
+    };
     match tab {
         Tab::Feeds => {
+            items.push(CategoryItem::Entry { label: "Newsfeed".into(), count: count(Collection::All, true), target: Collection::All });
             let sort = context.inoink.category_sort();
             let counts = store.unread_by_folder().unwrap_or_default();
             let mut folders: Vec<(String, usize)> = store
@@ -61,6 +66,8 @@ pub fn category_items(context: &Context, tab: Tab) -> Vec<CategoryItem> {
             }
         }
         Tab::Saved => {
+            items.push(CategoryItem::Entry { label: "Read later".into(), count: count(Collection::Starred, false), target: Collection::Starred });
+            items.push(CategoryItem::Entry { label: "Archive".into(), count: 0, target: Collection::Archived });
             items.push(CategoryItem::Entry { label: "Web pages".into(), count: 0, target: Collection::SavedPages });
             items.push(CategoryItem::Entry { label: "Annotations".into(), count: 0, target: Collection::Annotated });
             let mut user_tags: Vec<String> =
@@ -73,7 +80,6 @@ pub fn category_items(context: &Context, tab: Tab) -> Vec<CategoryItem> {
                 }
             }
         }
-        _ => {}
     }
     items
 }

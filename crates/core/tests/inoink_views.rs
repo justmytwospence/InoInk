@@ -171,7 +171,7 @@ fn sandbox_actions_persist_locally_and_sync_stays_offline() {
 #[test]
 fn opens_on_the_newsfeed_with_unread_only() {
     let mut e = env();
-    assert_eq!(e.context.inoink.tab, Tab::Newsfeed);
+    assert_eq!(e.context.inoink.tab, Tab::Feeds);
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(rows(&home), vec![4, 3, 2, 1], "every article is unread; newest first");
@@ -186,7 +186,7 @@ fn tab_and_category_are_remembered() {
     let s = Store::open(&e.context.inoink.data_dir.join("inoink.db"), "local").unwrap();
     assert!(s.get_meta("ui_tab").unwrap().unwrap().contains("Feeds"));
     assert!(s.get_meta("ui_collection").unwrap().unwrap().contains("Folder"));
-    assert_eq!(s.get_meta("ui_show_categories").unwrap().as_deref(), Some("0"));
+    assert_eq!(s.get_meta("ui_picker").unwrap().as_deref(), Some("0"));
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn read_later_shows_starred_newest_first() {
     let mut e = env();
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
     assert_eq!(rows(&home), vec![2, 1]);
 }
 
@@ -221,7 +221,7 @@ fn opening_builds_a_reading_queue() {
     assert_eq!(q.position(ArticleId(3)), Some((2, 4)));
     assert_eq!(q.next_after(ArticleId(1)), None);
     assert!(!q.read_later);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
     send(&mut home, &mut e, Event::OpenArticle(ArticleId(2)));
     assert!(e.context.inoink.queue.clone().unwrap().read_later);
 }
@@ -256,13 +256,13 @@ fn categories_list_folders_in_inoreader_order() {
         st.replace_tags(&[tag("Alpha", "00000001"), tag("Beta", "00000002")]).unwrap();
         st.set_stream_order(STATE_ROOT, "0000000200000001").unwrap();
     }
-    e.context.inoink.set_tab(Tab::Feeds);
+    e.context.inoink.toggle_picker();
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     let labels = home.category_labels();
-    assert_eq!(&labels[..3], &["Folders".to_string(), "Beta".to_string(), "Alpha".to_string()]);
+    assert_eq!(&labels[..4], &["Newsfeed", "Folders", "Beta", "Alpha"]);
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::CategorySort(CategorySort::Name))));
-    assert_eq!(&home.category_labels()[..3], &["Folders".to_string(), "Alpha".to_string(), "Beta".to_string()]);
+    assert_eq!(&home.category_labels()[..4], &["Newsfeed", "Folders", "Alpha", "Beta"]);
     assert_eq!(e.context.inoink.category_sort(), CategorySort::Name, "the choice is remembered");
 }
 
@@ -404,7 +404,7 @@ fn changing_tab_cancels_selection_and_the_row_menu_starts_one() {
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::None))));
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
     assert_eq!(home.selected_articles(), None);
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Select(SelectPreset::One(ArticleId(2))))));
     assert_eq!(home.selected_articles(), Some(vec![ArticleId(2)]));
@@ -688,7 +688,7 @@ fn grouped_list_pages_are_counted_exactly() {
 #[test]
 fn categories_show_their_page_count() {
     let mut e = env();
-    e.context.inoink.set_tab(Tab::Feeds);
+    e.context.inoink.toggle_picker();
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     assert_eq!(home.page_status(), (1, 1, false));
@@ -864,7 +864,7 @@ fn row_menu_offers_mark_read_up_to_here_except_in_read_later() {
     };
     let l = labels(&home, &e);
     assert!(l.contains(&"Mark read up to here".to_string()) && l.contains(&"Mark read from here down".to_string()), "{l:?}");
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
     let l = labels(&home, &e);
     assert!(!l.contains(&"Mark read up to here".to_string()) && !l.contains(&"Mark read from here down".to_string()), "{l:?}");
 }
@@ -1188,7 +1188,7 @@ fn read_later_filters_by_progress() {
     with_web_progress(&mut e, 2, 30);
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(plato_core::view::inoink::state::Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(plato_core::view::inoink::state::Tab::Saved))));
     assert_eq!(rows(&home), vec![2, 1], "newest saved first by default");
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ProgressFilter(inoink::model::ProgressFilter::InProgress))));
     assert_eq!(e.context.inoink.view_options().progress, inoink::model::ProgressFilter::InProgress);
@@ -1400,28 +1400,29 @@ fn set_tags(e: &mut Env, tags: &[(&str, &str)]) {
 #[test]
 fn tabs_mirror_inoreader() {
     use plato_core::view::inoink::tab_bar::TABS;
-    assert_eq!(TABS, [Tab::Newsfeed, Tab::Feeds, Tab::ReadLater, Tab::Archive, Tab::Saved]);
+    assert_eq!(TABS, [Tab::Feeds, Tab::Saved]);
 }
 
 #[test]
-fn saved_tab_lists_web_pages_annotations_then_tags() {
+fn saved_picker_lists_read_later_archive_and_tags() {
     let mut e = env();
     set_tags(&mut e, &[("savelog", "tag"), ("Tech", "folder")]);
     e.context.inoink.set_tab(Tab::Saved);
+    e.context.inoink.toggle_picker();
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    assert_eq!(home.category_labels(), vec!["Web pages", "Annotations", "Tags", "savelog"]);
+    assert_eq!(home.category_labels(), vec!["Read later", "Archive", "Web pages", "Annotations", "Tags", "savelog"]);
 }
 
 #[test]
-fn feeds_tab_lists_folders_then_monitoring_feeds() {
+fn feeds_picker_lists_newsfeed_folders_then_monitoring_feeds() {
     let mut e = env();
     set_tags(&mut e, &[("Tech", "folder"), ("rust", "active_search")]);
-    e.context.inoink.set_tab(Tab::Feeds);
+    e.context.inoink.toggle_picker();
     let mut rq = RenderQueue::new();
     let home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
     let labels = home.category_labels();
-    assert_eq!(labels.first().map(String::as_str), Some("Folders"));
+    assert_eq!(&labels[..2], &["Newsfeed", "Folders"]);
     assert_eq!(&labels[labels.len() - 2..], &["Monitoring feeds".to_string(), "rust".to_string()]);
 }
 
@@ -1436,20 +1437,74 @@ fn opening_a_tag_switches_to_saved_and_back_shows_its_list() {
     assert!(!e.context.inoink.show_categories);
     send(&mut home, &mut e, Event::Toggle(ViewId::SearchBar));
     assert!(e.context.inoink.show_categories);
-    assert_eq!(home.category_labels(), vec!["Web pages", "Annotations", "Tags", "savelog"]);
+    assert_eq!(home.category_labels(), vec!["Read later", "Archive", "Web pages", "Annotations", "Tags", "savelog"]);
 }
 
 #[test]
-fn archive_tab_lists_archived_articles_and_read_later_drops_them() {
+fn archive_view_lists_archived_articles_and_read_later_drops_them() {
     let mut e = env();
     apply_article_action(&mut e.context, ArticleId(1), &ArticleAction::Archive).unwrap();
     let mut rq = RenderQueue::new();
     let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Archive))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Archived))));
+    assert_eq!(e.context.inoink.tab, Tab::Saved);
     assert_eq!(e.context.inoink.collection, Collection::Archived);
     assert_eq!(rows(&home), vec![1]);
-    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::ReadLater))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Feeds))));
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
     assert_eq!(rows(&home), vec![2]);
+}
+
+#[test]
+fn tapping_the_active_tab_toggles_its_picker() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Feeds))));
+    assert!(e.context.inoink.show_categories);
+    assert_eq!(home.category_labels()[0], "Newsfeed");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Feeds))));
+    assert!(!e.context.inoink.show_categories);
+    assert_eq!(rows(&home), vec![4, 3, 2, 1]);
+}
+
+#[test]
+fn tapping_the_other_tab_opens_its_default_view() {
+    let mut e = env();
+    e.context.inoink.open_collection(Collection::Archived);
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Feeds))));
+    assert_eq!(e.context.inoink.collection, Collection::All);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(Tab::Saved))));
+    assert_eq!(e.context.inoink.collection, Collection::Starred);
+    assert!(!e.context.inoink.show_categories);
+}
+
+#[test]
+fn active_tab_names_the_view() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    assert_eq!(home.tab_labels(), vec!["Newsfeed (4) \u{25be}", "Read later (2)"]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Archived))));
+    assert_eq!(home.tab_labels(), vec!["Newsfeed (4)", "Archive \u{25be}"]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Tag("A very long tag name indeed".into())))));
+    assert_eq!(home.tab_labels()[1], "A very long tag n\u{2026} \u{25be}");
+}
+
+#[test]
+fn picker_first_row_returns_to_the_default_view() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::Folder("X".into())))));
+    send(&mut home, &mut e, Event::Toggle(ViewId::SearchBar));
+    assert!(e.context.inoink.show_categories);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::OpenCategory(Collection::All))));
+    assert_eq!(e.context.inoink.collection, Collection::All);
+    assert_eq!(e.context.inoink.tab, Tab::Feeds);
+    assert!(!e.context.inoink.show_categories);
 }
 
 fn menu_commands(home: &InoInkHome, e: &Env, id: u64) -> Vec<String> {

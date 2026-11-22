@@ -29,36 +29,31 @@ pub enum Undo {
     Bulk(i64),
 }
 
-/// The places the interface opens into, as Inoreader names them.
+/// Inoreader's two sections. Each opens on its default view and narrows through its picker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
-    /// Inoreader's Newsfeed: everything you follow; unread articles by default.
-    Newsfeed,
-    /// Inoreader's Feeds: folders and monitoring feeds.
-    #[serde(alias = "Categories")]
+    /// Feeds: the Newsfeed, narrowed to a folder, a feed or a monitoring feed.
+    #[serde(alias = "Newsfeed", alias = "Categories")]
     Feeds,
-    /// What was saved: the reading queue (starred).
-    ReadLater,
-    /// Inoreader's Archive: saved articles you finished and kept.
-    Archive,
-    /// The rest of Inoreader's Saved section: Web pages, Annotations and tags.
+    /// Saved: Read later, or the Archive, Web pages, Annotations or a tag.
+    #[serde(alias = "ReadLater", alias = "Archive")]
     Saved,
 }
 
 impl Tab {
-    /// Tabs that open on a list of entries (folders, tags...) rather than on articles.
-    pub fn lists_categories(self) -> bool {
-        matches!(self, Tab::Feeds | Tab::Saved)
+    /// The section's default view.
+    pub fn root(self) -> Collection {
+        match self {
+            Tab::Feeds => Collection::All,
+            Tab::Saved => Collection::Starred,
+        }
     }
 
-    /// The tab an opened collection belongs to.
+    /// The section a view belongs to.
     pub fn for_collection(c: &Collection) -> Tab {
         match c {
-            Collection::All | Collection::Unread => Tab::Newsfeed,
-            Collection::Starred => Tab::ReadLater,
-            Collection::Archived => Tab::Archive,
-            Collection::Feed(_) | Collection::Folder(_) | Collection::Monitoring(_) => Tab::Feeds,
-            Collection::SavedPages | Collection::Annotated | Collection::Tag(_) => Tab::Saved,
+            Collection::All | Collection::Unread | Collection::Feed(_) | Collection::Folder(_) | Collection::Monitoring(_) => Tab::Feeds,
+            Collection::Starred | Collection::Archived | Collection::SavedPages | Collection::Annotated | Collection::Tag(_) => Tab::Saved,
         }
     }
 }
@@ -114,12 +109,11 @@ pub struct InoInk {
     /// When the last sync finished this session, kept while later ones run or fail.
     pub last_sync: Option<i64>,
     pub cache: Cache,
-    /// The tab shown.
+    /// The section shown.
     pub tab: Tab,
-    /// The article list shown: All for the Newsfeed, Starred for Read later, or the entry
-    /// opened from Feeds or Saved.
+    /// The article list shown: the section's default view, or the one chosen in its picker.
     pub collection: Collection,
-    /// In Feeds or Saved: the list of entries rather than the articles of one.
+    /// The section's picker is showing instead of the articles.
     pub show_categories: bool,
     /// The list the open article came from, for "next article".
     pub queue: Option<ReadingQueue>,
@@ -203,9 +197,9 @@ impl InoInk {
             status: SyncStatus::Idle { last_sync: None },
             last_sync: None,
             cache,
-            tab: Tab::Newsfeed,
+            tab: Tab::Feeds,
             collection: Collection::All,
-            show_categories: true,
+            show_categories: false,
             queue: None,
             last_undo: None,
             refills: 0,
@@ -277,24 +271,17 @@ impl InoInk {
                 self.collection = c;
             }
         }
-        if let Ok(Some(v)) = store.get_meta("ui_show_categories") {
-            self.show_categories = v != "0";
+        if let Ok(Some(v)) = store.get_meta("ui_picker") {
+            self.show_categories = v == "1";
         }
         self.normalize_view();
     }
 
-    /// The collection each tab shows: All for the Newsfeed, Starred for Read later, Archived
-    /// for the Archive; Feeds and Saved show a list of entries unless one of theirs is open.
+    /// A stored view that does not belong to the stored section falls back to the section's default.
     fn normalize_view(&mut self) {
-        match self.tab {
-            Tab::Newsfeed => self.collection = Collection::All,
-            Tab::ReadLater => self.collection = Collection::Starred,
-            Tab::Archive => self.collection = Collection::Archived,
-            Tab::Feeds | Tab::Saved => {
-                if Tab::for_collection(&self.collection) != self.tab {
-                    self.show_categories = true;
-                }
-            }
+        if Tab::for_collection(&self.collection) != self.tab {
+            self.collection = self.tab.root();
+            self.show_categories = false;
         }
     }
 
@@ -303,30 +290,33 @@ impl InoInk {
         if let Some(store) = self.store.as_mut() {
             let _ = store.set_meta("ui_tab", &serde_json::to_string(&tab).unwrap_or_default());
             let _ = store.set_meta("ui_collection", &serde_json::to_string(&collection).unwrap_or_default());
-            let _ = store.set_meta("ui_show_categories", if show { "1" } else { "0" });
+            let _ = store.set_meta("ui_picker", if show { "1" } else { "0" });
         }
     }
 
-    /// Switches tab. Feeds and Saved open on their list of entries.
+    /// Switches section, to its default view.
     pub fn set_tab(&mut self, tab: Tab) {
         self.tab = tab;
-        if tab.lists_categories() {
-            self.show_categories = true;
-        }
-        self.normalize_view();
+        self.collection = tab.root();
+        self.show_categories = false;
         self.persist_view();
     }
 
-    /// Opens one entry (folder, feed, tag...) of the Feeds or Saved tab.
+    /// Opens or closes the section's picker.
+    pub fn toggle_picker(&mut self) {
+        self.show_categories = !self.show_categories;
+        self.persist_view();
+    }
+
+    /// Opens one view chosen in a picker (or a folder's feed menu).
     pub fn open_collection(&mut self, c: Collection) {
         self.tab = Tab::for_collection(&c);
         self.collection = c;
         self.show_categories = false;
-        self.normalize_view();
         self.persist_view();
     }
 
-    /// Goes back from one category to the list of categories.
+    /// Goes back from a narrowed view to the section's picker.
     pub fn show_category_list(&mut self) {
         self.show_categories = true;
         self.persist_view();
@@ -519,10 +509,17 @@ mod tests {
     use super::ago_text;
 
     #[test]
-    fn categories_tab_is_now_feeds() {
+    fn older_stored_tabs_still_parse() {
         use super::Tab;
-        assert_eq!(serde_json::from_str::<Tab>("\"Categories\"").unwrap(), Tab::Feeds);
-        assert_eq!(serde_json::to_string(&Tab::Archive).unwrap(), "\"Archive\"");
+        use inoink::model::Collection;
+        for n in ["Categories", "Newsfeed", "Feeds"] {
+            assert_eq!(serde_json::from_str::<Tab>(&format!("\"{n}\"")).unwrap(), Tab::Feeds, "{n}");
+        }
+        for n in ["ReadLater", "Archive", "Saved"] {
+            assert_eq!(serde_json::from_str::<Tab>(&format!("\"{n}\"")).unwrap(), Tab::Saved, "{n}");
+        }
+        assert_eq!(Tab::Feeds.root(), Collection::All);
+        assert_eq!(Tab::Saved.root(), Collection::Starred);
     }
 
     #[test]

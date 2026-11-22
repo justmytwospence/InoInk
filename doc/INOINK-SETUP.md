@@ -259,12 +259,14 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
 
 ## Everyday use
 
-- Five tabs sit under the top bar, named as Inoreader names them. **Newsfeed** shows unread
-  articles from everything you follow; **Feeds** lists your folders in Inoreader's order (with the
-  unread count on the device), then your monitoring feeds; **Read later** is your saved articles;
-  **Archive** is Inoreader's Archive, the saved articles you finished and kept; **Saved** lists
-  Web pages (pages saved from outside your feeds), Annotations and then your tags. The numbers in
-  the tabs are counts on the device. If the labels do not fit the screen they are shown smaller.
+- Two tabs sit under the top bar, one per Inoreader section. **Newsfeed** shows unread articles
+  from everything you follow; **Read later** is your saved articles. The active tab names the view
+  you are in ("Finance (2) ▾", "Archive ▾"); tap it to open the list of views. From Newsfeed that is
+  the Newsfeed, your folders in Inoreader's order (with the unread count on the device) and your
+  monitoring feeds; from Read later it is Read later, the Archive (Inoreader's Archive, the saved
+  articles you finished and kept), Web pages (pages saved from outside your feeds), Annotations and
+  your tags. Tapping the other tab always opens on Newsfeed or Read later. The numbers are counts
+  on the device.
 - **Tap a headline to read it.** Each headline has a bookmark ribbon at the right of its title
   (an outline, filled once saved): **tap it to save for later** or remove the save. **Hold a
   headline for its menu**: Save for later (Restore to Read later in the Archive), Mark read, Archive (Remove from Archive in the Archive; it asks first, because Inoreader then forgets the reading progress), Mark read up to here, Mark read from
@@ -308,12 +310,12 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
-  On the Feeds list the footer label sorts folders: Inoreader's order, name, or most unread.
+  On the Newsfeed's list of folders the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
   loaded from Inoreader), and the line above the footer is the page indicator: one segment per page with the page shown
   dark (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
-  buttons to move between pages of a list. In Feeds, the title of a folder or feed opens a menu to switch between the
-  folder and its feeds; the arrow at the top left goes back to the list of folders (or of Saved entries).
+  buttons to move between pages of a list. Inside a folder, **Feeds ▾** in the top bar opens a menu to switch between the
+  folder and its feeds; the arrow at the top left goes back to the list of views.
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
   the arrow and the article's title at the left (tap either to go back to the list), then Aa, Star,
   Archive and More (link posts also get a comments icon before Aa), with a line below showing progress, time left and your place in the

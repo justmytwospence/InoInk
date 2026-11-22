@@ -15,11 +15,11 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Features
 
-- Five tabs, named as Inoreader names them: **Newsfeed** (unread by default), **Feeds** (your
-  folders in Inoreader's order, by name or by most unread, then your monitoring feeds),
-  **Read later** (your saved articles, the reading queue), **Archive** (Inoreader's Archive:
-  saved articles you finished and kept) and **Saved** (Web pages, Annotations and your tags).
-  Each view remembers its own filter, grouping and sort. Search covers every downloaded article.
+- Two tabs, one per Inoreader section. **Newsfeed** (unread by default) narrows to a folder, a
+  feed or a monitoring feed; **Read later** (your saved articles, the reading queue) switches to
+  the **Archive** (Inoreader's Archive: saved articles you finished and kept), Web pages,
+  Annotations or a tag. The active tab names what you are looking at; tap it to choose. Each view
+  remembers its own filter, grouping and sort. Search covers every downloaded article.
 - Tap a headline to read it; tap the bookmark ribbon at its right to save it for later (star it);
   hold it for its menu (Save for later or Restore to Read later, Mark read, Archive or Remove from Archive, **Mark read up to here**, **Mark read
   from here down**, Details, Select). The mark-read button in the top bar asks, then marks the
@@ -199,7 +199,7 @@ Then:
   the middle for the bar: tap the article's title (or the arrow) to return to the list,
   **Archive** moves the article to your Inoreader Archive, **Aa** changes the font and spacing.
   Paging past the last page opens a small popup to mark it read, archive it or keep it unread.
-- **Feeds** shows your folders and monitoring feeds; **Read later** is your saved articles; **Archive** is your Inoreader Archive; **Saved** holds Web pages, Annotations and tags.
+- Tap the active tab to choose a folder (from **Newsfeed**) or the Archive, Web pages, Annotations or a tag (from **Read later**).
 - To clear a list: the check-mark button in the top bar marks it all read (after asking), a
   held headline's menu offers **Mark read up to here** and **from here down**, and at the end of
   an unread list **Mark N read** clears what you skimmed in one tap. Saved articles stay unread.
@@ -218,12 +218,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 
 ## Using it
 
-- **Tabs:** Newsfeed, Feeds, Read later, Archive and Saved sit under the top bar. Tapping a headline opens
+- **Tabs:** Newsfeed and Read later sit under the top bar. Tapping the other tab opens it; tapping the active one opens its list of views. Tapping a headline opens
   it, tapping the ribbon at its right saves it for later, and holding shows its menu (Mark read,
-  Archive, Mark read up to here / from here down, Details, Select). In Feeds, the title of a folder or feed switches between the
+  Archive, Mark read up to here / from here down, Details, Select). Inside a folder, **Feeds ▾** in the top bar switches between the
   folder and its feeds.
 - **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
-  sort, and on the Feeds list the order of folders. On the right, the page and how many
+  sort, and on the folder list the order of folders. On the right, the page and how many
   there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above:
   one segment per page while they fit across the screen, otherwise a line; either way only the
   page shown is dark.

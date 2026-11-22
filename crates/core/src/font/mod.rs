@@ -44,12 +44,6 @@ pub const NORMAL_STYLE: Style = Style {
     size: FONT_SIZES[1],
 };
 
-pub const SMALL_STYLE: Style = Style {
-    family: Family::SansSerif,
-    variant: Variant::REGULAR,
-    size: FONT_SIZES[0],
-};
-
 pub const SPECIAL_STYLE: Style = Style {
     family: Family::SansSerif,
     variant: Variant::ITALIC,

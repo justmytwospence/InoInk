@@ -35,8 +35,9 @@ pub enum DocKind {
 /// Menu choices of the list and management screens.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InoInkEntry {
+    /// A tab was tapped: switch section, or open or close the active section's picker.
     Tab(Tab),
-    /// Open an entry (folder, feed, tag...) of the Feeds or Saved tab.
+    /// Open a view chosen in a picker (folder, feed, tag, Archive...).
     OpenCategory(Collection),
     /// Enter selection mode (if needed) with this selection.
     Select(SelectPreset),

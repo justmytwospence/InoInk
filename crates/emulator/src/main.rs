@@ -805,7 +805,7 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(select(InoInkEntry::OpenCategory(Collection::Folder("Reading".into()))));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("04-folder"));
-    t.push_back(select(InoInkEntry::Tab(Tab::ReadLater)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Saved)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("05-read-later"));
     t.push_back(TourStep::Tap(w / 2, row_y(0)));
@@ -862,7 +862,7 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Shot("12-main-menu"));
     t.push_back(TourStep::Tap(w - bar / 2, bar / 2));
     t.push_back(TourStep::Wait(400));
-    t.push_back(select(InoInkEntry::Tab(Tab::Newsfeed)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Feeds)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("13-end-of-unread"));
     t.push_back(TourStep::Send(Event::OpenArticle(ArticleId(1005))));
