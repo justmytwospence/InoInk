@@ -6,13 +6,13 @@
 - **Save first.** Every change (star, read, tag, folder, subscription) is committed to SQLite
   in one transaction before the interface reports it; the screen updates from that commit.
 - **Server state and pending intent are separate.** Each article has a last-known server value per
-  membership (read, starred, like, broadcast, each tag) and, if you changed it, a pending intent.
+  membership (read, starred, archived, each tag) and, if you changed it, a pending intent.
   The interface shows the intent when there is one, else the server value.
 - **Acknowledged means the server said OK.** An intent is cleared only by a successful response,
   and only the generation that was sent: a newer value you set while the request was in flight
   stays pending.
 - **Redundant changes collapse.** Starring and unstarring while offline sends nothing if the final
-  value equals the server's. Done is one request (add read, remove star).
+  value equals the server's. Archive is one request (add archived, remove star), and so is saving an archived article again.
 - **Tags are independent.** Each tag is its own membership; adding one never rewrites the others.
 
 ## Reconciliation
@@ -37,6 +37,18 @@ hours. Subscriptions, folders and their order are read again when the counts lis
 of feeds and folders, after an organization change was sent or refused, and otherwise at most
 every 6 hours (every hour for a sync you start).
 
+## Archive
+
+Inoreader's Archive (`user/-/state/com.google/archived`, undocumented) holds saved articles you
+finished and kept. An article is in Read later or in the Archive, never both, and InoInk keeps
+the two exclusive locally as the server does. Archiving sends one request (add archived, remove
+the save) that keeps the reading progress; saving an archived article again sends the reverse.
+An article's own data never says it is archived and `unread-count` does not report the stream,
+so the Archive is listed (with the same two-pass absence rule as the other listings) on a sync
+you start, in every cycle where Read later was listed (archiving elsewhere changes it), and
+otherwise at most every 6 hours. Archived articles are not downloaded ahead of time; they
+download when opened. Read state is never changed by archiving.
+
 ## Annotations
 
 The Annotated stream (up to 200 articles) is read on every sync you start, and at most every 6
@@ -55,7 +67,7 @@ threshold is 95%), so a "Start over" on the website does not undo progress made 
 Progress Inoreader no longer reports (the article was unsaved elsewhere, where Inoreader drops it)
 is forgotten after a complete listing. An article started on the website and not yet opened here
 opens at about the same percentage of its text. Having been started counts as seen, never as read.
-Archive here unsaves the article, so Inoreader forgets its progress.
+Archived articles keep their progress: Inoreader keeps it in the Archive, and it is read from the Archive stream the same way.
 
 ## Conflicts
 
@@ -64,7 +76,7 @@ Inoreader offers no revision history or conditional writes, so two devices chang
 while one is offline cannot be ordered: the last write to reach the server wins and the other
 device observes it at its next sync. This ambiguity is inherent to the API.
 
-Writes that set a state (read, star, like, broadcast, tags, folder membership, ordering) are safe
+Writes that set a state (read, star, archive, tags, folder membership, ordering) are safe
 to send again, so a request that succeeded but lost its response is simply sent again. Writes
 that are not safe to repeat (follow a feed, rename or delete a folder, create a monitoring
 search) become "outcome unknown" and are resolved by reading the subscription and tag lists

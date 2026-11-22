@@ -49,7 +49,7 @@ represent your entire account while the snapshot contains only part of it. Refre
 Inoreader API quota; article pages, discussions and images may also be fetched from publishers.
 OAuth tokens may be refreshed when downloading.
 
-The preview then runs offline. Read, star, Archive and Undo change only the local copy and persist
+The preview then runs offline. Read, save, Archive and Undo change only the local copy and persist
 between launches. `scripts/preview-macos.sh --inoreader --refresh` replaces those experiments
 with a fresh snapshot; it does not affect the separate synthetic preview. Do not provision the
 sandbox data directory onto a Kobo or enable online access for it.
@@ -259,13 +259,15 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
 
 ## Everyday use
 
-- Three tabs sit under the top bar. **Newsfeed** shows unread articles from everything you follow;
-  **Categories** lists your folders in Inoreader's order (with the unread count on the device),
-  then tags and other streams (Saved pages, Annotated, Liked, Broadcast, monitoring searches);
-  **Read later** is your starred articles. The numbers in the tabs are counts on the device.
+- Five tabs sit under the top bar, named as Inoreader names them. **Newsfeed** shows unread
+  articles from everything you follow; **Feeds** lists your folders in Inoreader's order (with the
+  unread count on the device), then your monitoring feeds; **Read later** is your saved articles;
+  **Archive** is Inoreader's Archive, the saved articles you finished and kept; **Saved** lists
+  Web pages (pages saved from outside your feeds), Annotations and then your tags. The numbers in
+  the tabs are counts on the device. If the labels do not fit the screen they are shown smaller.
 - **Tap a headline to read it.** Each headline has a bookmark ribbon at the right of its title
   (an outline, filled once saved): **tap it to save for later** or remove the save. **Hold a
-  headline for its menu**: Save for later, Mark read, Archive, Mark read up to here, Mark read from
+  headline for its menu**: Save for later (Restore to Read later in the Archive), Mark read, Archive (Remove from Archive in the Archive; it asks first, because Inoreader then forgets the reading progress), Mark read up to here, Mark read from
   here down (both include that headline and follow the list's order; not shown in Read later),
   Details and Select.
 - A bar along the left edge marks an unread headline this Kobo has not shown you before. It stays
@@ -306,26 +308,26 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
-  On the Categories list the footer label sorts folders: Inoreader's order, name, or most unread.
+  On the Feeds list the footer label sorts folders: Inoreader's order, name, or most unread.
 - The footer shows the page and how many there are ("2 / 7"; "+" when older articles can be
   loaded from Inoreader), and the line above the footer is the page indicator: one segment per page with the page shown
   dark (a short dark stretch on the line when there are too many pages for segments). Swipe or use the page
-  buttons to move between pages of a list. In Categories, the title of a folder or feed opens a menu to switch between the
-  folder and its feeds; the arrow at the top left goes back to the list of categories.
+  buttons to move between pages of a list. In Feeds, the title of a folder or feed opens a menu to switch between the
+  folder and its feeds; the arrow at the top left goes back to the list of folders (or of Saved entries).
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
   the arrow and the article's title at the left (tap either to go back to the list), then Aa, Star,
   Archive and More (link posts also get a comments icon before Aa), with a line below showing progress, time left and your place in the
   list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
   to every article. The font menu lists Libertinus Serif (the default), the bundled e-ink fonts
   Libron, NV Bitter, NV Jost and NV Literata, and the fonts in the Kobo's `fonts` folder (if one
-  of those has the name of a bundled font, the bundled one is used). More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
+  of those has the name of a bundled font, the bundled one is used). More holds Mark read/unread, Tags, Send to Karakeep, Show
   QR code, Export highlights, Contents (when the article has headings: tap one to go there), Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page (the article switches to the full page in place, from the top, when it arrives).
 - Return: after a jump (a footnote or a link to another part of the article, a heading chosen from
   Contents, or the Article | comments switch) a "Return to page 3" (or "Return to the article")
   button replaces the title in the top margin. Tap it to go back where you were; hold it to stay
   and dismiss it. It also goes away when you page back to that page yourself.
-- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup: choose what happens to the article (Mark read by default; Archive, which also removes the star, when it is starred, with Undo in the main menu, and preselected on a saved article if you chose it last time; or Keep unread), see the next article of the list, and tap Next article (or swipe on, or press forward) to open it, or tap Back to list. Swiping back, the back button or a tap outside closes the popup. Swipe up or hold the forward button
+- Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup: choose what happens to the article (Mark read by default; Archive, which moves it to the Inoreader Archive and leaves its read state alone, when it is saved, with Undo in the main menu, and preselected on a saved article if you chose it last time; or Keep unread), see the next article of the list, and tap Next article (or swipe on, or press forward) to open it, or tap Back to list. Swiping back, the back button or a tap outside closes the popup. Swipe up or hold the forward button
   for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
   articles never marks one read: use Archive or Mark read. After the last article of the list you are
@@ -360,7 +362,7 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   extracts its text itself (no credentials, not an Inoreader feature), and caches the thread from
   the site's public JSON. The bar shows a comments icon with the count (0 when there are none; just
   the icon before it is fetched). Tap it to read the comments; there it becomes an article icon that returns to the article.
-  There is also a link at the end of the article; More has Refresh comments. Star, Archive and Read
+  There is also a link at the end of the article; More has Refresh comments. Save, Archive and Read
   apply to the one item. On the comments page a thin line runs down the left of each reply branch,
   two levels deep (deeper replies say whom they answer: "↳ alice"). Each thread starts with ⁂; its
   first comment shows how many replies follow and Skip › jumps to the next thread. The top margin

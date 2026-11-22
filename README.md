@@ -15,19 +15,20 @@ public API and does not try to match the Inoreader website feature for feature; 
 
 ## Features
 
-- Three tabs, named as Inoreader names them: **Newsfeed** (unread by default), **Categories**
-  (folders in your Inoreader order, by name or by most unread, then tags and the other streams)
-  and **Read later** (your starred articles, the reading queue). Each view remembers its own
-  filter, grouping and sort. Search covers every downloaded article.
+- Five tabs, named as Inoreader names them: **Newsfeed** (unread by default), **Feeds** (your
+  folders in Inoreader's order, by name or by most unread, then your monitoring feeds),
+  **Read later** (your saved articles, the reading queue), **Archive** (Inoreader's Archive:
+  saved articles you finished and kept) and **Saved** (Web pages, Annotations and your tags).
+  Each view remembers its own filter, grouping and sort. Search covers every downloaded article.
 - Tap a headline to read it; tap the bookmark ribbon at its right to save it for later (star it);
-  hold it for its menu (Save for later, Mark read, Archive, **Mark read up to here**, **Mark read
+  hold it for its menu (Save for later or Restore to Read later, Mark read, Archive or Remove from Archive, **Mark read up to here**, **Mark read
   from here down**, Details, Select). The mark-read button in the top bar asks, then marks the
   whole list read. At the end of an unread list a card offers **Mark N read**: one tap marks what
   you saw and did not save. Saved articles are never marked read by these, every one can be undone,
   and InoInk sends it and fetches new articles right away. Unread headlines you have not seen
   before carry a bar on the left; selection mode (the check-box button in the top bar) marks or
   saves many articles at once.
-- Read later shows how far you got in each saved article ("Finished", "40% · 6 min left"),
+- Read later and the Archive show how far you got in each saved article ("Finished", "40% · 6 min left"),
   filters by progress (Not started, In progress, Finished), and sorts by when you saved it. It
   reads Inoreader's progress (undocumented, read-only) and adds your reading on the Kobo; an
   article you started on inoreader.com opens near where you stopped.
@@ -50,8 +51,10 @@ public API and does not try to match the Inoreader website feature for feature; 
   tap away (an Article | comments switch in the bar). Both are cached for offline reading. The comments are threaded for e-ink: a thin line down
   each reply branch, two indents at most (deeper replies name whom they answer), ⁂ and Skip ›
   between threads, and the thread you are in named in the top margin.
-- **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
-  the star. Opening an article never marks it read.
+- **Archive** moves a saved article from Read later into Inoreader's Archive in one tap, with Undo,
+  keeping its reading progress and leaving it read or unread as it was. Saving an archived article
+  (**Restore to Read later**) moves it back. **Mark read** keeps the save. Opening an article never
+  marks it read.
 - Reading flows: paging past the end of an article opens a small popup: choose Mark read (the
   default), Archive (preselected on a saved article if you chose it last time) or Keep unread, see the next article's title, and tap Next article or swipe on
   to it, or tap Back to list. Swiping up or holding forward skips the popup. A line under the article shows progress,
@@ -78,7 +81,7 @@ public API and does not try to match the Inoreader website feature for feature; 
   unread and Read later counts, when InoInk last synced and the battery (the default); the
   page you were on, left as it was with a small Sleeping label; that page with a picture of
   yours over it; or the classic logo. Powering off shows the card in white on black.
-- Tags, likes, broadcast, feed and folder management, and monitoring searches, as far as the
+- Tags, feed and folder management, and monitoring searches, as far as the
   public API allows.
 
 ## Status
@@ -194,9 +197,9 @@ Then:
   **ribbon** at the right to save it for later, **hold** it for its menu.
 - In an article, turn pages by tapping the left or right third (or the page-turn buttons). Tap
   the middle for the bar: tap the article's title (or the arrow) to return to the list,
-  **Archive** marks the article read and removes its star, **Aa** changes the font and spacing.
-  Paging past the last page opens a small popup to mark it read, unstar it or keep it unread.
-- **Categories** shows your folders and feeds; **Read later** is your starred articles.
+  **Archive** moves the article to your Inoreader Archive, **Aa** changes the font and spacing.
+  Paging past the last page opens a small popup to mark it read, archive it or keep it unread.
+- **Feeds** shows your folders and monitoring feeds; **Read later** is your saved articles; **Archive** is your Inoreader Archive; **Saved** holds Web pages, Annotations and tags.
 - To clear a list: the check-mark button in the top bar marks it all read (after asking), a
   held headline's menu offers **Mark read up to here** and **from here down**, and at the end of
   an unread list **Mark N read** clears what you skimmed in one tap. Saved articles stay unread.
@@ -215,12 +218,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 
 ## Using it
 
-- **Tabs:** Newsfeed, Categories and Read later sit under the top bar. Tapping a headline opens
+- **Tabs:** Newsfeed, Feeds, Read later, Archive and Saved sit under the top bar. Tapping a headline opens
   it, tapping the ribbon at its right saves it for later, and holding shows its menu (Mark read,
-  Archive, Mark read up to here / from here down, Details, Select). In Categories, the title of a folder or feed switches between the
+  Archive, Mark read up to here / from here down, Details, Select). In Feeds, the title of a folder or feed switches between the
   folder and its feeds.
 - **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
-  sort, and on the Categories list the order of folders. On the right, the page and how many
+  sort, and on the Feeds list the order of folders. On the right, the page and how many
   there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above:
   one segment per page while they fit across the screen, otherwise a line; either way only the
   page shown is dark.
@@ -231,7 +234,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   and turns while a sync runs. the main menu shows when the last sync was ("Synced 5 min ago"), and Settings > Inoreader
   API budget today's requests.
 - **Article:** tap the middle of the page for the bar (the arrow and the title go back; Aa, Star, Archive, More) and the progress
-  line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
+  line; tap the left or right third to turn pages. More: Mark read, Tags, Send to
   Karakeep, Show QR code, Export highlights, Contents (articles with headings), Details, Load original page (the article
   switches to it when it arrives). Tap an image to enlarge it. After a jump, Return in the top margin goes back; hold it to stay.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
