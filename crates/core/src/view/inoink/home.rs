@@ -3,7 +3,7 @@
 use crate::color::{BLACK, SEPARATOR_NORMAL, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
-use crate::font::Fonts;
+use crate::font::{font_from_style, Fonts, NORMAL_STYLE};
 use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{divide, halves, CycleDir, Dir, Rectangle};
 use crate::gesture::GestureEvent;
@@ -782,11 +782,15 @@ impl InoInkHome {
         let sep_rect = rect![frect.min.x, frect.min.y - thickness, frect.max.x, frect.min.y];
         let pager: Box<dyn View> = if total > 1 {
             let pad = scale_by_dpi(12.0, dpi) as i32;
-            Box::new(PageProgress::new(rect![sep_rect.min.x + pad, sep_rect.min.y, sep_rect.max.x - pad, frect.min.y + edge], page - 1, total))
+            // The indicator owns the whole strip, so nothing of the plain line it replaces is left
+            // at the ends.
+            Box::new(PageProgress::new(rect![sep_rect.min.x, sep_rect.min.y, sep_rect.max.x, frect.min.y + edge], page - 1, total).inset(pad))
         } else {
             Box::new(Filler::new(sep_rect, BLACK))
         };
         let pager_rect = rect![frect.min.x, sep_rect.min.y, frect.max.x, frect.min.y + edge];
+        // Footer menus open above the line (or the page indicator), never across it.
+        let menu_y = sep_rect.min.y;
         self.children[FOOTER - 1] = pager;
         rq.add(RenderData::new(self.children[FOOTER - 1].id(), pager_rect, UpdateMode::Gui));
         let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
@@ -826,7 +830,7 @@ impl InoInkHome {
                 let r = rect![x, rect.min.y, x + w, rect.max.y];
                 let event = match action {
                     Some(a) => Event::Select(EntryId::InoInk(InoInkEntry::BulkApply(*a))),
-                    None => Event::ToggleNear(ViewId::SortMenu, r),
+                    None => Event::ToggleNear(ViewId::SortMenu, rect![r.min.x, menu_y, r.max.x, r.max.y]),
                 };
                 footer.children.push(Box::new(Label::new(r, label.to_string(), Align::Center).event(Some(event))));
                 x += w;
@@ -841,7 +845,7 @@ impl InoInkHome {
             let mut x = x0;
             for (text, id) in controls {
                 let r = rect![x, rect.min.y, x + cw, rect.max.y];
-                footer.children.push(Box::new(Label::new(r, text, Align::Center).event(Some(Event::ToggleNear(id, r)))));
+                footer.children.push(Box::new(Label::new(r, text, Align::Center).event(Some(Event::ToggleNear(id, rect![r.min.x, menu_y, r.max.x, r.max.y])))));
                 x += cw;
             }
             footer.children.push(Box::new(Label::new(rect![x, rect.min.y, x1, rect.max.y], count, Align::Center)));
@@ -854,7 +858,7 @@ impl InoInkHome {
             if picker_sort.is_empty() {
                 footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
             } else {
-                footer.children.push(Box::new(Label::new(view_rect, picker_sort, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
+                footer.children.push(Box::new(Label::new(view_rect, picker_sort, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, rect![view_rect.min.x, menu_y, view_rect.max.x, view_rect.max.y])))));
             }
             footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center)));
         }
@@ -1004,6 +1008,22 @@ impl InoInkHome {
             entries.push(EntryKind::RadioButton(s.title.clone(), EntryId::InoInk(InoInkEntry::OpenCategory(c.clone())), *current == c));
         }
         manage::paged(entries)
+    }
+
+    /// Opens (or closes) one of the footer's menus as a box floating above the footer, its
+    /// pointer ending just above the footer's line. `rect` is the label's column from that line
+    /// down. One footer menu shows at a time.
+    fn toggle_footer_menu(&mut self, id: ViewId, rect: Rectangle, mut entries: Vec<EntryKind>, rq: &mut RenderQueue, context: &mut Context) {
+        // The menu opens upward and lists its entries bottom to top.
+        entries.reverse();
+        for other in FOOTER_MENUS.into_iter().filter(|o| *o != id) {
+            remove_child(self, other, rq);
+        }
+        let dpi = CURRENT_DEVICE.dpi;
+        let pointer = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi).x_heights.1 as i32;
+        let gap = scale_by_dpi(6.0, dpi) as i32;
+        let target = rect![rect.min.x, rect.min.y - pointer - gap, rect.max.x, rect.max.y];
+        self.toggle_menu(id, target, MenuKind::Contextual, entries, rq, context);
     }
 
     fn close_menus(&mut self, rq: &mut RenderQueue) {
@@ -1394,9 +1414,7 @@ impl View for InoInkHome {
                     EntryKind::Separator,
                     EntryKind::Command("Cancel".to_string(), EntryId::InoInk(InoInkEntry::CancelSelection)),
                 ];
-                // The menu opens upward from the footer and lists its entries bottom to top.
-                entries.reverse();
-                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                self.toggle_footer_menu(ViewId::SortMenu, rect, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::SortMenu, rect) if self.showing_cats => {
@@ -1405,9 +1423,7 @@ impl View for InoInkHome {
                 for s in CategorySort::ALL {
                     entries.push(EntryKind::RadioButton(s.label().to_string(), EntryId::InoInk(InoInkEntry::CategorySort(s)), s == current));
                 }
-                // The menu opens upward from the footer and lists its entries bottom to top.
-                entries.reverse();
-                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                self.toggle_footer_menu(ViewId::SortMenu, rect, entries, rq, context);
                 true
             }
             Event::ToggleNear(id @ (ViewId::FilterMenu | ViewId::GroupMenu | ViewId::SortMenu), rect) => {
@@ -1446,13 +1462,7 @@ impl View for InoInkHome {
                         }
                     }
                 }
-                // The menu opens upward from the footer and lists its entries bottom to top.
-                entries.reverse();
-                // One footer menu at a time.
-                for other in FOOTER_MENUS.into_iter().filter(|o| *o != id) {
-                    remove_child(self, other, rq);
-                }
-                self.toggle_menu(id, rect, MenuKind::DropDown, entries, rq, context);
+                self.toggle_footer_menu(id, rect, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::MainMenu, rect) => {

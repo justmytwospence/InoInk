@@ -84,11 +84,18 @@ pub struct PageProgress {
     children: Vec<Box<dyn View>>,
     current: usize,
     total: usize,
+    inset: i32,
 }
 
 impl PageProgress {
     pub fn new(rect: Rectangle, current: usize, total: usize) -> PageProgress {
-        PageProgress { id: ID_FEEDER.next(), rect, children: Vec::new(), current, total }
+        PageProgress { id: ID_FEEDER.next(), rect, children: Vec::new(), current, total, inset: 0 }
+    }
+
+    /// Keeps the bar `inset` pixels from the left and right ends of the view, which stays white there.
+    pub fn inset(mut self, inset: i32) -> PageProgress {
+        self.inset = inset;
+        self
     }
 }
 
@@ -103,7 +110,7 @@ impl View for PageProgress {
         let y = (self.rect.min.y + self.rect.max.y) / 2;
         // Only the page shown is dark: a list is not read in order the way an article is.
         // The list's indicator is also the line above the footer: drawn heavier than an article's.
-        draw_sized(fb, self.rect.min.x, self.rect.max.x, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 10.0);
+        draw_sized(fb, self.rect.min.x + self.inset, self.rect.max.x - self.inset, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 10.0);
     }
 
     fn rect(&self) -> &Rectangle {
