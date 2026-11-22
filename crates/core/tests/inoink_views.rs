@@ -1096,6 +1096,54 @@ fn a_read_article_defaults_to_leaving_it() {
 }
 
 #[test]
+fn archive_is_remembered_for_saved_articles() {
+    let mut e = env();
+    let mut reader = show_end(&mut e, &[2, 1], true, 2);
+    let r = end_popup(&reader).toggle_rects()[1];
+    drive(&mut reader, &mut e, tap_rect(r));
+    let back = end_popup(&reader).back_rect();
+    drive(&mut reader, &mut e, tap_rect(back));
+    assert!(e.context.inoink.end_archive());
+    let reader = show_end(&mut e, &[2, 1], true, 1);
+    assert_eq!(end_popup(&reader).state(), EndState::Archive);
+}
+
+#[test]
+fn choosing_mark_read_forgets_archive() {
+    let mut e = env();
+    e.context.inoink.set_end_archive(true);
+    let mut reader = show_end(&mut e, &[2, 1], true, 2);
+    let r = end_popup(&reader).toggle_rects()[0];
+    drive(&mut reader, &mut e, tap_rect(r));
+    let back = end_popup(&reader).back_rect();
+    drive(&mut reader, &mut e, tap_rect(back));
+    assert!(!e.context.inoink.end_archive());
+    let reader = show_end(&mut e, &[2, 1], true, 1);
+    assert_eq!(end_popup(&reader).state(), EndState::MarkRead);
+}
+
+#[test]
+fn remembered_archive_does_not_apply_to_unsaved_articles() {
+    let mut e = env();
+    e.context.inoink.set_end_archive(true);
+    let mut reader = show_end(&mut e, &[4, 3], false, 4);
+    assert_eq!(end_popup(&reader).state(), EndState::MarkRead);
+    let back = end_popup(&reader).back_rect();
+    drive(&mut reader, &mut e, tap_rect(back));
+    assert!(e.context.inoink.end_archive(), "an unsaved article's choice leaves the memory alone");
+}
+
+#[test]
+fn closing_the_popup_keeps_the_memory() {
+    let mut e = env();
+    e.context.inoink.set_end_archive(true);
+    let mut reader = show_end(&mut e, &[2, 1], true, 2);
+    drive(&mut reader, &mut e, swipe_h(200, 1000));
+    assert!(locate_by_id(&reader, ViewId::ArticleEnd).is_none());
+    assert!(e.context.inoink.end_archive());
+}
+
+#[test]
 fn swiping_on_marks_read_and_opens_the_next() {
     let mut e = env();
     let mut reader = show_end(&mut e, &[2, 1], true, 2);

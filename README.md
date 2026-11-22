@@ -45,7 +45,7 @@ public API and does not try to match the Inoreader website feature for feature; 
 - **Archive** marks an article read and removes its star in one tap, with Undo. **Mark read** keeps
   the star. Opening an article never marks it read.
 - Reading flows: paging past the end of an article opens a small popup: choose Mark read (the
-  default), Archive or Keep unread, see the next article's title, and tap Next article or swipe on
+  default), Archive (preselected on a saved article if you chose it last time) or Keep unread, see the next article's title, and tap Next article or swipe on
   to it, or tap Back to list. Swiping up or holding forward skips the popup. A line under the article shows progress,
   time left and your place in the list, with ‹ › to open the previous or next article.
 - Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
