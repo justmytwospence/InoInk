@@ -26,6 +26,8 @@ Module paths are in `crates/inoink/src`.
 | Mark all as read | `POST /mark-all-as-read` s, ts | none by design (see limitation) | `ApiClient::mark_all_read` | `api_contract` | not run | Implemented but not used by UI bulk actions: a timestamp cutoff cannot guarantee scope. UI bulk enumerates frozen IDs and uses edit-tag |
 | Active Search create | `POST /active_search/create` JSON term, filter_type, filter_id, article_ids, search_filters, search_match, search_feed_popularity | Manage > Monitoring | `ApiClient::create_active_search` | `api_contract` | not run | Validation failures can be HTTP 202; Pro limit 30; not idempotent |
 | Active Search delete | `GET /active_search/delete` id | Manage > Monitoring (confirmed) | `ApiClient::delete_active_search` | `api_contract` | not run | Destructive GET per docs; confirmed in UI, never retried blindly |
+| Saved progress (undocumented) | `GET /stream/contents/user/-/state/com.google/starred?progress=1`: each item gains `savedProgress {kind, length, progress, finished, archiveWhenFinished, position}` | Read later rows, filter and open position | `api::types::parse_saved_progress`, `SyncEngine::refresh_progress` | `api::types` unit tests, `sync_faults` | PASS (read-only probe 2026-11) | Not in the documentation; only the starred stream answers (reading list and saved-web-pages never carry it); `length` is seconds; read-only, there is no way to write progress |
+| Date saved (undocumented) | item field `starred` (seconds) on every starred item | Read later "Recently saved" order | `api::types::parse_item` | `api::types` unit tests | PASS (read-only probe 2026-11) | Not in the documentation |
 | Saved web pages / annotated / like / broadcast streams | stream IDs `user/-/state/com.google/{saved-web-pages,annotated,like,broadcast}` | `Collection` | `api_contract` | not run | Saved-pages content equals what the API returns; not guaranteed identical to the website's views |
 | Rate limiting | headers `X-Reader-Zone{1,2}-{Limit,Usage}`, `X-Reader-Limits-Reset-After`; 429 | Settings > Inoreader API budget; Main menu > Status | `api::quota` | `sync_faults` | PASS (2000 per zone reported live) | Limits depend on the plan; until a header is seen, 100 per zone is assumed and labelled estimated |
 
@@ -47,6 +49,10 @@ Module paths are in `crates/inoink/src`.
   local feature, not an Inoreader API. Discussion threads for Hacker News (hn.algolia.com) and
   Lobsters (public JSON) are fetched the same way, without credentials.
 - Rule management; web-feed / change-tracking management.
-- Reading-position sync: positions are local only.
+- Reading-position sync: positions are local only. Inoreader's reading progress is read, never
+  written, and kept apart from the device's own progress.
+- The stream `user/-/state/com.google/archived` ("Archive" on the website) exists but is not used:
+  InoInk's Archive unsaves the article, and Inoreader drops the progress of an article that is no
+  longer saved.
 - Concurrent offline edits: there is no revision history, so concurrent changes are
   inherently ambiguous (see `doc/INOINK-SYNC.md`).

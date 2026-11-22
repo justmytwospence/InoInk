@@ -1,6 +1,7 @@
 //! One line of the article list. Each mark has one meaning: a bar on the left edge for a new
 //! headline (unread, not seen before this visit), a bold title for unread, a bookmark ribbon at
 //! the right (filled when saved for later, an outline otherwise; tapping it saves or unsaves),
+//! reading progress on a saved article's meta line ("Finished", "40% \u{b7} 6 min left"),
 //! a dot beside the meta line for offline, and in selection mode a check box.
 
 use crate::chrono::{DateTime, Datelike, Local, TimeZone};
@@ -263,7 +264,7 @@ impl View for ArticleRow {
         let has_mark = !matches!(self.item.download, DownloadState::Failed | DownloadState::NotDownloaded);
         let ow = if has_mark { 2 * col_half + padding / 2 } else { 0 };
         let mut rest = String::new();
-        for part in [relative_date(self.item.published, &Local::now()), inoink::content::format_read_time(self.item.words).unwrap_or_default()] {
+        for part in [relative_date(self.item.published, &Local::now()), self.item.progress_label().or_else(|| self.item.length_label()).unwrap_or_default()] {
             if !part.is_empty() {
                 rest.push_str(" \u{b7} ");
                 rest.push_str(&part);

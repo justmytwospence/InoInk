@@ -219,6 +219,7 @@ pub fn download(
             sort: Default::default(),
             after: None,
             visit_start_usec: 0,
+            progress: Default::default(),
         };
         let ids = engine.store.query_ids(&query, MAX_ARTICLES)?;
         if engine.store.count_articles(&query)? != ids.len() {

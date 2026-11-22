@@ -111,7 +111,7 @@ fn first_sync_fetches_unread_and_downloads_old_starred_articles() {
     seed(&r);
     let rep = r.full();
     assert_eq!(rep.error, None);
-    assert_eq!(rep.reconciled, vec!["starred", "unread", "annotated"]);
+    assert_eq!(rep.reconciled, vec!["starred", "unread", "annotated", "progress"]);
     for id in [1, 2, 3, 10] {
         assert!(r.engine.store.has_article(ArticleId(id)).unwrap(), "{id}");
         assert!(r.engine.store.download_state(ArticleId(id)).unwrap().readable_offline(), "{id} cached");
@@ -796,4 +796,65 @@ fn annotations_cleared_only_after_complete_listing() {
     r.fake.with(|s| s.arts.get_mut(&4).unwrap().annotations.clear());
     r.full();
     assert_eq!(r.engine.store.remote_annotations(ArticleId(4)).unwrap().len(), 1, "not cleared on an incomplete listing");
+}
+
+fn saved_summary(r: &Rig, id: u64) -> inoink::model::ArticleSummary {
+    let q = ArticleQuery { collection: Some(Collection::Starred), limit: 100, visit_start_usec: 1, ..Default::default() };
+    r.engine.store.query_articles(&q).unwrap().items.into_iter().find(|a| a.id == ArticleId(id)).expect("saved article listed")
+}
+
+#[test]
+fn progress_is_refreshed_hourly_and_cleared_after_a_complete_listing() {
+    let mut r = rig();
+    seed(&r);
+    r.fake.with(|s| {
+        let a = s.arts.get_mut(&1).unwrap();
+        a.starred_at = 1_700_000_000;
+        a.progress = Some(serde_json::json!({"kind": "article", "length": 720, "progress": 40, "finished": false}));
+    });
+    let rep = r.full();
+    assert!(rep.reconciled.contains(&"progress"), "{rep:?}");
+    let a = saved_summary(&r, 1);
+    assert_eq!((a.progress, a.finished, a.saved_at), (40, false, 1_700_000_000));
+    assert_eq!(a.length_secs, 720);
+    assert!(!a.new, "started elsewhere counts as seen");
+
+    // An automatic cycle inside the hour does not ask again; after it, it does.
+    r.fake.clear_log();
+    r.clock.advance(901);
+    r.engine.run_cycle(Reason::Wake);
+    assert_eq!(r.fake.count("progress=1"), 0);
+    r.clock.advance(3600);
+    let rep = r.engine.run_cycle(Reason::Wake);
+    assert!(rep.reconciled.contains(&"progress"), "{rep:?}");
+    assert_eq!(r.fake.count("progress=1"), 1);
+
+    // Unsaved elsewhere: a complete listing forgets the progress, the saved date stays.
+    r.fake.with(|s| s.arts.get_mut(&1).unwrap().starred = false);
+    r.full();
+    assert!(r.engine.store.saved_progress(ArticleId(1)).unwrap().is_none());
+}
+
+#[test]
+fn an_incomplete_progress_listing_keeps_what_it_did_not_reach() {
+    let mut r = rig_with(SyncConfig { progress_pages: 1, ..Default::default() });
+    seed(&r);
+    r.fake.with(|s| {
+        s.page_cap = 1;
+        s.arts.get_mut(&10).unwrap().progress = Some(serde_json::json!({"kind": "article", "progress": 60, "finished": false}));
+    });
+    let rep = r.full();
+    assert!(rep.incomplete.contains(&"progress"), "{rep:?}");
+    assert_eq!(r.engine.store.saved_progress(ArticleId(10)).unwrap().map(|p| p.percent), Some(60));
+}
+
+#[test]
+fn no_progress_request_without_saved_articles() {
+    let mut r = rig();
+    for i in 1..=2u64 {
+        r.fake.art(i, usec(i as i64), FEED);
+    }
+    let rep = r.full();
+    assert!(!rep.reconciled.contains(&"progress"), "{rep:?}");
+    assert_eq!(r.fake.count("progress=1"), 0);
 }

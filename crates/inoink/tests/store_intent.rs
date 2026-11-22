@@ -786,3 +786,101 @@ fn highlights_survive_clear_content() {
     s.clear_content(id(1)).unwrap();
     assert_eq!(s.highlights(id(1)).unwrap().len(), 1);
 }
+
+fn starred_rec(id: u64, ts: i64, saved_at: Option<i64>, progress: Option<(u8, bool)>) -> ArticleRecord {
+    ArticleRecord {
+        saved_at,
+        saved_progress: progress.map(|(percent, finished)| SavedProgress {
+            kind: SavedKind::Article,
+            length_secs: Some(600),
+            percent,
+            finished,
+        }),
+        ..rec(id, ts, &[STARRED])
+    }
+}
+
+fn saved(s: &Store, filter: ProgressFilter, sort: ArticleSort) -> Vec<ArticleSummary> {
+    let q = ArticleQuery {
+        collection: Some(Collection::Starred),
+        progress: filter,
+        sort,
+        limit: 50,
+        visit_start_usec: 1,
+        ..Default::default()
+    };
+    s.query_articles(&q).unwrap().items
+}
+
+#[test]
+fn saved_progress_is_stored_and_merged() {
+    let mut s = store();
+    s.upsert_article(&starred_rec(1, 10, Some(100), Some((40, false))), 0).unwrap();
+    let a = saved(&s, ProgressFilter::All, ArticleSort::Saved).remove(0);
+    assert_eq!((a.progress, a.finished, a.saved_at, a.length_secs, a.kind), (40, false, 100, 600, Some(SavedKind::Article)));
+    assert!(!a.new, "started elsewhere counts as seen");
+    s.record_local_progress(id(1), 60).unwrap();
+    assert_eq!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].progress, 60);
+    s.record_local_progress(id(1), 30).unwrap();
+    assert_eq!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].progress, 60, "only moves forward");
+    s.record_local_progress(id(1), 96).unwrap();
+    assert!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].finished);
+    assert_eq!(s.local_progress(id(1)).unwrap(), Some(96));
+}
+
+#[test]
+fn progress_filter_and_saved_sort() {
+    let mut s = store();
+    s.upsert_article(&starred_rec(1, 10, Some(500), None), 0).unwrap(); // not started
+    s.upsert_article(&starred_rec(2, 20, Some(400), Some((30, false))), 0).unwrap(); // in progress
+    s.upsert_article(&starred_rec(3, 30, Some(300), Some((100, true))), 0).unwrap(); // finished on the web
+    s.upsert_article(&starred_rec(4, 40, None, None), 0).unwrap(); // finished here, saved date unknown
+    s.record_local_progress(id(4), 100).unwrap();
+    fn ids(s: &Store, f: ProgressFilter) -> Vec<u64> {
+        saved(s, f, ArticleSort::Saved).iter().map(|a| a.id.0).collect()
+    }
+    assert_eq!(ids(&s, ProgressFilter::All), vec![1, 2, 3, 4], "newest saved first, unknown last");
+    assert_eq!(ids(&s, ProgressFilter::NotStarted), vec![1]);
+    assert_eq!(ids(&s, ProgressFilter::InProgress), vec![2]);
+    assert_eq!(ids(&s, ProgressFilter::Finished), vec![3, 4]);
+    let q = ArticleQuery { collection: Some(Collection::Starred), progress: ProgressFilter::Finished, ..Default::default() };
+    assert_eq!(s.count_articles(&q).unwrap(), 2);
+    // Paging through the saved order is stable.
+    let q = ArticleQuery { collection: Some(Collection::Starred), sort: ArticleSort::Saved, limit: 2, ..Default::default() };
+    let p1 = s.query_articles(&q).unwrap();
+    let p2 = s.query_articles(&ArticleQuery { after: p1.next.clone(), ..q }).unwrap();
+    let all: Vec<u64> = p1.items.iter().chain(p2.items.iter()).map(|a| a.id.0).collect();
+    assert_eq!(all, vec![1, 2, 3, 4]);
+    // Unsaved elsewhere, a complete listing forgets Inoreader's progress.
+    let listed = std::collections::BTreeSet::from([id(3)]);
+    assert_eq!(s.reset_saved_progress_except(&listed).unwrap(), 1);
+    assert_eq!(ids(&s, ProgressFilter::InProgress), Vec::<u64>::new());
+}
+
+#[test]
+fn starring_locally_sets_saved_at() {
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    s.apply_intent(id(1), &Membership::Starred, true).unwrap();
+    assert!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].saved_at > 0);
+}
+
+#[test]
+fn migration_backfills_saved_at() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    {
+        let mut s = Store::open(&path, "acct").unwrap();
+        let mut r = starred_rec(1, 10, None, None);
+        r.raw_json = r#"{"starred":123}"#.into();
+        s.upsert_article(&r, 0).unwrap();
+        assert_eq!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].saved_at, 0);
+    }
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch("DROP TABLE saved_items; DROP TABLE local_progress;").unwrap();
+        c.pragma_update(None, "user_version", 9).unwrap();
+    }
+    let s = Store::open(&path, "acct").unwrap();
+    assert_eq!(saved(&s, ProgressFilter::All, ArticleSort::Saved)[0].saved_at, 123);
+}

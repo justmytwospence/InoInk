@@ -277,6 +277,9 @@ impl ApiClient {
         if p.annotations {
             q.append_pair("annotations", "1");
         }
+        if p.progress {
+            q.append_pair("progress", "1");
+        }
         if p.summaries {
             q.append_pair("summaries", "1");
         }

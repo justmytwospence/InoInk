@@ -245,9 +245,136 @@ pub struct ArticleSummary {
     pub words: u32,
     /// Unread and not seen on this device before the current visit (see ArticleQuery::visit_start_usec).
     pub new: bool,
+    /// How far the article was read (0-100): the further of Inoreader's and this device's.
+    pub progress: u8,
+    /// Finished on Inoreader or on this device.
+    pub finished: bool,
+    /// What Inoreader says the item is; `None` when it reported no progress for it.
+    pub kind: Option<SavedKind>,
+    /// Length in seconds as Inoreader reports it (0 unknown).
+    pub length_secs: u32,
+    /// When it was saved to Read later, in seconds (0 unknown).
+    pub saved_at: i64,
+}
+
+/// What a saved item is, as Inoreader classifies it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SavedKind {
+    #[default]
+    Article,
+    Video,
+    Podcast,
+}
+
+impl SavedKind {
+    pub fn parse(s: &str) -> SavedKind {
+        match s {
+            "video" => SavedKind::Video,
+            "podcast" => SavedKind::Podcast,
+            _ => SavedKind::Article,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SavedKind::Article => "article",
+            SavedKind::Video => "video",
+            SavedKind::Podcast => "podcast",
+        }
+    }
+}
+
+/// Inoreader's reading progress for one saved item (undocumented `savedProgress`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SavedProgress {
+    pub kind: SavedKind,
+    pub length_secs: Option<u32>,
+    pub percent: u8,
+    pub finished: bool,
+}
+
+/// An article counts as finished at this percentage (Inoreader's threshold).
+pub const FINISHED_PERCENT: u8 = 95;
+
+/// Which saved articles Read later shows, by reading progress.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProgressFilter {
+    #[default]
+    All,
+    NotStarted,
+    InProgress,
+    Finished,
+}
+
+impl ProgressFilter {
+    pub const ALL: [ProgressFilter; 4] =
+        [ProgressFilter::All, ProgressFilter::NotStarted, ProgressFilter::InProgress, ProgressFilter::Finished];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ProgressFilter::All => "All articles",
+            ProgressFilter::NotStarted => "Not started",
+            ProgressFilter::InProgress => "In progress",
+            ProgressFilter::Finished => "Finished",
+        }
+    }
+
+    pub fn short(self) -> &'static str {
+        match self {
+            ProgressFilter::All => "All",
+            other => other.label(),
+        }
+    }
 }
 
 impl ArticleSummary {
+    /// "Finished", or "40% \u{b7} 6 min left"; only for saved articles that were started.
+    pub fn progress_label(&self) -> Option<String> {
+        if !self.starred {
+            return None;
+        }
+        if self.finished {
+            return Some("Finished".to_string());
+        }
+        if self.progress == 0 {
+            return None;
+        }
+        Some(match self.minutes_left() {
+            Some(m) => format!("{}% \u{b7} {} left", self.progress, crate::content::format_minutes(m)),
+            None => format!("{}%", self.progress),
+        })
+    }
+
+    fn minutes_left(&self) -> Option<u32> {
+        let left = 100 - self.progress.min(100) as u32;
+        let from_secs = |s: u32| (s * left).div_ceil(100 * 60).max(1);
+        let timed = matches!(self.kind, Some(SavedKind::Video | SavedKind::Podcast)) && self.length_secs > 0;
+        if timed {
+            Some(from_secs(self.length_secs))
+        } else if self.words > 0 {
+            Some((self.words * left).div_ceil(100 * 230).max(1))
+        } else if self.length_secs > 0 {
+            Some(from_secs(self.length_secs))
+        } else {
+            None
+        }
+    }
+
+    /// "7 min read", or "19 min video" / "52 min podcast" when Inoreader gives the duration.
+    pub fn length_label(&self) -> Option<String> {
+        if self.length_secs > 0 {
+            let what = match self.kind {
+                Some(SavedKind::Video) => Some("video"),
+                Some(SavedKind::Podcast) => Some("podcast"),
+                _ => None,
+            };
+            if let Some(w) = what {
+                return Some(format!("{} {w}", crate::content::format_minutes((self.length_secs / 60).max(1))));
+            }
+        }
+        crate::content::format_read_time(self.words)
+    }
+
     /// Publish time, or arrival time when the feed gave none. Matches the SQL ordering key.
     pub fn sort_time(&self) -> i64 {
         if self.published > 0 {
@@ -267,11 +394,20 @@ pub enum ArticleSort {
     Longest,
     Title,
     Source,
+    /// Read later only: when it was saved, newest first.
+    Saved,
 }
 
 impl ArticleSort {
-    pub const ALL: [ArticleSort; 6] =
-        [ArticleSort::Newest, ArticleSort::Oldest, ArticleSort::Shortest, ArticleSort::Longest, ArticleSort::Title, ArticleSort::Source];
+    pub const ALL: [ArticleSort; 7] = [
+        ArticleSort::Newest,
+        ArticleSort::Oldest,
+        ArticleSort::Shortest,
+        ArticleSort::Longest,
+        ArticleSort::Title,
+        ArticleSort::Source,
+        ArticleSort::Saved,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -281,6 +417,7 @@ impl ArticleSort {
             ArticleSort::Longest => "Longest first",
             ArticleSort::Title => "Title A\u{2013}Z",
             ArticleSort::Source => "Source A\u{2013}Z",
+            ArticleSort::Saved => "Recently saved",
         }
     }
 
@@ -292,6 +429,7 @@ impl ArticleSort {
             ArticleSort::Longest => "Longest",
             ArticleSort::Title => "Title",
             ArticleSort::Source => "Source",
+            ArticleSort::Saved => "Saved",
         }
     }
 }
@@ -367,6 +505,9 @@ pub struct ViewOptions {
     pub unread_only: bool,
     pub group: ArticleGroup,
     pub sort: ArticleSort,
+    /// Read later only: which saved articles to show by reading progress.
+    #[serde(default)]
+    pub progress: ProgressFilter,
 }
 
 impl ViewOptions {
@@ -374,18 +515,31 @@ impl ViewOptions {
     /// everything, and folders, feeds and other streams show everything with unread first.
     pub fn default_for(c: &Collection) -> ViewOptions {
         match c {
-            Collection::All | Collection::Unread => ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest },
-            Collection::Starred => ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Newest },
-            _ => ViewOptions { unread_only: false, group: ArticleGroup::Unread, sort: ArticleSort::Newest },
+            Collection::All | Collection::Unread => {
+                ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest, progress: ProgressFilter::All }
+            }
+            Collection::Starred => {
+                ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Saved, progress: ProgressFilter::All }
+            }
+            _ => ViewOptions { unread_only: false, group: ArticleGroup::Unread, sort: ArticleSort::Newest, progress: ProgressFilter::All },
         }
     }
 
     /// What is actually applied: no "unread first" when only unread is shown, and no source
-    /// sort inside a source grouping.
+    /// sort inside a source grouping. Read later filters by progress instead of by unread; the
+    /// progress filter and the saved-date sort belong to it alone.
     pub fn effective(self, c: &Collection) -> ViewOptions {
         let mut v = self;
         if matches!(c, Collection::Unread) {
             v.unread_only = true;
+        }
+        if matches!(c, Collection::Starred) {
+            v.unread_only = false;
+        } else {
+            v.progress = ProgressFilter::All;
+            if v.sort == ArticleSort::Saved {
+                v.sort = ArticleSort::Newest;
+            }
         }
         if v.group == ArticleGroup::Unread && v.unread_only {
             v.group = ArticleGroup::None;
@@ -407,11 +561,21 @@ pub struct Cursor {
     pub words: u32,
     pub id: ArticleId,
     pub new: bool,
+    pub saved_at: i64,
 }
 
 impl From<&ArticleSummary> for Cursor {
     fn from(a: &ArticleSummary) -> Cursor {
-        Cursor { read: a.read, source: a.source.clone(), title: a.title.clone(), time: a.sort_time(), words: a.words, id: a.id, new: a.new }
+        Cursor {
+            read: a.read,
+            source: a.source.clone(),
+            title: a.title.clone(),
+            time: a.sort_time(),
+            words: a.words,
+            id: a.id,
+            new: a.new,
+            saved_at: a.saved_at,
+        }
     }
 }
 
@@ -445,6 +609,8 @@ pub struct ArticleQuery {
     /// Start of the current visit to the list: an unread article counts as new unless it was
     /// seen before this time. 0 makes every unread article new.
     pub visit_start_usec: i64,
+    /// Read later only: filter by reading progress.
+    pub progress: ProgressFilter,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -522,11 +688,11 @@ mod view_option_tests {
     fn defaults_per_view() {
         assert_eq!(
             ViewOptions::default_for(&Collection::All),
-            ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest }
+            ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Newest, progress: ProgressFilter::All }
         );
         assert_eq!(
             ViewOptions::default_for(&Collection::Starred),
-            ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Newest }
+            ViewOptions { unread_only: false, group: ArticleGroup::None, sort: ArticleSort::Saved, progress: ProgressFilter::All }
         );
         let folder = ViewOptions::default_for(&Collection::Folder("x".into()));
         assert_eq!((folder.unread_only, folder.group), (false, ArticleGroup::Unread));
@@ -535,13 +701,57 @@ mod view_option_tests {
 
     #[test]
     fn effective_options_drop_redundant_choices() {
-        let v = ViewOptions { unread_only: true, group: ArticleGroup::Unread, sort: ArticleSort::Newest };
+        let v = ViewOptions { unread_only: true, group: ArticleGroup::Unread, sort: ArticleSort::Newest, progress: ProgressFilter::All };
         assert_eq!(v.effective(&Collection::All).group, ArticleGroup::None);
         let all = ViewOptions { unread_only: false, ..v };
         assert_eq!(all.effective(&Collection::All).group, ArticleGroup::Unread);
         assert!(all.effective(&Collection::Unread).unread_only);
-        let s = ViewOptions { unread_only: false, group: ArticleGroup::Source, sort: ArticleSort::Source };
+        let s = ViewOptions { unread_only: false, group: ArticleGroup::Source, sort: ArticleSort::Source, progress: ProgressFilter::All };
         assert_eq!(s.effective(&Collection::All).sort, ArticleSort::Newest);
+    }
+
+    #[test]
+    fn effective_options_keep_progress_and_saved_sort_to_read_later() {
+        let v =
+            ViewOptions { unread_only: true, group: ArticleGroup::None, sort: ArticleSort::Saved, progress: ProgressFilter::InProgress };
+        let e = v.effective(&Collection::Starred);
+        assert_eq!((e.unread_only, e.sort, e.progress), (false, ArticleSort::Saved, ProgressFilter::InProgress));
+        let f = v.effective(&Collection::Folder("x".into()));
+        assert_eq!((f.sort, f.progress), (ArticleSort::Newest, ProgressFilter::All));
+    }
+
+    #[test]
+    fn progress_labels() {
+        let mut a = ArticleSummary {
+            id: ArticleId(1),
+            title: String::new(),
+            source: String::new(),
+            published: 0,
+            timestamp_usec: 0,
+            read: false,
+            starred: true,
+            download: DownloadState::NotDownloaded,
+            words: 2300,
+            new: false,
+            progress: 40,
+            finished: false,
+            kind: Some(SavedKind::Article),
+            length_secs: 0,
+            saved_at: 0,
+        };
+        assert_eq!(a.progress_label().as_deref(), Some("40% \u{b7} 6 min left"));
+        a.finished = true;
+        assert_eq!(a.progress_label().as_deref(), Some("Finished"));
+        a.finished = false;
+        a.progress = 0;
+        assert_eq!(a.progress_label(), None);
+        a.progress = 40;
+        a.starred = false;
+        assert_eq!(a.progress_label(), None);
+        let p = ArticleSummary { starred: true, words: 0, progress: 50, kind: Some(SavedKind::Podcast), length_secs: 3102, ..a.clone() };
+        assert_eq!(p.progress_label().as_deref(), Some("50% \u{b7} 26 min left"));
+        let v = ArticleSummary { kind: Some(SavedKind::Video), length_secs: 1140, ..p };
+        assert_eq!(v.length_label().as_deref(), Some("19 min video"));
     }
 
     #[test]
@@ -563,6 +773,11 @@ mod view_option_tests {
             download: DownloadState::NotDownloaded,
             words: 0,
             new: false,
+            progress: 0,
+            finished: false,
+            kind: None,
+            length_secs: 0,
+            saved_at: 0,
         };
         assert_eq!(ArticleGroup::Source.header(&a).as_deref(), Some("Unknown source"));
         assert_eq!(ArticleGroup::New.header(&a).as_deref(), Some("Earlier"));

@@ -26,6 +26,10 @@ pub struct SyncConfig {
     pub annotated_pages: usize,
     /// Automatic cycles refresh annotations no more often than this.
     pub annotations_interval_secs: i64,
+    /// Pages of 100 saved articles read to refresh their reading progress.
+    pub progress_pages: usize,
+    /// Automatic cycles refresh reading progress no more often than this.
+    pub progress_interval_secs: i64,
     /// Subscriptions, folders and their order are re-read at most this often, unless the unread
     /// counts show a feed or folder that appeared or disappeared.
     pub org_interval_secs: i64,
@@ -47,6 +51,8 @@ impl Default for SyncConfig {
             cache_per_cycle: 20,
             annotated_pages: 2,
             annotations_interval_secs: 21600,
+            progress_pages: 2,
+            progress_interval_secs: 3600,
             org_interval_secs: 21600,
             org_interval_explicit_secs: 3600,
             reconcile_max_age_secs: 21600,
@@ -666,6 +672,7 @@ impl SyncEngine {
                     continuation: cont.clone(),
                     annotations: true,
                     summaries: true,
+                    progress: stream.as_str() == STATE_STARRED,
                     ..Default::default()
                 },
             )?;
@@ -731,6 +738,65 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// Re-reads the newest saved articles with Inoreader's reading progress (undocumented
+    /// `progress=1` on the starred stream). Progress dropped elsewhere (the article was unsaved)
+    /// is forgotten only after the listing was read to its end.
+    fn refresh_progress(&mut self, reason: Reason, prio: Priority, counts: &crate::api::UnreadCounts, rep: &mut CycleReport) -> Result<()> {
+        let now = self.clock.now();
+        if reason != Reason::Explicit {
+            let last = self.store.get_meta("progress_refreshed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+            if now - last < self.cfg.progress_interval_secs {
+                return Ok(());
+            }
+        }
+        if counts.counts.iter().find(|(s, ..)| s == STATE_STARRED).is_some_and(|c| c.1 == 0) {
+            return Ok(());
+        }
+        let api = self.api.with_priority(prio);
+        let stream = StreamId::new(STATE_STARRED);
+        let mut cont: Option<String> = None;
+        let mut listed: BTreeSet<ArticleId> = BTreeSet::new();
+        let mut complete = false;
+        for _ in 0..self.cfg.progress_pages {
+            if self.cancelled() {
+                return Ok(());
+            }
+            let start_seq = self.store.seq()?;
+            let page = api.contents(
+                &stream,
+                &ContentsParams {
+                    count: 100,
+                    continuation: cont.clone(),
+                    annotations: true,
+                    summaries: true,
+                    progress: true,
+                    ..Default::default()
+                },
+            )?;
+            for mut rec in page.items {
+                self.strip_folder_labels(&mut rec)?;
+                listed.insert(ArticleId(rec.id));
+                self.store.upsert_article(&rec, start_seq)?;
+                rep.fetched += 1;
+            }
+            match page.continuation {
+                Some(c) => cont = Some(c),
+                None => {
+                    complete = true;
+                    break;
+                }
+            }
+        }
+        if complete {
+            self.store.reset_saved_progress_except(&listed)?;
+        } else {
+            rep.incomplete.push("progress");
+        }
+        self.store.set_meta("progress_refreshed", &now.to_string())?;
+        rep.reconciled.push("progress");
+        Ok(())
+    }
+
     /// Folder names inherited from the feed are not user tags; drop them from `categories`.
     fn strip_folder_labels(&self, rec: &mut crate::store::ArticleRecord) -> Result<()> {
         if let Some(sub) = self.store.subscription(&rec.origin_stream)? {
@@ -756,6 +822,7 @@ impl SyncEngine {
                 continuation,
                 annotations: true,
                 summaries: true,
+                progress: matches!(collection, Collection::Starred),
                 ..Default::default()
             },
         )?;
@@ -900,7 +967,8 @@ impl SyncEngine {
         self.sync_membership(prio, "unread", &Membership::Read, false, unread, true, pages, &counts, rep)?;
         // A failed annotation refresh must not stop downloads; its error is still reported.
         let refreshed = self.refresh_annotations(reason, prio, rep);
+        let progressed = self.refresh_progress(reason, prio, &counts, rep);
         self.cache_pending(rep)?;
-        refreshed
+        refreshed.and(progressed)
     }
 }

@@ -56,6 +56,8 @@ pub enum InoInkEntry {
     BulkApply(BulkAction),
     CancelSelection,
     UnreadOnly(bool),
+    /// Read later: show articles by reading progress.
+    ProgressFilter(ProgressFilter),
     ViewGroup(ArticleGroup),
     ViewSort(ArticleSort),
     CategorySort(CategorySort),
@@ -286,6 +288,14 @@ pub fn open_article(context: &mut Context, id: ArticleId) -> OpenResult {
                 let html = std::fs::read_to_string(&path).unwrap_or_default();
                 relocate(&html, &pos.anchor, pos.offset as usize).or(Some((pos.offset as usize).min(html.len())))
             };
+        } else if let Ok(Some(p)) = store.saved_progress(id) {
+            // Started on Inoreader but never opened here: go to about the same place.
+            if !p.finished && (1..FINISHED_PERCENT).contains(&p.percent) {
+                let len = std::fs::metadata(&path).map(|m| m.len() as usize).unwrap_or(0);
+                if len > 0 {
+                    offset = Some(len * p.percent as usize / 100);
+                }
+            }
         }
     }
     OpenResult::Ready(Box::new(OpenArticle { id, path, version: v.version, content_hash: v.hash, offset, kind: DocKind::Article }))

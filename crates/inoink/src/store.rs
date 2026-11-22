@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007.sql"),
     include_str!("../migrations/0008.sql"),
     include_str!("../migrations/0009.sql"),
+    include_str!("../migrations/0010.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -57,6 +58,10 @@ pub struct ArticleRecord {
     /// All category strings returned with the article.
     pub categories: Vec<String>,
     pub excerpt: bool,
+    /// When it was saved to Read later (seconds), if the API said.
+    pub saved_at: Option<i64>,
+    /// Inoreader's reading progress, if the API gave it.
+    pub saved_progress: Option<SavedProgress>,
 }
 
 /// One edit-tag request's worth of work.
@@ -218,7 +223,49 @@ fn effective_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Members
     Ok(v.unwrap_or(0) != 0)
 }
 
+/// Records what Inoreader reports about a saved article: when it was saved and how far it was read.
+/// Having been started anywhere counts as seen here.
+fn upsert_saved_tx(tx: &Transaction, account: &str, id: ArticleId, saved_at: Option<i64>, progress: Option<&SavedProgress>) -> Result<()> {
+    let a = id.to_db();
+    tx.execute("INSERT OR IGNORE INTO saved_items(account,article) VALUES(?1,?2)", params![account, a])?;
+    if let Some(t) = saved_at {
+        tx.execute("UPDATE saved_items SET saved_at=?3 WHERE account=?1 AND article=?2", params![account, a, t])?;
+    }
+    if let Some(p) = progress {
+        tx.execute(
+            "UPDATE saved_items SET kind=?3, length_secs=?4, percent=?5, finished=?6 WHERE account=?1 AND article=?2",
+            params![account, a, p.kind.as_str(), p.length_secs.map(|l| l as i64), p.percent as i64, p.finished as i64],
+        )?;
+        if p.percent > 0 || p.finished {
+            tx.execute("INSERT OR IGNORE INTO seen(account,article,at) VALUES(?1,?2,0)", params![account, a])?;
+        }
+    }
+    Ok(())
+}
+
+/// Scalar SQL for an article's merged reading progress and finished flag (Inoreader's and this
+/// device's, the further wins). Literal SQL: it is repeated in conditions and ORDER BY.
+fn progress_exprs() -> (String, String) {
+    let remote = "(SELECT percent FROM saved_items si WHERE si.account=a.account AND si.article=a.id)";
+    let local = "(SELECT percent FROM local_progress lp WHERE lp.account=a.account AND lp.article=a.id)";
+    let finished = "(SELECT finished FROM saved_items si WHERE si.account=a.account AND si.article=a.id)";
+    (
+        format!("MAX(COALESCE({remote},0), COALESCE({local},0))"),
+        format!("(COALESCE({finished},0)=1 OR COALESCE({local},0)>={FINISHED_PERCENT})"),
+    )
+}
+
+const SAVED_AT_EXPR: &str = "COALESCE((SELECT saved_at FROM saved_items si WHERE si.account=a.account AND si.article=a.id),0)";
+
 fn set_intent_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Membership, desired: bool) -> Result<CommitReceipt> {
+    if *m == Membership::Starred && desired {
+        // Saved here: the date until the server reports its own.
+        tx.execute("INSERT OR IGNORE INTO saved_items(account,article) VALUES(?1,?2)", params![account, article.to_db()])?;
+        tx.execute(
+            "UPDATE saved_items SET saved_at=?3 WHERE account=?1 AND article=?2 AND saved_at IS NULL",
+            params![account, article.to_db(), now_secs()],
+        )?;
+    }
     let key = m.key();
     let a = article.to_db();
     let known: Option<i64> = tx
@@ -511,6 +558,9 @@ impl Store {
             "UPDATE articles SET raw_json=?3 WHERE account=?1 AND id=?2 AND raw_json='{}'",
             params![account, id.to_db(), rec.raw_json],
         )?;
+        if rec.saved_at.is_some() || rec.saved_progress.is_some() {
+            upsert_saved_tx(&tx, &account, id, rec.saved_at, rec.saved_progress.as_ref())?;
+        }
         // Annotations are replaced whenever the object carries them (raw_json itself is frozen).
         if let Some(list) =
             serde_json::from_str::<serde_json::Value>(&rec.raw_json).ok().as_ref().and_then(crate::highlight::parse_annotations)
@@ -736,6 +786,8 @@ impl Store {
                         raw_json: r.get(8)?,
                         categories: Vec::new(),
                         excerpt: r.get::<_, i64>(9)? != 0,
+                        saved_at: None,
+                        saved_progress: None,
                     })
                 },
             )
@@ -841,6 +893,15 @@ impl Store {
         }
         if q.unread_only && !matches!(q.collection, Some(Collection::Unread)) {
             push(&mut sql, &format!("{}=0", flag_expr("read")), vec![]);
+        }
+        if matches!(q.collection, Some(Collection::Starred)) {
+            let (progress, finished) = progress_exprs();
+            match q.progress {
+                ProgressFilter::All => {}
+                ProgressFilter::NotStarted => push(&mut sql, &format!("({progress}=0 AND NOT {finished})"), vec![]),
+                ProgressFilter::InProgress => push(&mut sql, &format!("({progress}>0 AND NOT {finished})"), vec![]),
+                ProgressFilter::Finished => push(&mut sql, &finished, vec![]),
+            }
         }
         if let Some(text) = &q.search {
             let m = fts_query(text)?;
@@ -1074,7 +1135,13 @@ impl Store {
             "({read_expr}=0 AND NOT EXISTS (SELECT 1 FROM seen s WHERE s.account=a.account AND s.article=a.id AND s.at < {}))",
             q.visit_start_usec
         );
-        sql.push_str(&format!(" AS is_starred, a.words, {new_expr} AS is_new FROM articles a WHERE a.account=?1"));
+        let (progress_expr, finished_expr) = progress_exprs();
+        sql.push_str(&format!(
+            " AS is_starred, a.words, {new_expr} AS is_new, {progress_expr}, {finished_expr}, \
+             (SELECT kind FROM saved_items si WHERE si.account=a.account AND si.article=a.id), \
+             COALESCE((SELECT length_secs FROM saved_items si WHERE si.account=a.account AND si.article=a.id),0), \
+             {SAVED_AT_EXPR} FROM articles a WHERE a.account=?1"
+        ));
         let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
         let Some((cond, cond_args)) = self.filter_sql(q) else { return Ok(ArticlePage { items: vec![], next: None }) };
         sql.push_str(&cond);
@@ -1086,7 +1153,7 @@ impl Store {
         };
         // Ordering: group keys first, then the sort keys, then the id. Each key is
         // (expression, descending, the cursor's value for it).
-        let opts = ViewOptions { unread_only: q.unread_only, group: q.group, sort: q.sort }
+        let opts = ViewOptions { unread_only: q.unread_only, group: q.group, sort: q.sort, progress: q.progress }
             .effective(q.collection.as_ref().unwrap_or(&Collection::All));
         let time_expr = "CASE WHEN a.published > 0 THEN a.published ELSE a.timestamp_usec / 1000000 END".to_string();
         let src_expr = "a.origin_title COLLATE NOCASE".to_string();
@@ -1105,6 +1172,10 @@ impl Store {
         let unknown_key = || -> Key { ("(a.words = 0)".to_string(), false, cur.and_then(|c| int((c.words == 0) as i64))) };
         let words_key = |desc: bool| -> Key { ("a.words".to_string(), desc, cur.and_then(|c| int(c.words as i64))) };
         match opts.sort {
+            ArticleSort::Saved => {
+                keys.push((SAVED_AT_EXPR.to_string(), true, cur.and_then(|c| int(c.saved_at))));
+                keys.push(time_key(true));
+            }
             ArticleSort::Newest => keys.push(time_key(true)),
             ArticleSort::Oldest => keys.push(time_key(false)),
             ArticleSort::Shortest => {
@@ -1164,6 +1235,11 @@ impl Store {
                 starred: r.get::<_, i64>(7)? != 0,
                 words: r.get::<_, i64>(8)?.max(0) as u32,
                 new: r.get::<_, i64>(9)? != 0,
+                progress: r.get::<_, i64>(10)?.clamp(0, 100) as u8,
+                finished: r.get::<_, i64>(11)? != 0,
+                kind: r.get::<_, Option<String>>(12)?.map(|k| SavedKind::parse(&k)),
+                length_secs: r.get::<_, i64>(13)?.max(0) as u32,
+                saved_at: r.get::<_, i64>(14)?,
             });
         }
         let next = if items.len() > limit {
@@ -1411,6 +1487,65 @@ impl Store {
             ],
         )?;
         Ok(())
+    }
+
+    /// Inoreader's reading progress for a saved article, if it reported one.
+    pub fn saved_progress(&self, article: ArticleId) -> Result<Option<SavedProgress>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT kind,length_secs,percent,finished FROM saved_items WHERE account=?1 AND article=?2 AND kind IS NOT NULL",
+                params![self.account, article.to_db()],
+                |r| {
+                    Ok(SavedProgress {
+                        kind: SavedKind::parse(&r.get::<_, String>(0)?),
+                        length_secs: r.get::<_, Option<i64>>(1)?.map(|l| l as u32),
+                        percent: r.get::<_, i64>(2)?.clamp(0, 100) as u8,
+                        finished: r.get::<_, i64>(3)? != 0,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Notes how far the article was read on this device. Only ever moves forward.
+    pub fn record_local_progress(&mut self, article: ArticleId, percent: u8) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO local_progress(account,article,percent,updated) VALUES(?1,?2,?3,?4) \
+             ON CONFLICT(account,article) DO UPDATE SET percent=MAX(percent,excluded.percent), updated=excluded.updated",
+            params![self.account, article.to_db(), percent.min(100) as i64, now_secs()],
+        )?;
+        Ok(())
+    }
+
+    pub fn local_progress(&self, article: ArticleId) -> Result<Option<u8>> {
+        Ok(self
+            .conn
+            .query_row("SELECT percent FROM local_progress WHERE account=?1 AND article=?2", params![self.account, article.to_db()], |r| {
+                r.get::<_, i64>(0)
+            })
+            .optional()?
+            .map(|p| p.clamp(0, 100) as u8))
+    }
+
+    /// After a complete listing of the saved articles: forgets Inoreader's progress for every
+    /// article that was not in it (unsaved elsewhere, where Inoreader drops the progress too).
+    pub fn reset_saved_progress_except(&mut self, listed: &BTreeSet<ArticleId>) -> Result<usize> {
+        let account = self.account.clone();
+        let tx = self.conn.transaction()?;
+        let stale: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT article FROM saved_items WHERE account=?1 AND kind IS NOT NULL")?;
+            let rows = stmt.query_map([&account], |r| r.get::<_, i64>(0))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|a| !listed.contains(&ArticleId::from_db(*a))).collect()
+        };
+        for a in &stale {
+            tx.execute(
+                "UPDATE saved_items SET kind=NULL, length_secs=NULL, percent=0, finished=0 WHERE account=?1 AND article=?2",
+                params![account, a],
+            )?;
+        }
+        tx.commit()?;
+        Ok(stale.len())
     }
 
     pub fn position(&self, article: ArticleId) -> Result<Option<ReadingPosition>> {

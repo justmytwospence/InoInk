@@ -116,6 +116,8 @@ pub fn parse_item(item: &Value) -> Result<ArticleRecord> {
         Value::Null => num_i64(&item["crawlTimeMsec"]) * 1000,
         v => num_i64(v),
     };
+    let starred = categories.iter().any(|c| Membership::from_tag_id(c) == Some(Membership::Starred));
+    let saved_at = Some(num_i64(&item["starred"])).filter(|&t| starred && t > 0);
     Ok(ArticleRecord {
         id: id.0,
         title: crate::util::decode_entities(item["title"].as_str().unwrap_or("")),
@@ -130,6 +132,20 @@ pub fn parse_item(item: &Value) -> Result<ArticleRecord> {
         categories,
         // The API gives no excerpt flag; never claim one.
         excerpt: false,
+        saved_at,
+        saved_progress: parse_saved_progress(&item["savedProgress"]),
+    })
+}
+
+/// Inoreader's undocumented `savedProgress` object of a saved article.
+pub fn parse_saved_progress(v: &Value) -> Option<SavedProgress> {
+    let o = v.as_object()?;
+    let length = num_i64(o.get("length").unwrap_or(&Value::Null));
+    Some(SavedProgress {
+        kind: SavedKind::parse(o.get("kind").and_then(|k| k.as_str()).unwrap_or("")),
+        length_secs: Some(length).filter(|&l| l > 0).map(|l| l.min(u32::MAX as i64) as u32),
+        percent: num_i64(o.get("progress").unwrap_or(&Value::Null)).clamp(0, 100) as u8,
+        finished: o.get("finished").and_then(|f| f.as_bool()).unwrap_or(false),
     })
 }
 
@@ -242,6 +258,9 @@ pub struct ContentsParams {
     pub continuation: Option<String>,
     pub annotations: bool,
     pub summaries: bool,
+    /// Ask for each saved article's reading progress (`progress=1`; undocumented, and only the
+    /// starred stream answers).
+    pub progress: bool,
     /// Ask only for manually assigned tags in `categories`.
     pub manual_tags_only: bool,
 }
@@ -311,5 +330,25 @@ mod tests {
         let item = serde_json::json!({"id": "1", "title": "X&mdash;Y", "author": "A &amp; B", "origin": {"title": "C &amp; D"}});
         let r = parse_item(&item).unwrap();
         assert_eq!((r.title.as_str(), r.author.as_str(), r.origin_title.as_str()), ("X\u{2014}Y", "A & B", "C & D"));
+    }
+
+    #[test]
+    fn saved_progress_is_parsed() {
+        let item = serde_json::json!({
+            "id": "1", "starred": 1795313209,
+            "categories": ["user/1/state/com.google/starred"],
+            "savedProgress": {"kind": "podcast", "length": 3102, "progress": 100, "finished": true, "archiveWhenFinished": false, "position": {"percent": 100}}
+        });
+        let r = parse_item(&item).unwrap();
+        assert_eq!(r.saved_at, Some(1795313209));
+        assert_eq!(
+            r.saved_progress,
+            Some(SavedProgress { kind: SavedKind::Podcast, length_secs: Some(3102), percent: 100, finished: true })
+        );
+        let plain = parse_item(&serde_json::json!({"id": "2", "starred": 5, "categories": []})).unwrap();
+        assert_eq!((plain.saved_at, plain.saved_progress), (None, None), "no star, no saved date");
+        let started =
+            parse_item(&serde_json::json!({"id": "3", "savedProgress": {"kind": "article", "progress": 40, "finished": false}})).unwrap();
+        assert_eq!(started.saved_progress.map(|p| (p.kind, p.length_secs, p.percent)), Some((SavedKind::Article, None, 40)));
     }
 }

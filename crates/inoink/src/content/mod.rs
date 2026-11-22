@@ -59,14 +59,18 @@ pub fn format_read_time(words: u32) -> Option<String> {
     if words == 0 {
         return None;
     }
-    let m = words.div_ceil(230).max(1);
-    Some(if m < 60 {
-        format!("{m} min read")
+    Some(format!("{} read", format_minutes(words.div_ceil(230).max(1))))
+}
+
+/// A duration in minutes, for example "7 min", "1 h" or "1 h 5 min".
+pub fn format_minutes(m: u32) -> String {
+    if m < 60 {
+        format!("{m} min")
     } else if m.is_multiple_of(60) {
-        format!("{} h read", m / 60)
+        format!("{} h", m / 60)
     } else {
-        format!("{} h {} min read", m / 60, m % 60)
-    })
+        format!("{} h {} min", m / 60, m % 60)
+    }
 }
 
 /// Time left at 230 words per minute: "Less than a minute left", "4 min left", "1 h 5 min left".

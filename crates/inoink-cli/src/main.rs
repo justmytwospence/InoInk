@@ -475,6 +475,8 @@ fn fixtures(args: &[String]) -> Result<()> {
             summary_html: html,
             categories: cats,
             excerpt: false,
+            saved_at: None,
+            saved_progress: None,
         };
         store.upsert_article(&rec, 0)?;
         let state = cache.cache_article(&mut store, &FixtureImages, ArticleId(id), &ctl)?;
