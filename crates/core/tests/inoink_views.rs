@@ -1144,6 +1144,59 @@ fn closing_the_popup_keeps_the_memory() {
 }
 
 #[test]
+fn paging_past_the_end_records_local_finish() {
+    let mut e = env();
+    let _reader = show_end(&mut e, &[2, 1], true, 2);
+    assert_eq!(e.context.inoink.store().unwrap().local_progress(ArticleId(2)).unwrap(), Some(100));
+}
+
+fn with_web_progress(e: &mut Env, id: u64, percent: u8) {
+    let r = ArticleRecord {
+        saved_progress: Some(inoink::model::SavedProgress { kind: inoink::model::SavedKind::Article, length_secs: None, percent, finished: false }),
+        ..rec(id, id as i64 * 100 * 1_000_000, true)
+    };
+    e.context.inoink.store_mut().unwrap().upsert_article(&r, 0).unwrap();
+}
+
+#[test]
+fn an_article_started_on_the_web_opens_near_that_place() {
+    let mut e = env();
+    with_web_progress(&mut e, 2, 50);
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(2)) else { panic!("cached") };
+    let len = std::fs::metadata(&a.path).unwrap().len() as usize;
+    assert_eq!(a.offset, Some(len / 2));
+    with_web_progress(&mut e, 1, 100);
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(1)) else { panic!("cached") };
+    assert_eq!(a.offset, None, "a finished article opens at the top");
+}
+
+#[test]
+fn a_local_position_wins_over_web_progress() {
+    let mut e = env();
+    with_web_progress(&mut e, 2, 50);
+    let hash = e.context.inoink.store().unwrap().latest_version(ArticleId(2)).unwrap().unwrap().hash;
+    let pos = ReadingPosition { content_hash: hash, offset: 5, anchor: String::new(), font_size: None };
+    e.context.inoink.store_mut().unwrap().save_position(ArticleId(2), &pos).unwrap();
+    let OpenResult::Ready(a) = open_article(&mut e.context, ArticleId(2)) else { panic!("cached") };
+    assert_eq!(a.offset, Some(5));
+}
+
+#[test]
+fn read_later_filters_by_progress() {
+    let mut e = env();
+    with_web_progress(&mut e, 2, 30);
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::Tab(plato_core::view::inoink::state::Tab::ReadLater))));
+    assert_eq!(rows(&home), vec![2, 1], "newest saved first by default");
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ProgressFilter(inoink::model::ProgressFilter::InProgress))));
+    assert_eq!(e.context.inoink.view_options().progress, inoink::model::ProgressFilter::InProgress);
+    assert_eq!(rows(&home), vec![2]);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ProgressFilter(inoink::model::ProgressFilter::NotStarted))));
+    assert_eq!(rows(&home), vec![1]);
+}
+
+#[test]
 fn swiping_on_marks_read_and_opens_the_next() {
     let mut e = env();
     let mut reader = show_end(&mut e, &[2, 1], true, 2);

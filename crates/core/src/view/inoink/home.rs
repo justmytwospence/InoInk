@@ -271,10 +271,10 @@ impl InoInkHome {
 
     fn query(&self, context: &Context, after: Option<Cursor>, limit: usize) -> ArticleQuery {
         if let Some(text) = &self.search {
-            return ArticleQuery { collection: None, unread_only: false, search: Some(text.clone()), limit, after, group: ArticleGroup::None, sort: ArticleSort::Newest, visit_start_usec: self.visit_start };
+            return ArticleQuery { collection: None, unread_only: false, search: Some(text.clone()), limit, after, group: ArticleGroup::None, sort: ArticleSort::Newest, visit_start_usec: self.visit_start, progress: ProgressFilter::All };
         }
         let o = Self::effective_options(context);
-        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: o.unread_only, search: None, limit, after, group: o.group, sort: o.sort, visit_start_usec: self.visit_start }
+        ArticleQuery { collection: Some(context.inoink.collection.clone()), unread_only: o.unread_only, search: None, limit, after, group: o.group, sort: o.sort, visit_start_usec: self.visit_start, progress: o.progress }
     }
 
     /// The current visit's key: what the list shows.
@@ -596,7 +596,12 @@ impl InoInkHome {
                     return ("No folders yet".into(), "Folders appear after the first sync.".into());
                 }
                 match context.inoink.collection {
-                    Collection::Starred => ("Nothing in Read later".into(), "Tap a headline in the Newsfeed to save it here.".into()),
+                    Collection::Starred => match Self::effective_options(context).progress {
+                        ProgressFilter::InProgress => ("Nothing in progress".into(), String::new()),
+                        ProgressFilter::Finished => ("Nothing finished yet".into(), String::new()),
+                        ProgressFilter::NotStarted => ("Everything here is started".into(), String::new()),
+                        ProgressFilter::All => ("Nothing in Read later".into(), "Tap a headline in the Newsfeed to save it here.".into()),
+                    },
                     _ if Self::effective_options(context).unread_only => ("All caught up".into(), String::new()),
                     _ => ("Nothing here".into(), String::new()),
                 }
@@ -696,7 +701,14 @@ impl InoInkHome {
         } else if self.showing_cats {
             format!("{} \u{25be}", context.inoink.category_sort().short())
         } else {
-            format!("{} \u{b7} {} \u{25be}", if opts.unread_only { "Unread" } else { "All" }, opts.sort.short())
+            let shown = if matches!(context.inoink.collection, Collection::Starred) {
+                opts.progress.short()
+            } else if opts.unread_only {
+                "Unread"
+            } else {
+                "All"
+            };
+            format!("{} \u{b7} {} \u{25be}", shown, opts.sort.short())
         };
         let dpi = CURRENT_DEVICE.dpi;
         // With several pages, the line above the footer is the page indicator (one segment per
@@ -1021,6 +1033,12 @@ impl InoInkHome {
                 context.inoink.set_view_options(o);
                 self.reset(hub, rq, context);
             }
+            InoInkEntry::ProgressFilter(p) => {
+                let mut o = context.inoink.view_options();
+                o.progress = *p;
+                context.inoink.set_view_options(o);
+                self.reset(hub, rq, context);
+            }
             InoInkEntry::Select(p) => self.start_selection(*p, hub, rq, context),
             InoInkEntry::ToggleSelectMode => {
                 if self.selecting.take().is_some() {
@@ -1287,13 +1305,18 @@ impl View for InoInkHome {
             }
             Event::ToggleNear(ViewId::SortMenu, rect) => {
                 let stored = context.inoink.view_options();
-                let mut entries = vec![
-                    EntryKind::Message("Show".to_string(), None),
-                    EntryKind::RadioButton("Unread only".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(true)), stored.unread_only),
-                    EntryKind::RadioButton("All articles".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(false)), !stored.unread_only),
-                    EntryKind::Separator,
-                    EntryKind::Message("Group by".to_string(), None),
-                ];
+                let read_later = matches!(context.inoink.collection, Collection::Starred);
+                let mut entries = vec![EntryKind::Message("Show".to_string(), None)];
+                if read_later {
+                    for p in ProgressFilter::ALL {
+                        entries.push(EntryKind::RadioButton(p.label().to_string(), EntryId::InoInk(InoInkEntry::ProgressFilter(p)), p == stored.progress));
+                    }
+                } else {
+                    entries.push(EntryKind::RadioButton("Unread only".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(true)), stored.unread_only));
+                    entries.push(EntryKind::RadioButton("All articles".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(false)), !stored.unread_only));
+                }
+                entries.push(EntryKind::Separator);
+                entries.push(EntryKind::Message("Group by".to_string(), None));
                 for g in ArticleGroup::ALL {
                     entries.push(EntryKind::RadioButton(g.label().to_string(), EntryId::InoInk(InoInkEntry::ViewGroup(g)), g == stored.group));
                 }
@@ -1301,6 +1324,9 @@ impl View for InoInkHome {
                 entries.push(EntryKind::Message("Sort by".to_string(), None));
                 for so in ArticleSort::ALL {
                     if so == ArticleSort::Source && stored.group == ArticleGroup::Source {
+                        continue;
+                    }
+                    if so == ArticleSort::Saved && !read_later {
                         continue;
                     }
                     entries.push(EntryKind::RadioButton(so.label().to_string(), EntryId::InoInk(InoInkEntry::ViewSort(so)), so == stored.sort));

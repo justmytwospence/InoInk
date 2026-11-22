@@ -3007,8 +3007,13 @@ impl Reader {
             return;
         }
         let pos = ReadingPosition { content_hash: binding.content_hash, offset: self.current_page as u64, anchor, font_size };
+        // How far through the text: the first page is 0, so merely opening does not count as started.
+        let start = self.first_location.unwrap_or(0);
+        let total = self.pages_count.saturating_sub(start).max(1);
+        let percent = (self.current_page.saturating_sub(start) as f32 / total as f32 * 100.0).floor().clamp(0.0, 100.0) as u8;
         if let Some(store) = context.inoink.store_mut() {
             let _ = store.save_position(binding.id, &pos);
+            let _ = store.record_local_progress(binding.id, percent);
         }
         self.last_checkpoint = std::time::Instant::now();
         self.last_saved_page = self.current_page;
@@ -3455,6 +3460,10 @@ impl Reader {
         let flag = |m: inoink::model::Membership| context.inoink.store().and_then(|s| s.effective(id, &m).ok()).unwrap_or(false);
         let starred = flag(inoink::model::Membership::Starred);
         let read = flag(inoink::model::Membership::Read);
+        // Paging past the end: finished.
+        if let Some(store) = context.inoink.store_mut() {
+            let _ = store.record_local_progress(id, 100);
+        }
         let popup = ArticleEnd::new(self.rect, starred, read, context.inoink.end_archive(), self.queue_titles.1.clone(), context);
         rq.add(RenderData::new(popup.id(), *popup.rect(), UpdateMode::Gui));
         self.children.push(Box::new(popup) as Box<dyn View>);
