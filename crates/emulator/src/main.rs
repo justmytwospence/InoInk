@@ -808,6 +808,13 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(select(InoInkEntry::Tab(Tab::Saved)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("05-read-later"));
+    // The footer's Sort label (the third of its three menus).
+    let (sort_x, footer_y) = (w * 2 / 3, rect.height() as i32 - bar / 2);
+    t.push_back(TourStep::Tap(sort_x, footer_y));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("05b-sort-menu"));
+    t.push_back(TourStep::Tap(sort_x, footer_y));
+    t.push_back(TourStep::Wait(600));
     t.push_back(TourStep::Tap(w / 2, row_y(0)));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("06-article"));

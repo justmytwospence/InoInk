@@ -74,7 +74,7 @@ drive was not used.
 
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
-the Newsfeed with its end-of-list card; saving by tap; a headline's menu; the Newsfeed's folder list and a folder; Read later; an
+the Newsfeed with its end-of-list card; saving by tap; a headline's menu; the Newsfeed's folder list and a folder; Read later and its Sort menu (`05b-sort-menu`); an
 article with the bar, the next article's title and the page indicator; the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
 panel; the main menu; the Newsfeed after saving; a Hacker News link post as the article (`14-linked-article-tabs`) and its comments with thread lines (`15-linked-comments-tabs`). Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
@@ -200,6 +200,7 @@ that was merged.
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |
+| List footer: Show, Group and Sort labels each open their own menu with no "More" entry; the labels fit in portrait; the list still shows eight headlines on the Libra Colour | NOT RUN |
 | Page bar: segments in portrait vs landscape follow the width (e.g. 15 pages: line in portrait, segments in landscape) | NOT RUN |
 | Article bar: short articles show one segment per page, long ones the line; it follows font size changes | NOT RUN |
 | Folder sort (Inoreader order, name, most unread) applies and is kept across restarts | NOT RUN |

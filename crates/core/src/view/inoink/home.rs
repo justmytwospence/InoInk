@@ -101,6 +101,10 @@ const TOP: usize = 0;
 const TABS: usize = 2;
 const LIST: usize = 4;
 const FOOTER: usize = 6;
+/// How much taller than the other bars the footer is, at 300 dpi.
+const FOOTER_EXTRA: f32 = 18.0;
+/// The article list's footer menus: Show, Group by and Sort by.
+const FOOTER_MENUS: [ViewId; 3] = [ViewId::FilterMenu, ViewId::GroupMenu, ViewId::SortMenu];
 
 struct List {
     id: Id,
@@ -188,6 +192,12 @@ pub fn collection_title(context: &Context, c: &Collection) -> String {
     }
 }
 
+/// How many headlines a list of `height` pixels shows. A last row that is short of its height by
+/// less than a twelfth still gets its place (the rows share the difference).
+fn list_rows(height: i32, thickness: i32, row_height: i32) -> usize {
+    (((height + thickness) as f32 / row_height as f32 + 0.08) as usize).max(1)
+}
+
 /// `name` cut to `max` characters, the last an ellipsis.
 fn shorten(name: &str, max: usize) -> String {
     if name.chars().count() <= max {
@@ -222,11 +232,13 @@ impl InoInkHome {
         children.push(Box::new(TabBar::new(tabs_rect, context.inoink.tab, std::array::from_fn(|_| String::new()))));
         children.push(Box::new(Filler::new(rect![rect.min.x, tabs_rect.max.y, rect.max.x, rect.min.y + 2 * small_height + big_thickness], BLACK)));
 
-        let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - small_height - small_thickness];
-        let rows = (((list_rect.height() as i32) + thickness) / big_height).max(1) as usize;
+        // The footer holds three menus and the page arrows: a little taller than the other bars.
+        let footer_height = small_height + scale_by_dpi(FOOTER_EXTRA, dpi) as i32;
+        let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - footer_height - small_thickness];
+        let rows = list_rows(list_rect.height() as i32, thickness, big_height);
         children.push(Box::new(List { id: ID_FEEDER.next(), rect: list_rect, children: Vec::new() }));
-        children.push(Box::new(Filler::new(rect![rect.min.x, rect.max.y - small_height - small_thickness, rect.max.x, rect.max.y - small_height + big_thickness], BLACK)));
-        let footer_rect = rect![rect.min.x, rect.max.y - small_height + big_thickness, rect.max.x, rect.max.y];
+        children.push(Box::new(Filler::new(rect![rect.min.x, rect.max.y - footer_height - small_thickness, rect.max.x, rect.max.y - footer_height + big_thickness], BLACK)));
+        let footer_rect = rect![rect.min.x, rect.max.y - footer_height + big_thickness, rect.max.x, rect.max.y];
         children.push(Box::new(Footer { id: ID_FEEDER.next(), rect: footer_rect, children: Vec::new() }));
 
         let mut home = InoInkHome {
@@ -686,7 +698,8 @@ impl InoInkHome {
             let y_max = y + h - if last { 0 } else { small_thickness };
             match slot {
                 Slot::Header(text) => {
-                    list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { small_thickness }], text.clone())));
+                    // The header reaches the next row: nothing else paints the line between them.
+                    list.children.push(Box::new(GroupHeader::new(rect![rect.min.x, y_min, rect.max.x, y_max + if last { 0 } else { thickness }], text.clone())));
                 }
                 Slot::Item(i) => {
                     list.children.push(Box::new(ArticleRow::new(rect![rect.min.x, y_min, rect.max.x, y_max], items[*i].clone(), *i, row_mode, selected.contains(&items[*i].id))));
@@ -738,10 +751,14 @@ impl InoInkHome {
         };
         let (total, plus) = (self.total_pages, if self.more_online { "+" } else { "" });
         let opts = Self::effective_options(context);
-        let view_text = if self.search.is_some() {
+        // The picker has one choice (the order of folders); an article list has three.
+        let picker_sort = if self.search.is_none() && self.showing_cats && context.inoink.tab == Tab::Feeds {
+            format!("{} \u{25be}", context.inoink.category_sort().short())
+        } else {
             String::new()
-        } else if self.showing_cats {
-            if context.inoink.tab == Tab::Feeds { format!("{} \u{25be}", context.inoink.category_sort().short()) } else { String::new() }
+        };
+        let list_controls: Option<[(String, ViewId); 3]> = if self.search.is_some() || self.showing_cats {
+            None
         } else {
             let shown = if matches!(context.inoink.collection, Collection::Starred | Collection::Archived) {
                 opts.progress.short()
@@ -750,7 +767,11 @@ impl InoInkHome {
             } else {
                 "All"
             };
-            format!("{} \u{b7} {} \u{25be}", shown, opts.sort.short())
+            Some([
+                (format!("{shown} \u{25be}"), ViewId::FilterMenu),
+                (format!("{} \u{25be}", opts.group.label()), ViewId::GroupMenu),
+                (format!("{} \u{25be}", opts.sort.short()), ViewId::SortMenu),
+            ])
         };
         let dpi = CURRENT_DEVICE.dpi;
         // With several pages, the line above the footer is the page indicator (one segment per
@@ -788,8 +809,6 @@ impl InoInkHome {
         } else {
             footer.children.push(Box::new(Filler::new(next_rect, WHITE)));
         }
-        // One row: the view choice centred, the page number to its right; the equal space on its
-        // left keeps the view choice centred.
         let x0 = rect.min.x + side;
         let x1 = rect.max.x - side;
         if self.selecting.is_some() {
@@ -815,16 +834,30 @@ impl InoInkHome {
             rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
             return;
         }
-        let side_w = (x1 - x0) / 4;
-        footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
-        let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
-        if view_text.is_empty() {
-            footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
-        } else {
-            footer.children.push(Box::new(Label::new(view_rect, view_text, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
-        }
         let count = if total > 1 || !plus.is_empty() { format!("{page} / {total}{plus}") } else { String::new() };
-        footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center)));
+        if let Some(controls) = list_controls {
+            // Show, Group by and Sort by, each with its own menu, then the page number.
+            let cw = (x1 - x0) * 2 / 7;
+            let mut x = x0;
+            for (text, id) in controls {
+                let r = rect![x, rect.min.y, x + cw, rect.max.y];
+                footer.children.push(Box::new(Label::new(r, text, Align::Center).event(Some(Event::ToggleNear(id, r)))));
+                x += cw;
+            }
+            footer.children.push(Box::new(Label::new(rect![x, rect.min.y, x1, rect.max.y], count, Align::Center)));
+        } else {
+            // One row: the choice centred, the page number to its right; the equal space on its
+            // left keeps the choice centred.
+            let side_w = (x1 - x0) / 4;
+            footer.children.push(Box::new(Filler::new(rect![x0, rect.min.y, x0 + side_w, rect.max.y], WHITE)));
+            let view_rect = rect![x0 + side_w, rect.min.y, x1 - side_w, rect.max.y];
+            if picker_sort.is_empty() {
+                footer.children.push(Box::new(Filler::new(view_rect, WHITE)));
+            } else {
+                footer.children.push(Box::new(Label::new(view_rect, picker_sort, Align::Center).event(Some(Event::ToggleNear(ViewId::SortMenu, view_rect)))));
+            }
+            footer.children.push(Box::new(Label::new(rect![x1 - side_w, rect.min.y, x1, rect.max.y], count, Align::Center)));
+        }
         rq.add(RenderData::new(footer.id, footer.rect, UpdateMode::Gui));
     }
 
@@ -974,7 +1007,7 @@ impl InoInkHome {
     }
 
     fn close_menus(&mut self, rq: &mut RenderQueue) {
-        for id in [ViewId::TitleMenu, ViewId::MainMenu, ViewId::BookMenu, ViewId::ManageMenu, ViewId::SortMenu] {
+        for id in [ViewId::TitleMenu, ViewId::MainMenu, ViewId::BookMenu, ViewId::ManageMenu, ViewId::SortMenu, ViewId::FilterMenu, ViewId::GroupMenu] {
             if let Some(i) = locate_by_id(self, id) {
                 rq.add(RenderData::expose(*self.child(i).rect(), UpdateMode::Gui));
                 self.children.remove(i);
@@ -1377,38 +1410,49 @@ impl View for InoInkHome {
                 self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
-            Event::ToggleNear(ViewId::SortMenu, rect) => {
+            Event::ToggleNear(id @ (ViewId::FilterMenu | ViewId::GroupMenu | ViewId::SortMenu), rect) => {
                 let stored = context.inoink.view_options();
                 let saved_list = matches!(context.inoink.collection, Collection::Starred | Collection::Archived);
                 let read_later = matches!(context.inoink.collection, Collection::Starred);
-                let mut entries = vec![EntryKind::Message("Show".to_string(), None)];
-                if saved_list {
-                    for p in ProgressFilter::ALL {
-                        entries.push(EntryKind::RadioButton(p.label().to_string(), EntryId::InoInk(InoInkEntry::ProgressFilter(p)), p == stored.progress));
+                let mut entries = Vec::new();
+                match id {
+                    ViewId::FilterMenu => {
+                        entries.push(EntryKind::Message("Show".to_string(), None));
+                        if saved_list {
+                            for p in ProgressFilter::ALL {
+                                entries.push(EntryKind::RadioButton(p.label().to_string(), EntryId::InoInk(InoInkEntry::ProgressFilter(p)), p == stored.progress));
+                            }
+                        } else {
+                            entries.push(EntryKind::RadioButton("Unread only".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(true)), stored.unread_only));
+                            entries.push(EntryKind::RadioButton("All articles".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(false)), !stored.unread_only));
+                        }
                     }
-                } else {
-                    entries.push(EntryKind::RadioButton("Unread only".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(true)), stored.unread_only));
-                    entries.push(EntryKind::RadioButton("All articles".to_string(), EntryId::InoInk(InoInkEntry::UnreadOnly(false)), !stored.unread_only));
-                }
-                entries.push(EntryKind::Separator);
-                entries.push(EntryKind::Message("Group by".to_string(), None));
-                for g in ArticleGroup::ALL {
-                    entries.push(EntryKind::RadioButton(g.label().to_string(), EntryId::InoInk(InoInkEntry::ViewGroup(g)), g == stored.group));
-                }
-                entries.push(EntryKind::Separator);
-                entries.push(EntryKind::Message("Sort by".to_string(), None));
-                for so in ArticleSort::ALL {
-                    if so == ArticleSort::Source && stored.group == ArticleGroup::Source {
-                        continue;
+                    ViewId::GroupMenu => {
+                        entries.push(EntryKind::Message("Group by".to_string(), None));
+                        for g in ArticleGroup::ALL {
+                            entries.push(EntryKind::RadioButton(g.label().to_string(), EntryId::InoInk(InoInkEntry::ViewGroup(g)), g == stored.group));
+                        }
                     }
-                    if so == ArticleSort::Saved && !read_later {
-                        continue;
+                    _ => {
+                        entries.push(EntryKind::Message("Sort by".to_string(), None));
+                        for so in ArticleSort::ALL {
+                            if so == ArticleSort::Source && stored.group == ArticleGroup::Source {
+                                continue;
+                            }
+                            if so == ArticleSort::Saved && !read_later {
+                                continue;
+                            }
+                            entries.push(EntryKind::RadioButton(so.label().to_string(), EntryId::InoInk(InoInkEntry::ViewSort(so)), so == stored.sort));
+                        }
                     }
-                    entries.push(EntryKind::RadioButton(so.label().to_string(), EntryId::InoInk(InoInkEntry::ViewSort(so)), so == stored.sort));
                 }
                 // The menu opens upward from the footer and lists its entries bottom to top.
                 entries.reverse();
-                self.toggle_menu(ViewId::SortMenu, rect, MenuKind::DropDown, entries, rq, context);
+                // One footer menu at a time.
+                for other in FOOTER_MENUS.into_iter().filter(|o| *o != id) {
+                    remove_child(self, other, rq);
+                }
+                self.toggle_menu(id, rect, MenuKind::DropDown, entries, rq, context);
                 true
             }
             Event::ToggleNear(ViewId::MainMenu, rect) => {
@@ -1488,7 +1532,7 @@ impl View for InoInkHome {
                 self.select(&entry, hub, rq, context);
                 true
             }
-            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::SortMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog)) => {
+            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::SortMenu | ViewId::FilterMenu | ViewId::GroupMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog)) => {
                 remove_child(self, id, rq);
                 true
             }
@@ -1604,5 +1648,20 @@ impl View for InoInkHome {
 
     fn view_id(&self) -> Option<ViewId> {
         Some(ViewId::Home)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list_rows;
+
+    #[test]
+    fn the_taller_footer_keeps_eight_headlines_on_the_libra_colour() {
+        // 1680 px high at 300 dpi: two 121 px bars above, a 139 px footer below, 2 px rules.
+        let list = 1680 - (2 * 121 + 1) - (121 + 18) - 1;
+        assert_eq!(list_rows(list, 2, 163), 8);
+        // Never more rows than nearly fit.
+        assert_eq!(list_rows(163 * 7 + 100, 2, 163), 7);
+        assert_eq!(list_rows(10, 2, 163), 1);
     }
 }

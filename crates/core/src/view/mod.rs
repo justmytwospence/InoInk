@@ -404,6 +404,10 @@ pub enum ViewId {
     Home,
     Reader,
     SortMenu,
+    /// The article list's Show (filter) menu.
+    FilterMenu,
+    /// The article list's Group by menu.
+    GroupMenu,
     MainMenu,
     TitleMenu,
     SelectionMenu,

@@ -1542,3 +1542,22 @@ fn remove_from_archive_asks_then_applies_and_undoes() {
     send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::UndoDone)));
     assert!(e.context.inoink.store().unwrap().effective(ArticleId(1), &Membership::Archived).unwrap());
 }
+
+#[test]
+fn footer_has_separate_show_group_and_sort_menus() {
+    let mut e = env();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    let near = plato_core::geom::Rectangle::new(plato_core::geom::Point::new(400, 1580), plato_core::geom::Point::new(700, 1680));
+    send(&mut home, &mut e, Event::ToggleNear(ViewId::GroupMenu, near));
+    assert!(locate_by_id(&home, ViewId::GroupMenu).is_some());
+    // Opening another footer menu replaces the one showing.
+    send(&mut home, &mut e, Event::ToggleNear(ViewId::SortMenu, near));
+    assert!(locate_by_id(&home, ViewId::GroupMenu).is_none());
+    assert!(locate_by_id(&home, ViewId::SortMenu).is_some());
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ViewSort(ArticleSort::Oldest))));
+    assert!(locate_by_id(&home, ViewId::SortMenu).is_none(), "choosing closes the menu");
+    assert_eq!(rows(&home), vec![1, 2, 3, 4]);
+    send(&mut home, &mut e, Event::ToggleNear(ViewId::FilterMenu, near));
+    assert!(locate_by_id(&home, ViewId::FilterMenu).is_some());
+}

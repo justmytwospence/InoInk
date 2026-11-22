@@ -222,8 +222,9 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   it, tapping the ribbon at its right saves it for later, and holding shows its menu (Mark read,
   Archive, Mark read up to here / from here down, Details, Select). Inside a folder, **Feeds ▾** in the top bar switches between the
   folder and its feeds.
-- **Footer:** the label in the middle ("Unread · Newest") chooses unread or all, grouping and
-  sort, and on the folder list the order of folders. On the right, the page and how many
+- **Footer:** three labels, each with its own short menu: what is shown ("Unread ▾"), the
+  grouping ("No grouping ▾") and the sort ("Newest ▾"); on the folder list, one label for the
+  order of folders. On the right, the page and how many
   there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar above:
   one segment per page while they fit across the screen, otherwise a line; either way only the
   page shown is dark.

@@ -305,8 +305,10 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   reverts it. Nothing is marked read by turning pages. After any bulk mark-read (this card, the
   top-bar button, up to / from here, or Read in selection mode) InoInk sends the change and
   fetches new articles at once instead of waiting for the usual 15 minutes.
-- The footer label ("Unread · Newest") opens a menu: unread only or all, group (none, new first,
-  unread first, by source) and sort (newest, oldest, shortest, longest, title, source). Each view
+- The footer has three labels, each opening its own menu: what is shown ("Unread ▾": unread only
+  or all; in Read later and the Archive, by reading progress), the grouping ("No grouping ▾": none,
+  new first, unread first, by source) and the sort ("Newest ▾": newest, oldest, shortest, longest,
+  title, source; recently saved in Read later). Each view
   remembers its own choice; defaults are unread only for the Newsfeed, everything for Read
   later, and everything with unread first for folders and feeds. Loading older articles from
   Inoreader at the end of a list only works with all articles, no grouping and newest first.
