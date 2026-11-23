@@ -1,0 +1,18 @@
+[package]
+name = "inoink-bench"
+# Placeholder: dev tooling, never part of a release (scripts/version.sh).
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "On-device benchmark for InoInk on Kobo e-readers (doc/INOINK-BENCHMARKS.md)"
+publish = false
+
+[[bin]]
+name = "inoink-bench"
+path = "src/main.rs"
+
+# The standard library only: it runs on the Kobo next to InoInk.
+[dependencies]
+
+# Its own workspace: building the benchmark never changes the app's lock file or build.
+[workspace]
