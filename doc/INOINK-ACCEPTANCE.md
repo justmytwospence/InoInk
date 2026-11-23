@@ -196,7 +196,7 @@ that was merged.
 | Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
 | Sync icon shows its syncing form (dot) during a sync, without ghosting, and returns to the plain icon | NOT RUN |
 | Top bar title is bold, centred and not cut short | NOT RUN |
-| List pages: the footer has the same rule above it on every list, and the page indicator runs along its bottom edge; group headers read as grey section bands | NOT RUN |
+| List pages: the page indicator sits in its own band between the headlines and the footer, menus open above it; group headers read as grey section bands | NOT RUN |
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |

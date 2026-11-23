@@ -1,7 +1,7 @@
 //! The page indicator shared by lists and articles: one segment per page while they fit, a
 //! continuous line otherwise.
 
-use crate::color::{BLACK, GRAY10, WHITE};
+use crate::color::{BLACK, GRAY10, GRAY12, WHITE};
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
 use crate::font::Fonts;
@@ -107,10 +107,24 @@ impl View for PageProgress {
     fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, _fonts: &mut Fonts) {
         let dpi = CURRENT_DEVICE.dpi;
         fb.draw_rectangle(&self.rect, WHITE);
-        let y = (self.rect.min.y + self.rect.max.y) / 2;
-        // Only the page shown is dark: a list is not read in order the way an article is.
-        // Along the footer's bottom edge, a little heavier than an article's.
-        draw_sized(fb, self.rect.min.x + self.inset, self.rect.max.x - self.inset, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 6.0);
+        // The list's indicator, in its band above the footer: nearer the footer than the list, as
+        // it belongs with the page number below.
+        let y = self.rect.max.y - scale_by_dpi(16.0, dpi) as i32;
+        let (x0, x1) = (self.rect.min.x + self.inset, self.rect.max.x - self.inset);
+        if fits_segments(self.total, x1 - x0, dpi) {
+            // Only the page shown is dark: a list is not read in order the way an article is.
+            let thick = scale_by_dpi(5.0, dpi) as i32;
+            let g = mm_to_px(SEGMENT_GAP_MM, dpi).round() as i32;
+            let (w, n) = (x1 - x0, self.total as i32);
+            for i in 0..self.total {
+                let sx = x0 + (i as i32 * (w + g)) / n;
+                let ex = x0 + ((i as i32 + 1) * (w + g)) / n - g;
+                let color = if i == self.current { BLACK } else { GRAY12 };
+                fb.draw_rectangle(&rect![sx, y - thick / 2, ex, y - thick / 2 + thick], color);
+            }
+        } else {
+            draw_sized(fb, x0, x1, y, self.current, self.total, (self.current + 1) as f32 / self.total.max(1) as f32, false, dpi, 5.0);
+        }
     }
 
     fn rect(&self) -> &Rectangle {

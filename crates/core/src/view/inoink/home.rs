@@ -101,8 +101,11 @@ const TOP: usize = 0;
 const TABS: usize = 2;
 const LIST: usize = 4;
 const FOOTER: usize = 6;
-/// How much taller than the other bars the footer is, at 300 dpi.
-const FOOTER_EXTRA: f32 = 18.0;
+/// The page indicator: a band between the list and the footer.
+const PAGES: usize = 7;
+/// The footer's height and the page indicator band's above it, at 300 dpi.
+const FOOTER_HEIGHT: f32 = 96.0;
+const PAGES_HEIGHT: f32 = 44.0;
 /// The article list's footer menus: Show, Group by and Sort by.
 const FOOTER_MENUS: [ViewId; 3] = [ViewId::FilterMenu, ViewId::GroupMenu, ViewId::SortMenu];
 
@@ -232,14 +235,16 @@ impl InoInkHome {
         children.push(Box::new(TabBar::new(tabs_rect, context.inoink.tab, std::array::from_fn(|_| String::new()))));
         children.push(Box::new(Filler::new(rect![rect.min.x, tabs_rect.max.y, rect.max.x, rect.min.y + 2 * small_height + big_thickness], BLACK)));
 
-        // The footer holds three menus and the page arrows: a little taller than the other bars.
-        let footer_height = small_height + scale_by_dpi(FOOTER_EXTRA, dpi) as i32;
-        let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - footer_height - small_thickness];
+        // The list, then a band for the page indicator, then the footer under its rule.
+        let footer_height = scale_by_dpi(FOOTER_HEIGHT, dpi) as i32;
+        let pages_height = scale_by_dpi(PAGES_HEIGHT, dpi) as i32;
+        let list_rect = rect![rect.min.x, rect.min.y + 2 * small_height + big_thickness, rect.max.x, rect.max.y - footer_height - small_thickness - pages_height];
         let rows = list_rows(list_rect.height() as i32, thickness, big_height);
         children.push(Box::new(List { id: ID_FEEDER.next(), rect: list_rect, children: Vec::new() }));
         children.push(Box::new(Filler::new(rect![rect.min.x, rect.max.y - footer_height - small_thickness, rect.max.x, rect.max.y - footer_height + big_thickness], BLACK)));
         let footer_rect = rect![rect.min.x, rect.max.y - footer_height + big_thickness, rect.max.x, rect.max.y];
         children.push(Box::new(Footer { id: ID_FEEDER.next(), rect: footer_rect, children: Vec::new() }));
+        children.push(Box::new(Filler::new(rect![rect.min.x, list_rect.max.y, rect.max.x, list_rect.max.y + pages_height], WHITE)));
 
         let mut home = InoInkHome {
             id,
@@ -774,27 +779,20 @@ impl InoInkHome {
             ])
         };
         let dpi = CURRENT_DEVICE.dpi;
-        // The footer is set off by the same rule as the other bars, whatever the list holds. With
-        // several pages, the page indicator runs along its bottom edge (one segment per page
-        // while they fit, the page shown dark), as an article's does.
-        let strip = scale_by_dpi(20.0, dpi) as i32;
-        let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
-        let frect = self.children[FOOTER].rect().to_owned();
-        let sep_rect = rect![frect.min.x, frect.min.y - thickness, frect.max.x, frect.min.y];
-        // Footer menus open above the rule, never across it.
-        let menu_y = sep_rect.min.y;
-        let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
-        let full = footer.rect;
-        footer.children.clear();
-        let strip_rect = rect![full.min.x, full.max.y - strip, full.max.x, full.max.y];
-        if total > 1 {
-            let pad = scale_by_dpi(12.0, dpi) as i32;
-            footer.children.push(Box::new(PageProgress::new(strip_rect, page - 1, total).inset(pad)));
+        // The list, then the page indicator in a band of its own, then the footer under its rule.
+        let band = *self.children[PAGES].rect();
+        self.children[PAGES] = if total > 1 {
+            // Lined up with the headlines' text.
+            Box::new(PageProgress::new(band, page - 1, total).inset(scale_by_dpi(38.0, dpi) as i32))
         } else {
-            footer.children.push(Box::new(Filler::new(strip_rect, WHITE)));
-        }
-        // The labels and arrows share the band between the rule and that strip.
-        let rect = rect![full.min.x, full.min.y, full.max.x, full.max.y - strip];
+            Box::new(Filler::new(band, WHITE))
+        };
+        rq.add(RenderData::new(self.children[PAGES].id(), band, UpdateMode::Gui));
+        // Footer menus open above the page indicator, leaving it in view.
+        let menu_y = band.min.y;
+        let footer = self.children[FOOTER].downcast_mut::<Footer>().unwrap();
+        let rect = footer.rect;
+        footer.children.clear();
         let side = rect.height() as i32;
         let prev_rect = rect![rect.min, rect.min + side];
         if prev {
@@ -1661,9 +1659,10 @@ mod tests {
     use super::list_rows;
 
     #[test]
-    fn the_taller_footer_keeps_eight_headlines_on_the_libra_colour() {
-        // 1680 px high at 300 dpi: two 121 px bars above, a 139 px footer below, 2 px rules.
-        let list = 1680 - (2 * 121 + 1) - (121 + 18) - 1;
+    fn the_page_band_keeps_eight_headlines_on_the_libra_colour() {
+        // 1680 px high at 300 dpi: two 121 px bars above; below, a 44 px page band, a 2 px rule
+        // and a 96 px footer.
+        let list = 1680 - (2 * 121 + 1) - 96 - 1 - 44;
         assert_eq!(list_rows(list, 2, 163), 8);
         // Never more rows than nearly fit.
         assert_eq!(list_rows(163 * 7 + 100, 2, 163), 7);

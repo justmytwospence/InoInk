@@ -225,8 +225,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Footer:** three labels, each with its own short menu: what is shown ("Unread ▾"), the
   grouping ("No grouping ▾") and the sort ("Newest ▾"); on the folder list, one label for the
   order of folders. On the right, the page and how many
-  there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), with a bar along the
-  bottom edge: one segment per page while they fit across the screen, otherwise a line; either way only the
+  there are ("2 / 7"; "+" when older articles can be loaded from Inoreader), and above the footer,
+  between it and the headlines, the page indicator: one segment per page while they fit across the screen, otherwise a line; either way only the
   page shown is dark.
 - **Sync:** InoInk syncs on its own when it starts, wakes or gets a network connection, and sends
   your changes a few seconds after you make them. While the Wi-Fi is off a sync waits for it, or,
