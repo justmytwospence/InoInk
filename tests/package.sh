@@ -23,12 +23,13 @@ make_pkg() { # version -> $WORK/pkg-<version>.tar.gz
 	p="$WORK/stage-$v"
 	mkdir -p "$p/inoink/release/scripts" "$p/inoink/dispatch"
 	printf '%s\n' "$v" > "$p/inoink/VERSION"
-	printf '#!/bin/sh\necho "inoink %s ran fl=$INOINK_FL_WHITE wifi=$INOINK_WIFI" >> "$INOINK_DATA/ran.log"\n[ -n "${FAKE_EXIT:-}" ] && exit "$FAKE_EXIT"\nexit 0\n' "$v" > "$p/inoink/release/inoink"
+	printf '#!/bin/sh\necho "inoink %s ran fl=$INOINK_FL_WHITE wifi=$INOINK_WIFI notice=$INOINK_NOTICE" >> "$INOINK_DATA/ran.log"\n[ -n "${FAKE_EXIT:-}" ] && exit "$FAKE_EXIT"\nexit 0\n' "$v" > "$p/inoink/release/inoink"
 	cp contrib/inoink/inoink-run.sh "$p/inoink/release/inoink-run.sh"
 	printf '#!/bin/sh\necho restored >> "$INOINK_DATA/nickel.log"\n' > "$p/inoink/release/nickel.sh"
 	cp contrib/inoink/inoink-dispatch.sh "$p/inoink/dispatch/inoink.sh"
 	cp contrib/inoink/inoink.nm "$p/inoink/dispatch/inoink.nm"
 	chmod +x "$p"/inoink/release/* "$p/inoink/dispatch/inoink.sh"
+	sh scripts/release-manifest.sh "$p/inoink/release"
 	tar -czf "$WORK/pkg-$v.tar.gz" -C "$p" inoink
 }
 
@@ -100,10 +101,65 @@ echo "../../etc" > "$B/previous-release"
 check_not "no valid release: dispatcher fails cleanly" sh "$B/current/inoink.sh"
 printf '1.2.0\n' > "$B/active-release"; printf '1.1.0\n' > "$B/previous-release"
 
-# --- launcher: Nickel is restored exactly once -------------------------------------------------
+# --- start-up self-check: damaged releases ------------------------------------------------------
 STUBS="$WORK/stubs"
 mkdir -p "$STUBS"
 for c in killall sync pidof reboot poweroff; do printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\n' "$c" "$WORK" > "$STUBS/$c"; chmod +x "$STUBS/$c"; done
+rm -rf /tmp/inoink.lock
+dispatch() { rm -f "$B/data/ran.log" "$WORK/calls.log"; PATH="$STUBS:$PATH" sh "$B/current/inoink.sh" "$@" 2>&1 < /dev/null; }
+R2="$B/releases/1.2.0"
+check "the release carries a manifest of its files" grep -q " inoink-run.sh\$" "$R2/MANIFEST"
+check "--check passes for an intact release" dispatch --check
+dispatch > /dev/null; sleep 1
+check "an intact release starts without a notice" grep -q "inoink 1.2.0 ran .*notice=\$" "$B/data/ran.log"
+
+mv "$R2/nickel.sh" "$WORK/nickel.sh.bak"
+dispatch > /dev/null; sleep 1
+check "a missing file falls back to the previous release" grep -q "inoink 1.1.0 ran" "$B/data/ran.log"
+check "the fallback tells the app why" grep -q "notice=InoInk 1.2.0 is damaged, so 1.1.0 started" "$B/data/ran.log"
+check "the log names the missing file" grep -q "1.2.0' cannot start: some of its files are missing or damaged (nickel.sh)" "$B/data/inoink.log"
+check "--check still passes with a usable previous release" dispatch --check
+mv "$WORK/nickel.sh.bak" "$R2/nickel.sh"
+
+cp "$R2/inoink-run.sh" "$WORK/run.bak"; echo "# truncated" > "$R2/inoink-run.sh"
+dispatch > /dev/null; sleep 1
+check "a file with the wrong size counts as damaged" grep -q "inoink 1.1.0 ran" "$B/data/ran.log"
+cp "$B/releases/1.1.0/inoink" "$WORK/inoink-1.1.0.bak"; rm "$B/releases/1.1.0/inoink"
+check_not "--check fails when no release can start" dispatch --check
+check "--check stops nothing" test ! -e "$WORK/calls.log"
+check "--why explains and asks for a reinstall" sh -c "PATH='$STUBS:$PATH' sh '$B/current/inoink.sh' --why | grep -q \"InoInk can't start: some of its files are missing or damaged (inoink-run.sh)\" && PATH='$STUBS:$PATH' sh '$B/current/inoink.sh' --why | grep -q 'Reinstall it'"
+check "--why fits NickelMenu's 500-character message" test "$(dispatch --why | wc -c)" -le 500
+check_not "a normal start with nothing usable fails" sh -c "PATH='$STUBS:$PATH' sh '$B/current/inoink.sh' > /dev/null 2>&1 < /dev/null"
+check "Nickel is never stopped when nothing can start" test ! -e "$WORK/calls.log"
+check "nothing ran" test ! -e "$B/data/ran.log"
+cp "$WORK/run.bak" "$R2/inoink-run.sh"; cp "$WORK/inoink-1.1.0.bak" "$B/releases/1.1.0/inoink"
+check "--why says all is well once repaired" sh -c "PATH='$STUBS:$PATH' sh '$B/current/inoink.sh' --why | grep -q 'ready to start'"
+
+# A release that failed to load (status 127) is not started again until it is reinstalled.
+rm -rf /tmp/inoink.lock
+PATH="$STUBS:$PATH" INOINK_DATA="$B/data" FAKE_EXIT=127 sh "$R2/inoink-run.sh" > /dev/null 2>&1 < /dev/null; sleep 1
+check "a loader failure marks the release" test -f "$R2/LOADFAIL"
+dispatch > /dev/null; sleep 1
+check "a release that failed to load falls back to the previous one" grep -q "inoink 1.1.0 ran" "$B/data/ran.log"
+check "--why mentions a device report when loading fails" sh -c "printf '%s\n' 1.2.0 > '$B/previous-release'; PATH='$STUBS:$PATH' sh '$B/current/inoink.sh' --why | grep -q 'Device report'"
+printf '1.1.0\n' > "$B/previous-release"
+check "reinstalling the release" sh scripts/install-inoink.sh "$WORK/pkg-1.2.0.tar.gz" "$KOBO"
+check "--check passes while an update waits (the start installs it)" dispatch --check
+apply_update
+check "reinstalling clears the mark" test ! -e "$R2/LOADFAIL"
+check "reinstalling the active version keeps the previous one" test "$(cat "$B/previous-release")" = 1.1.0
+check "the installer refreshes an existing menu entry" grep -q -- "--check" "$KOBO/.adds/nm/inoink"
+
+# A package whose files do not match their manifest after unpacking is not installed.
+cp -R "$WORK/stage-1.2.0" "$WORK/stage-bad"; printf '1.3.0\n' > "$WORK/stage-bad/inoink/VERSION"
+echo "changed after packaging" >> "$WORK/stage-bad/inoink/release/nickel.sh"
+tar -czf "$WORK/pkg-bad.tar.gz" -C "$WORK/stage-bad" inoink
+check "a package with mismatched files copies" sh scripts/install-inoink.sh "$WORK/pkg-bad.tar.gz" "$KOBO"
+apply_update
+check "but is not installed" test "$(cat "$B/active-release")" = 1.2.0 -a ! -d "$B/releases/1.3.0"
+check "and the log says which file differs" grep -q "unpacked files differ from the package: nickel.sh" "$B/data/inoink.log"
+
+# --- launcher: Nickel is restored exactly once -------------------------------------------------
 rm -f /tmp/reboot /tmp/power_off
 rm -rf /tmp/inoink.lock
 run_launcher() { PATH="$STUBS:$PATH" INOINK_DATA="$B/data" sh "$B/releases/1.2.0/inoink-run.sh" > /dev/null 2>&1 < /dev/null; }
@@ -230,6 +286,7 @@ if [ -n "${1:-}" ]; then
 	check "entries are owned by root (numeric 0/0)" sh -c "tar -tvzf '$PKG' | awk '{ if (\$2 ~ /\\//) print \$2; else print \$3\"/\"\$4 }' | sort -u | grep -Eqx '0/0|root/root'"
 	EX="$WORK/extract"; mkdir -p "$EX"; tar -xzf "$PKG" -C "$EX"
 	check "no credentials in the package" sh -c "! grep -rIlE 'client_secret|refresh_token|access_token' '$EX' | grep -q ."
+	check "the release manifest lists every file with its checksum" sh -c "cd '$EX/inoink/release' && test -s MANIFEST && find . -type f ! -name MANIFEST | sed 's|^\./||' | LC_ALL=C sort | xargs cksum | cmp -s - MANIFEST"
 fi
 
 echo

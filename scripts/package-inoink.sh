@@ -60,6 +60,8 @@ cp -R build/licenses "$R/licenses"
 printf '%s\n' "$VERSION" > "$STAGE/inoink/VERSION"
 printf 'InoInk %s (%s)\nCorresponding source: inoink-%s-source.tar.gz and inoink-%s-third-party-sources.tar\n' "$VERSION" "$COMMIT" "$VERSION" "$VERSION" > "$R/SOURCE.txt"
 chmod +x "$R/inoink" "$R/inoink-run.sh" "$R/nickel.sh" "$R"/scripts/*.sh "$STAGE/inoink/dispatch/inoink.sh"
+# Last: the checksums the Kobo checks when it installs the release, and the sizes it checks at each start.
+scripts/release-manifest.sh "$R"
 
 det_tar() { # dir outfile
 	( cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tar --no-recursion --mtime="@$EPOCH" --owner=0 --group=0 --numeric-owner --format=gnu -T - -cf - ) | gzip -n -9 > "$2"

@@ -4,8 +4,8 @@
 
 - A Kobo, or a Tolino running Kobo firmware (the README lists which models are expected to work).
   InoInk replaces the normal Kobo interface while it runs and restores it when you quit. Firmware
-  4.6 or newer; only the Libra Colour on 4.46.23852 has been tested on hardware, and
-  compatibility is only established by the tests in `doc/INOINK-ACCEPTANCE.md`.
+  4.6 or newer; only the models and firmware README > Status lists as tested have been run on
+  hardware, and compatibility is only established by the tests in `doc/INOINK-ACCEPTANCE.md`.
 - [NickelMenu](https://pgaskin.net/NickelMenu/) (a launcher entry) is optional but recommended.
   Without it, start `.adds/inoink/current/inoink.sh` any way you launch scripts.
 - An Inoreader account with API access. Inoreader's developer portal states that the API is for
@@ -183,6 +183,53 @@ Run the install command again with the new package. Only `.adds/inoink/releases`
 never modified, and the database migrates itself on first start (after taking a backup next to
 the database file). The previous release stays installed for rollback: write its name into
 `.adds/inoink/active-release`.
+
+The installer also replaces an existing NickelMenu entry (`.adds/nm/inoink`), so it always has the
+current start-up check below; `--menu` adds the entry when there is none.
+
+## Start-up check
+
+When you open InoInk, it checks itself before the Kobo interface stops:
+
+- **Damaged or incomplete install.** Each release carries a `MANIFEST` of its files with their
+  checksums and sizes. The Kobo checks the checksums when it installs a release (an update whose
+  unpacked files differ is not installed) and the sizes every time InoInk starts. If a file of
+  the active release is missing or has the wrong size, or the release could not be loaded last
+  time (`LOADFAIL` in its folder, written when the program fails to load), InoInk starts the
+  previous release instead and says so. When no release can start, the Kobo interface keeps
+  running and the NickelMenu entry shows a message "InoInk can't start" saying what is wrong
+  and to reinstall. Reinstalling (the install command again) fixes it and keeps your data.
+  `data/inoink.log` names the files.
+- **Untested model or firmware.** On a model and firmware combination nobody has reported on
+  (README > Status lists the tested ones), InoInk opens a page once that names the model and
+  firmware and asks for a Device report. It shows again only after a firmware update. The
+  `device check:` line in `data/inoink.log` gives the verdict each start. To see the page on a
+  tested Kobo, put `export INOINK_CHECK_FIRMWARE=4.99.0` (any untested version) in
+  `data/config.sh`, and delete `data/device-notice` to see it again.
+
+The NickelMenu entry runs `inoink.sh --check` first and `inoink.sh --why` if the check fails.
+Without NickelMenu (any other script launcher), `inoink.sh` still falls back to the previous
+release and never stops the Kobo interface when nothing can start, but cannot show the message;
+run `inoink.sh --why` to read it.
+
+## After a Kobo firmware update
+
+InoInk's own files (`.adds/inoink`) survive firmware updates, and so does the menu entry in
+`.adds/nm`. NickelMenu itself may not: on firmware 5 and newer an update replaces the Kobo's
+system, which removes NickelMenu and with it the InoInk entry (firmware 4 updates keep it).
+
+- To have it come back on its own, install
+  [NickelModManager](https://github.com/nicoverbruggen/NickelModManager): on firmware 5.18 and
+  6.0 its **Restore after firmware updates** setting (on by default) reinstalls it and the enabled
+  mods it manages, such as NickelMenu, after supported firmware updates. Check the setting on its
+  About page.
+- Otherwise, reinstall NickelMenu after the update (its `KoboRoot.tgz`, or the build for your
+  firmware, into `.kobo` on the Kobo). The InoInk entry is back as soon as NickelMenu is; if
+  `.adds/nm/inoink` is gone, run the InoInk installer with `--menu` again.
+- Until then, start `.adds/inoink/current/inoink.sh` with any other script launcher.
+
+On its first start on the new firmware InoInk shows the untested-firmware page once (unless that
+firmware is already listed as tested). Please send the Device report it asks for.
 
 ## Remove
 

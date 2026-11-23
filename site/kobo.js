@@ -497,8 +497,9 @@ export async function install(root, bytes, pkg, { menu = true, onProgress } = {}
   // The checksum goes last: the Kobo ignores a package without one.
   await writeFile(base, "INSTALL.SUM", new TextEncoder().encode(`${sum}\n`));
   let entry = "skipped";
-  if (menu) {
-    const nm = await tryDir(adds, ["nm"]);
+  // An entry from an earlier install is replaced too, so it gets the current start-up checks.
+  const nm = await tryDir(adds, ["nm"]);
+  if (menu || (await exists(nm, "inoink"))) {
     if (nm && pkg.files["dispatch/inoink.nm"]) {
       await writeFile(nm, "inoink", pkg.files["dispatch/inoink.nm"]);
       entry = "written";

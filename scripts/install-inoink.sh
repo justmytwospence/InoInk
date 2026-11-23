@@ -1,7 +1,8 @@
 #!/bin/sh
 # Installs or updates InoInk on a mounted Kobo.
 #   install-inoink.sh <package.tar.gz> <mount-point-of-KOBOeReader> [--menu]
-# Only .adds/inoink is touched (plus .adds/nm/inoink with --menu when NickelMenu is installed).
+# Only .adds/inoink is touched (plus .adds/nm/inoink with --menu when NickelMenu is installed, or
+# when that entry already exists).
 # User data (.adds/inoink/data) is never modified. The Kobo installs the release when InoInk next
 # starts and keeps the previous one for rollback.
 set -eu
@@ -44,7 +45,8 @@ chmod +x "$BASE/current/inoink.sh" 2>/dev/null || true
 cksum < "$PKG" > "$BASE/INSTALL.SUM"
 sync
 
-if [ "$MENU" = 1 ]; then
+# An entry from an earlier install is replaced too, so it gets the current start-up checks.
+if [ "$MENU" = 1 ] || [ -f "$MNT/.adds/nm/inoink" ]; then
 	if [ -d "$MNT/.adds/nm" ]; then
 		cp "$TMP/inoink/dispatch/inoink.nm" "$MNT/.adds/nm/inoink"
 	else

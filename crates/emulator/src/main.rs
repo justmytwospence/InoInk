@@ -24,6 +24,7 @@ use plato_core::view::inoink::image_view::ImageView;
 use plato_core::view::inoink::state::InoInk;
 use plato_core::view::reader::Reader;
 use plato_core::view::notification::show_notification;
+use plato_core::startup_check;
 use plato_core::view::dialog::Dialog;
 use plato_core::view::inoink::light_panel::LightPanel;
 use plato_core::view::menu::{Menu, MenuKind};
@@ -227,6 +228,14 @@ fn main() -> Result<(), Error> {
                                             CURRENT_DEVICE.model);
     println!("The framebuffer resolution is {} by {}.", context.fb.rect().width(),
                                                         context.fb.rect().height());
+
+    // The start-up self-check, as on the Kobo (FIRMWARE_VERSION is unset unless given).
+    if let Some(html) = startup_check::device_notice(&context.settings.inoink.data_dir) {
+        tx.send(Event::OpenHtml(html, None)).ok();
+    }
+    if let Some(note) = startup_check::launcher_notice() {
+        show_notification(view.as_mut(), note, &tx, &mut rq, &mut context);
+    }
 
     let mut bus = VecDeque::with_capacity(4);
 

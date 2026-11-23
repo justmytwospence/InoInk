@@ -296,7 +296,8 @@ test("installs exactly what install-inoink.sh installs, and the Kobo accepts it"
 
   // An update keeps the data and the previous release.
   fs.writeFileSync(path.join(viaWeb, ".adds/inoink/data/inoink.db"), "my data");
-  await webInstall(makePackage("1.1.0"), viaWeb, { menu: false });
+  const u = await webInstall(makePackage("1.1.0"), viaWeb, { menu: false });
+  assert.equal(u.menu, "written", "an existing menu entry is refreshed, as install-inoink.sh does");
   kobosideUpdate(viaWeb);
   assert.equal(read(viaWeb, ".adds/inoink/active-release").trim(), "1.1.0");
   assert.equal(read(viaWeb, ".adds/inoink/previous-release").trim(), "1.0.0");

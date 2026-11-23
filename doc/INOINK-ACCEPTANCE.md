@@ -30,6 +30,8 @@ document tests inside the build container, and the install/launcher tests).
 | Sleep screens: setting default and TOML round trip, Settings > Sleep screen entries and choice, card counts, last sync (this session and after a restart), battery and pending lines, status card and dark power-off drawn, current page left alone with its label, PNG over the page (opaque, transparent, hidden and broken files skipped), Logo keeps Plato's screens, picture scaling with alpha | `crates/core/tests/sleep_screen.rs` (7), `crates/core/src/view/inoink/sleep.rs` (6), in the container | PASS |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
+| Start-up self-check, install side: release manifest, checksums verified at install (mismatched unpack not installed), missing or resized file or a loader failure (`LOADFAIL`) falls back to the previous release with a notice, nothing usable leaves Nickel running, `--check`/`--why` for the NickelMenu entry (message within NickelMenu's 500 characters), installer refreshes an existing entry | `tests/package.sh` (also under BusyBox 1.31 in Docker) | PASS 2026-11-23 |
+| Start-up self-check, device side: tested/untested firmware and model, Tolino and unknown models, firmware 5+, one notice per model and firmware, README Status names exactly the tested list, model tiers | `crates/inoink/src/device_check.rs` (4), `crates/core/src/device.rs` (`codenames_and_aliases`) | PASS 2026-11-23 |
 | Inherited Plato unit tests | `crates/core` | PASS (38) |
 | Browser installer: writes the same files as `install-inoink.sh` (compared file for file) and the Kobo's launcher installs them; damaged copy discarded; no launcher entry without NickelMenu; removal at three levels matches `remove-inoink.sh`; `cksum` and SHA-256 match the system tools; tar formats (ustar, pax, GNU long names); unsafe, incomplete and foreign packages refused; `.kobo/version` parsing, firmware limits, device list agrees with the README; release lookup and verification; blocked download reported | `tests/web-installer.test.mjs` (11, Node) | PASS |
 
@@ -76,6 +78,12 @@ and the highlight is then in the database (`inoink-cli highlights --data target/
 Result: PASS (19 screenshots inspected on 2026-11-16). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
+
+Start-up notice (run by hand on 2026-11-23, Libra Colour geometry, with a local tour that taps
+through it): with `FIRMWARE_VERSION=4.99.1` the untested-firmware page opens over the list, the
+middle tap shows the reader bar and its back arrow reaches the Newsfeed with its articles; with
+6.0.279225 the page adds the firmware 5+ paragraph; a second start on the same firmware shows no
+page; `INOINK_NOTICE` shows as a toast over the list. Result: PASS (emulator only).
 
 ### Native macOS interactive preview
 
@@ -147,6 +155,10 @@ that was merged.
 | Case | Result |
 |---|---|
 | Launch from NickelMenu; quit restores Nickel (normal exit and after a forced error) | NOT RUN |
+| Start-up check from the NickelMenu entry (`--check`, then start): no visible delay before "Opening InoInk" | NOT RUN |
+| A file removed from the active release: InoInk starts the previous release and shows "InoInk <v> is damaged" | NOT RUN |
+| No usable release: the Kobo interface stays, NickelMenu shows "InoInk can't start" with what is wrong; reinstalling fixes it | NOT RUN |
+| Untested firmware (`export INOINK_CHECK_FIRMWARE=4.99.0` in `data/config.sh`): the notice page shows once, leaving it reaches the list, not shown on the next start; the `device check:` log line | NOT RUN |
 | Launch shows "Opening InoInk" at once; the `startup:` lines in `inoink.log` show the list arriving no later than before | NOT RUN |
 | Quit shows "Closing InoInk" at once ("Restarting the Kobo" when a MediaTek Kobo reboots); an open article keeps its position | NOT RUN |
 | Physical page buttons and touch navigation | NOT RUN |

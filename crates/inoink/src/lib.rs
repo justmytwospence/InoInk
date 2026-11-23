@@ -4,6 +4,7 @@ pub mod api;
 pub mod cache;
 pub mod content;
 pub mod credentials;
+pub mod device_check;
 pub mod error;
 pub mod highlight;
 pub mod model;
