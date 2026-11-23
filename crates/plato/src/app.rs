@@ -131,7 +131,8 @@ fn build_context(mut fb: Box<dyn Framebuffer>, hub: &Sender<Event>, started: Ins
     show_opening_screen(fb.as_mut(), &mut fonts);
     log_startup("opening screen shown", started);
 
-    let inoink = InoInk::open(&settings.inoink, hub.clone(), true).map_err(|e| format_err!("{}", e))?;
+    // The network is not up yet: the worker waits for the Wi-Fi to get an address (NetUp).
+    let inoink = InoInk::open_with(&settings.inoink, hub.clone(), true, false).map_err(|e| format_err!("{}", e))?;
     log_startup("database open", started);
 
     let battery = Box::new(KoboBattery::new().context("can't create battery")?) as Box<dyn Battery>;
@@ -285,7 +286,27 @@ fn watch_network(tx: &Sender<Event>) {
     });
 }
 
+/// The user switches the Wi-Fi: it is theirs from now on, even when a sync had turned it on.
 fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
+    context.wifi_for_sync = false;
+    switch_wifi(enable, context, tx);
+}
+
+/// A sync asks for the Wi-Fi ("Turn on Wi-Fi to sync") or is done with it. InoInk turns it on
+/// only when it is off, and off again only when it turned it on for a sync.
+fn wifi_for_sync(enable: bool, context: &mut Context, tx: &Sender<Event>) {
+    if enable && !context.settings.wifi && !context.shared {
+        eprintln!("wifi: on for a sync");
+        context.wifi_for_sync = true;
+        switch_wifi(true, context, tx);
+    } else if !enable && context.wifi_for_sync {
+        eprintln!("wifi: off after the sync");
+        context.wifi_for_sync = false;
+        switch_wifi(false, context, tx);
+    }
+}
+
+fn switch_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
     if context.settings.wifi == enable {
         return;
     }
@@ -302,6 +323,7 @@ fn set_wifi(enable: bool, context: &mut Context, tx: &Sender<Event>) {
                 .status()
                 .ok();
         context.online = false;
+        context.inoink.lifecycle(Lifecycle::NetworkDown);
         tx.send(Event::NetworkChanged).ok();
     }
 }
@@ -695,6 +717,12 @@ pub fn run() -> Result<(), Error> {
             Event::PrepareSuspend => {
                 tasks.retain(|task| task.id != TaskId::PrepareSuspend);
                 wait_for_all(&mut updating, &mut context);
+                // Wi-Fi a sync turned on goes off now and does not come back at wake (the wake
+                // sync asks again if it needs it).
+                let radio_on = context.settings.wifi;
+                if std::mem::take(&mut context.wifi_for_sync) {
+                    context.settings.wifi = false;
+                }
                 let path = settings_path();
                 save_toml(&context.settings, path.as_path()).map_err(|e| eprintln!("Can't save settings: {:#}.", e)).ok();
                 // Stop network work and settle the database before the device sleeps.
@@ -706,11 +734,12 @@ pub fn run() -> Result<(), Error> {
                     context.frontlight.set_intensity(0.0);
                     context.frontlight.set_warmth(0.0);
                 }
-                if context.settings.wifi {
+                if radio_on {
                     Command::new("scripts/wifi-disable.sh")
                             .status()
                             .ok();
                     context.online = false;
+                    context.inoink.lifecycle(Lifecycle::NetworkDown);
                     tx.send(Event::NetworkChanged).ok();
                 }
                 // https://github.com/koreader/koreader/commit/71afe36
@@ -781,6 +810,10 @@ pub fn run() -> Result<(), Error> {
                     }
                     view = item.view;
                 }
+                let radio_on = context.settings.wifi;
+                if std::mem::take(&mut context.wifi_for_sync) {
+                    context.settings.wifi = false;
+                }
                 let path = settings_path();
                 save_toml(&context.settings, path.as_path())
                          .map_err(|e| eprintln!("Can't save settings: {:#}.", e)).ok();
@@ -790,11 +823,12 @@ pub fn run() -> Result<(), Error> {
                     context.frontlight.set_intensity(0.0);
                     context.frontlight.set_warmth(0.0);
                 }
-                if context.settings.wifi {
+                if radio_on {
                     Command::new("scripts/wifi-disable.sh")
                             .status()
                             .ok();
                     context.online = false;
+                    context.inoink.lifecycle(Lifecycle::NetworkDown);
                     tx.send(Event::NetworkChanged).ok();
                 }
 
@@ -992,6 +1026,16 @@ pub fn run() -> Result<(), Error> {
             },
             Event::Sync(ref u) => {
                 context.inoink.apply(u);
+                if let plato_core::inoink::runtime::Update::Wifi(on) = u {
+                    let sleeping = tasks.iter().any(|task| task.id == TaskId::PrepareSuspend || task.id == TaskId::Suspend);
+                    if !(*on && sleeping) {
+                        wifi_for_sync(*on, &mut context, &tx);
+                    }
+                }
+                if let plato_core::inoink::runtime::Update::WaitingForWifi = u {
+                    let m = if context.settings.wifi { "Syncing once the Wi-Fi connects" } else { "Turn on Wi-Fi to sync" };
+                    show_notification(view.as_mut(), m.to_string(), &tx, &mut rq, &mut context);
+                }
                 if let plato_core::inoink::runtime::Update::Cached(id, _) = u {
                     if let Some((open, mode)) = context.inoink.opening {
                         if open == *id {
@@ -1328,6 +1372,11 @@ pub fn run() -> Result<(), Error> {
 
     if let Some(h) = context.inoink.handle.take() {
         h.shutdown();
+    }
+    // Wi-Fi a sync turned on goes off with InoInk.
+    if std::mem::take(&mut context.wifi_for_sync) {
+        context.settings.wifi = false;
+        Command::new("scripts/wifi-disable.sh").status().ok();
     }
     if let Some(store) = context.inoink.store() {
         store.checkpoint().ok();

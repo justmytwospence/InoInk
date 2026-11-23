@@ -47,6 +47,9 @@ pub struct Context {
     pub online: bool,
     /// InoInk turned the Wi-Fi on this session. On MediaTek Kobos quitting then has to reboot.
     pub wifi_used: bool,
+    /// The Wi-Fi is on because a sync asked for it ("Turn on Wi-Fi to sync"), not because the
+    /// user switched it on: it goes off again when the sync is over, at sleep and at quit.
+    pub wifi_for_sync: bool,
 }
 
 impl Context {
@@ -61,7 +64,8 @@ impl Context {
                   keyboard_layouts: BTreeMap::new(), input_history: FxHashMap::default(),
                   battery, frontlight, lightsensor,
                   kb_rect: Rectangle::default(), rng, plugged: false, covered: false,
-                  shared: false, online: false, wifi_used: false }
+                  shared: false, online: false, wifi_used: false,
+                  wifi_for_sync: false }
     }
 
     pub fn load_keyboard_layouts(&mut self) {

@@ -84,6 +84,8 @@ pub enum InoInkEntry {
     OpenDetails(ArticleId),
     SetQueueTitles(crate::settings::QueueTitles),
     SetSleepScreen(crate::settings::SleepScreen),
+    /// Whether a sync waits for the Wi-Fi or turns it on.
+    SetWifiPolicy(inoink::runtime::WifiPolicy),
     /// A feed's choice of loading the original page's text for its articles.
     SetFullText(String, inoink::store::FullText),
     /// Open the previous or next article of the list (the titles row above the footer).
