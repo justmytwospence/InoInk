@@ -213,6 +213,12 @@ check "release removed" test ! -d "$B/releases"
 check "menu entry removed" test ! -e "$KOBO/.adds/nm/inoink"
 check "data kept by default" test "$(cat "$B/data/inoink.db")" = "my data"
 check "unrelated apps still intact" test "$(cat "$KOBO/.adds/other/file")" = keep
+echo x > "$B/INSTALL.TGZ"; echo setting > "$B/data/Settings.toml"; echo X=1 > "$B/data/config.sh"
+check "removal again succeeds" sh scripts/remove-inoink.sh "$KOBO" --reset-settings
+check "a waiting package is removed too" test ! -e "$B/INSTALL.TGZ"
+check "settings reset" test ! -e "$B/data/Settings.toml" -a ! -e "$B/data/config.sh"
+check "data kept when resetting settings" test "$(cat "$B/data/inoink.db")" = "my data"
+check_not "an unknown option is refused" sh scripts/remove-inoink.sh "$KOBO" --bogus
 check "purge deletes data" sh scripts/remove-inoink.sh "$KOBO" --purge-data
 check "data gone after purge" test ! -d "$B"
 
