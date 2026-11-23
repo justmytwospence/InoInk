@@ -47,6 +47,30 @@ device's own C library.
 | `SourceCodeVariable-Italic.otf` | © 2010 - 2012 Adobe Systems Incorporated (http://www.adobe.com/), with Reserved Font Name ‘Source’. | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL. This Font Soft |
 | `SourceCodeVariable-Roman.otf` | © 2010 - 2012 Adobe Systems Incorporated (http://www.adobe.com/), with Reserved Font Name ‘Source’. | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL. This Font Soft |
 | `VarelaRound-Regular.ttf` | Copyright 2011-2016 The Varela Round Project Authors (https://github.com/alefalefalef/Varela-Round-Hebrew/), with Reserv | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/Libron-Bold.ttf` | Newsreader (c) 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader) Readerly (c) 2026 Nico  | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/Libron-BoldItalic.ttf` | Newsreader (c) 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader) Readerly (c) 2026 Nico  | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/Libron-Italic.ttf` | Newsreader (c) 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader) Readerly (c) 2026 Nico  | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/Libron-Regular.ttf` | Newsreader (c) 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader) Readerly (c) 2026 Nico  | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/NV_Bitter-Bold.ttf` | Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)  This font file has been automatically | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org |
+| `reading/NV_Bitter-BoldItalic.ttf` | Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)  This font file has been automatically | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org |
+| `reading/NV_Bitter-Italic.ttf` | Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)  This font file has been automatically | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org |
+| `reading/NV_Bitter-Regular.ttf` | Copyright 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro)  This font file has been automatically | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://openfontlicense.org |
+| `reading/NV_Jost-Bold.ttf` | Copyright 2020 The Jost Project Authors (https://github.com/indestructible-type/Jost)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/NV_Jost-BoldItalic.ttf` | Copyright 2020 The Jost Project Authors (https://github.com/indestructible-type/Jost)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/NV_Jost-Italic.ttf` | Copyright 2020 The Jost Project Authors (https://github.com/indestructible-type/Jost)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/NV_Jost-Regular.ttf` | Copyright 2020 The Jost Project Authors (https://github.com/indestructible-type/Jost)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: http://scripts.sil.org/OFL |
+| `reading/NV_Literata-Bold.ttf` | Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL |
+| `reading/NV_Literata-BoldItalic.ttf` | Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL |
+| `reading/NV_Literata-Italic.ttf` | Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL |
+| `reading/NV_Literata-Regular.ttf` | Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)  This font file has been automatic | This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is available with a FAQ at: https://scripts.sil.org/OFL |
+
+The e-ink reading fonts in `fonts/reading/` are redistributed unmodified from pinned, checksummed
+releases (see `scripts/update-reading-fonts.sh`), each under the SIL Open Font License 1.1:
+Libron 0.32 (https://github.com/nicoverbruggen/libron, based on Newsreader by the Newsreader
+Project Authors), and NV Bitter, NV Jost and NV Literata from eBook Fonts v2026.08.05
+(https://github.com/nicoverbruggen/ebook-fonts), Nico Verbruggen's e-reader adaptations of
+Bitter, Jost and Literata by their project authors. The choice follows Kobalt
+(https://github.com/nicoverbruggen/kobalt), which bundles them among others.
 
 ## Embedded for typesetting formulas
 
@@ -66,6 +90,7 @@ device's own C library.
 | age-core | 0.11.0 | MIT OR Apache-2.0 |
 | ahash | 0.7.8 | MIT OR Apache-2.0 |
 | aho-corasick | 1.1.4 | Unlicense OR MIT |
+| allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
 | android_system_properties | 0.1.5 | MIT/Apache-2.0 |
 | anyhow | 1.0.100 | MIT OR Apache-2.0 |
 | approx | 0.5.1 | Apache-2.0 |
@@ -425,6 +450,8 @@ device's own C library.
 | sha2 | 0.10.9 | MIT OR Apache-2.0 |
 | sha2 | 0.11.1 | MIT OR Apache-2.0 |
 | shlex | 1.3.0 | MIT OR Apache-2.0 |
+| signal-hook | 0.3.18 | Apache-2.0/MIT |
+| signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 |
 | simd-adler32 | 0.3.8 | MIT |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 |
 | simplecss | 0.2.2 | Apache-2.0 OR MIT |

@@ -96,11 +96,19 @@ lines = ["# Licenses", "",
  "The Linaro GCC 4.9.4 toolchain and its runtime are build tools; the binaries link against the",
  "device's own C library.", "",
  "## Fonts shipped in `fonts/`", "", "| File | Copyright (from the font) | License string in the font |", "|---|---|---|"]
-for f in sorted(glob.glob("fonts/*")):
+for f in sorted(glob.glob("fonts/**/*.[ot]tf", recursive=True)):
     info = font_license(f)
     lic = (info.get(13) or info.get(0) or "no license string in the font").replace("\n", " ").replace("|", "/")[:160]
     cp = (info.get(0) or "").replace("\n", " ").replace("|", "/")[:120]
-    lines.append(f"| `{os.path.basename(f)}` | {cp} | {lic} |")
+    lines.append(f"| `{os.path.relpath(f, 'fonts')}` | {cp} | {lic} |")
+lines += ["",
+ "The e-ink reading fonts in `fonts/reading/` are redistributed unmodified from pinned, checksummed",
+ "releases (see `scripts/update-reading-fonts.sh`), each under the SIL Open Font License 1.1:",
+ "Libron 0.32 (https://github.com/nicoverbruggen/libron, based on Newsreader by the Newsreader",
+ "Project Authors), and NV Bitter, NV Jost and NV Literata from eBook Fonts v2026.08.05",
+ "(https://github.com/nicoverbruggen/ebook-fonts), Nico Verbruggen's e-reader adaptations of",
+ "Bitter, Jost and Literata by their project authors. The choice follows Kobalt",
+ "(https://github.com/nicoverbruggen/kobalt), which bundles them among others."]
 lines += ["", "## Embedded for typesetting formulas", "", "| Component | License | Text |", "|---|---|---|",
  "| New Computer Modern Math (`crates/inoink/assets/math/NewCMMath-Regular.otf`) | GUST Font License | `licenses/math/GUST-FONT-LICENSE.txt` |",
  "| MiTeX 0.2.7 LaTeX definitions (`crates/inoink/assets/math/mitex/`) | Apache-2.0 | `licenses/math/MITEX-LICENSE` |"]
@@ -113,6 +121,11 @@ lines += ["", "## Not bundled", "",
 open("doc/LICENSES.md", "w").write("\n".join(lines))
 if unspecified:
     print("crates without a license field:", unspecified, file=sys.stderr)
+# Bundled reading fonts must carry the OFL in their own metadata.
+unlicensed = [f for f in glob.glob("fonts/reading/*.[ot]tf") if "Open Font License" not in font_license(f).get(13, "")]
+if unlicensed:
+    print("reading fonts without an OFL license string:", sorted(unlicensed), file=sys.stderr)
+    sys.exit(1)
 PY
 [ "$FAIL" = 0 ] || { echo "license audit FAILED: missing license texts" >&2; exit 1; }
 echo "License texts collected in $OUT; doc/LICENSES.md updated."

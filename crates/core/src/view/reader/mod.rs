@@ -28,7 +28,7 @@ use crate::unit::{scale_by_dpi, mm_to_px};
 use crate::device::CURRENT_DEVICE;
 use crate::helpers::AsciiExtension;
 use crate::font::Fonts;
-use crate::font::family_names;
+use crate::font::{family_search_path, reading_family_names};
 use self::margin_cropper::{MarginCropper, BUTTON_DIAMETER};
 use super::top_bar::TopBar;
 use self::tool_bar::ToolBar;
@@ -519,7 +519,7 @@ impl Reader {
                                   .unwrap_or(&settings.reader.font_family);
 
             if font_family != DEFAULT_FONT_FAMILY {
-                doc.set_font_family(font_family, &settings.reader.font_path);
+                doc.set_font_family(font_family, family_search_path(font_family, &settings.reader.font_path));
             }
 
             let line_height = info.reader.as_ref().and_then(|r| r.line_height)
@@ -2204,13 +2204,10 @@ impl Reader {
                 return;
             }
 
-            let mut families = family_names(&context.settings.reader.font_path)
-                                           .map_err(|e| eprintln!("Can't get family names: {:#}.", e))
-                                           .unwrap_or_default();
+            let families = reading_family_names(&context.settings.reader.font_path);
             let current_family = self.info.reader.as_ref()
                                      .and_then(|r| r.font_family.clone())
                                      .unwrap_or_else(|| context.settings.reader.font_family.clone());
-            families.insert(DEFAULT_FONT_FAMILY.to_string());
             let entries = families.iter().map(|f| EntryKind::RadioButton(f.clone(),
                                                                          EntryId::SetFontFamily(f.clone()),
                                                                          *f == current_family)).collect();
@@ -2566,13 +2563,7 @@ impl Reader {
 
         {
             let mut doc = self.doc.lock().unwrap();
-            let font_path = if font_family == DEFAULT_FONT_FAMILY {
-                "fonts"
-            } else {
-                &context.settings.reader.font_path
-            };
-
-            doc.set_font_family(font_family, font_path);
+            doc.set_font_family(font_family, family_search_path(font_family, &context.settings.reader.font_path));
 
             if self.synthetic {
                 let current_page = self.current_page.min(doc.pages_count() - 1);

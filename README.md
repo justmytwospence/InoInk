@@ -38,7 +38,10 @@ public API and does not try to match the Inoreader website feature for feature; 
   bottom, split into one segment per page while they fit across the screen.
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
-  to every article.
+  to every article. Besides Libertinus Serif (the default) it offers fonts tuned for e-ink,
+  Libron, NV Bitter, NV Jost and NV Literata from Nico Verbruggen's
+  [eBook Fonts](https://github.com/nicoverbruggen/ebook-fonts), as bundled by
+  [Kobalt](https://kobalt.nicoverbruggen.be), and any fonts you copy to the Kobo's `fonts` folder.
 - Math and diagrams: formulas from KaTeX, MathJax, MathML and plain LaTeX are typeset on the Kobo
   (sized with the text, offline once downloaded),
   and SVG images are shown. A formula

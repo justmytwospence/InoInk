@@ -311,7 +311,9 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   the arrow and the article's title at the left (tap either to go back to the list), then Aa, Star,
   Archive and More (link posts also get a comments icon before Aa), with a line below showing progress, time left and your place in the
   list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
-  to every article. More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
+  to every article. The font menu lists Libertinus Serif (the default), the bundled e-ink fonts
+  Libron, NV Bitter, NV Jost and NV Literata, and the fonts in the Kobo's `fonts` folder (if one
+  of those has the name of a bundled font, the bundled one is used). More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
   QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page (the article switches to the full page in place, from the top, when it arrives).
 - Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup: choose what happens to the article (Mark read by default; Archive, which also removes the star, when it is starred, with Undo in the main menu, and preselected on a saved article if you chose it last time; or Keep unread), see the next article of the list, and tap Next article (or swipe on, or press forward) to open it, or tap Back to list. Swiping back, the back button or a tap outside closes the popup. Swipe up or hold the forward button
