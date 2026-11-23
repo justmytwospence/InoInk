@@ -309,6 +309,8 @@ pub enum Event {
     ArticleAction(ArticleId, ArticleAction),
     ArticleChanged(ArticleId),
     OpenImage(PathBuf),
+    /// The image viewer's zoom buttons.
+    ImageZoom(crate::view::inoink::image_view::ZoomStep),
     RetryImage(String),
     Sync(Update),
     OpenHtml(String, Option<String>),

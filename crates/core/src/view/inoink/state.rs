@@ -123,6 +123,8 @@ pub struct InoInk {
     pub opening_comments: Option<ArticleId>,
     pub settings: InoInkSettings,
     pub provision_error: Option<String>,
+    /// How each enlarged image was last shown, for as long as the app runs.
+    pub image_zoom: std::collections::HashMap<PathBuf, crate::view::inoink::image_view::ImageZoom>,
 }
 
 fn cache_config(s: &InoInkSettings) -> CacheConfig {
@@ -191,6 +193,7 @@ impl InoInk {
             opening_comments: None,
             settings: settings.clone(),
             provision_error,
+            image_zoom: std::collections::HashMap::new(),
         };
         me.load_ui_state();
         if let (true, Some(creds)) = (online, creds) {
