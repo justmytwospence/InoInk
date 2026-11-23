@@ -10,7 +10,7 @@ use super::filler::Filler;
 use super::menu_entry::MenuEntry;
 use super::common::locate_by_id;
 use super::{View, Event, Hub, Bus, RenderQueue, RenderData};
-use super::{EntryKind, ViewId, Id, ID_FEEDER, CLOSE_IGNITION_DELAY};
+use super::{EntryKind, EntryId, ViewId, Id, ID_FEEDER, CLOSE_IGNITION_DELAY};
 use super::{SMALL_BAR_HEIGHT, THICKNESS_MEDIUM, THICKNESS_LARGE, BORDER_RADIUS_MEDIUM};
 use crate::context::Context;
 
@@ -39,6 +39,16 @@ pub enum MenuKind {
 //     B         ───
 //     C     BOTTOM MENU
 
+/// The width of an entry's text; font families are measured in their own face (see `MenuEntry`).
+fn entry_text_width(fonts: &mut Fonts, entry: &EntryKind, dpi: u16) -> i32 {
+    if let EntryKind::RadioButton(ref text, EntryId::SetFontFamily(ref name), _) = *entry {
+        if let Some(face) = fonts.reading_face(name, NORMAL_STYLE.size, dpi) {
+            return face.plan(text, None, None).width;
+        }
+    }
+    font_from_style(fonts, &NORMAL_STYLE, dpi).plan(entry.text(), None, None).width
+}
+
 impl Menu {
     pub fn new(target: Rectangle, view_id: ViewId, kind: MenuKind, mut entries: Vec<EntryKind>, context: &mut Context) -> Menu {
         let id = ID_FEEDER.next();
@@ -55,6 +65,7 @@ impl Menu {
         let font = font_from_style(&mut context.fonts, &NORMAL_STYLE, dpi);
         let entry_height = font.x_heights.0 as i32 * 5;
         let padding = 4 * font.em() as i32;
+        let triangle_height = font.x_heights.1 as i32;
 
         let north_space = target.min.y;
         let south_space = height as i32 - target.max.y;
@@ -109,7 +120,7 @@ impl Menu {
 
         let max_width = 2 * width as i32 / 3;
         let free_width = padding + 2 * border_thickness +
-                         entries.iter().map(|e| font.plan(e.text(), None, None).width)
+                         entries.iter().map(|e| entry_text_width(&mut context.fonts, e, dpi))
                                 .max().unwrap();
 
         let entry_width = free_width.min(max_width);
@@ -199,7 +210,7 @@ impl Menu {
         }
 
         let triangle_space = if kind == MenuKind::Contextual {
-            font.x_heights.1 as i32
+            triangle_height
         } else {
             0
         };

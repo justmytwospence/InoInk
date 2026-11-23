@@ -21,6 +21,8 @@ pub struct Slider {
     max_value: f32,
     active: bool,
     last_x: i32,
+    /// Values snap to multiples of this (the Aa panel's), so the label shows what applies.
+    step: Option<f32>,
 }
 
 impl Slider {
@@ -35,7 +37,13 @@ impl Slider {
             max_value,
             active: false,
             last_x: -1,
+            step: None,
         }
+    }
+
+    pub fn step(mut self, step: f32) -> Slider {
+        self.step = Some(step);
+        self
     }
 
     pub fn update_value(&mut self, x_hit: i32) {
@@ -48,6 +56,9 @@ impl Slider {
                         (self.rect.width() as i32 - button_diameter) as f32)
                        .clamp(0.0, 1.0);
         self.value = self.min_value + progress * (self.max_value - self.min_value);
+        if let Some(step) = self.step {
+            self.value = ((self.value / step).round() * step).clamp(self.min_value, self.max_value);
+        }
     }
 
     pub fn update(&mut self, value: f32, rq: &mut RenderQueue) {

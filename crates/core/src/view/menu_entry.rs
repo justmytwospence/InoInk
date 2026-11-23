@@ -2,7 +2,7 @@ use std::mem;
 use crate::device::CURRENT_DEVICE;
 use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{Rectangle, CornerSpec};
-use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, EntryKind};
+use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue, RenderData, EntryKind, EntryId};
 use super::icon::ICONS_PIXMAPS;
 use crate::input::{DeviceEvent, FingerStatus};
 use crate::gesture::GestureEvent;
@@ -128,7 +128,15 @@ impl View for MenuEntry {
         } else {
             NORMAL_STYLE
         };
-        let font = font_from_style(fonts, &style, dpi);
+        // Font families show their name in their own face.
+        let family = match self.kind {
+            EntryKind::RadioButton(_, EntryId::SetFontFamily(ref name), _) if fonts.has_reading_face(name) => Some(name.as_str()),
+            _ => None,
+        };
+        let font = match family {
+            Some(name) => fonts.reading_face(name, style.size, dpi).unwrap(),
+            None => font_from_style(fonts, &style, dpi),
+        };
         let x_height = font.x_heights.0 as i32;
         let padding = 4 * font.em() as i32;
 

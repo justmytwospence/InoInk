@@ -586,9 +586,37 @@ pub struct Fonts {
     pub monospace: FontFamily,
     pub keyboard: Font,
     pub display: Font,
+    /// Regular faces of reading families, loaded on demand to show each family's name in its own
+    /// face (font picker, text preset cards). `None` when the family can't be loaded.
+    faces: FxHashMap<String, Option<Font>>,
 }
 
 impl Fonts {
+    /// Loads the regular face of each reading family not tried yet (see `family_search_path`).
+    pub fn load_reading_faces<'a, I: IntoIterator<Item = &'a str>>(&mut self, families: I, user_path: &str) {
+        for family in families {
+            if self.faces.contains_key(family) {
+                continue;
+            }
+            let face = FontFamily::from_name(family, family_search_path(family, user_path))
+                .map_err(|e| eprintln!("Can't load the {} face: {:#}.", family, e))
+                .ok()
+                .map(|f| f.regular);
+            self.faces.insert(family.to_string(), face);
+        }
+    }
+
+    pub fn has_reading_face(&self, family: &str) -> bool {
+        matches!(self.faces.get(family), Some(Some(_)))
+    }
+
+    /// The regular face of a reading family at the given size, if loaded.
+    pub fn reading_face(&mut self, family: &str, size: u32, dpi: u16) -> Option<&mut Font> {
+        let font = self.faces.get_mut(family)?.as_mut()?;
+        font.set_size(size, dpi);
+        Some(font)
+    }
+
     pub fn load() -> Result<Fonts, Error> {
         let opener = FontOpener::new()?;
         let mut fonts = Fonts {
@@ -612,6 +640,7 @@ impl Fonts {
             },
             keyboard: opener.open("fonts/VarelaRound-Regular.ttf")?,
             display: opener.open("fonts/Cormorant-Regular.ttf")?,
+            faces: FxHashMap::default(),
         };
         fonts.monospace.bold.set_variations(&["wght=600"]);
         fonts.monospace.bold_italic.set_variations(&["wght=600"]);

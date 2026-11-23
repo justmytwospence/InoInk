@@ -120,6 +120,93 @@ pub struct Reader {
     doc_return: Option<crate::view::inoink::actions::DocKind>,
     /// "Return to page 3" while a jump can be undone (articles and comments only).
     return_label: Option<String>,
+    /// An Aa panel slider being dragged: the page reflows as it moves.
+    live_text: Option<LiveText>,
+    /// Where text changes keep the reading position: the offset of the word that began the page
+    /// when the changes started, and the page shown since (a page turn starts afresh).
+    text_anchor: Option<(usize, usize)>,
+}
+
+/// Live reflow while an Aa panel slider is dragged. Reflows are throttled: a value that arrives
+/// while one is due waits for it, so layouts never queue up behind the finger.
+#[derive(Debug)]
+struct LiveText {
+    /// The latest value not yet shown.
+    pending: Option<(SliderId, f32)>,
+    /// A `LiveTextTick` is on its way.
+    tick_due: bool,
+    /// When the last live reflow finished.
+    last_reflow: Option<std::time::Instant>,
+}
+
+/// The least time between two live reflows, after the previous one is done.
+const LIVE_REFLOW_GAP: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// How a text change shows on screen.
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Restyle {
+    /// A tap: the usual page update, settings saved.
+    Normal,
+    /// During a drag: fast update, nothing saved, no prefetching.
+    Live,
+    /// The drag ended: a clean (full) refresh, settings saved.
+    Release,
+}
+
+/// A change of the text (the fields set), applied in one layout.
+#[derive(Debug, Clone, Default)]
+struct TextChange {
+    font_family: Option<String>,
+    font_size: Option<f32>,
+    line_height: Option<f32>,
+    margin_width: Option<i32>,
+    text_align: Option<TextAlign>,
+}
+
+impl TextChange {
+    fn from_slider(id: SliderId, value: f32) -> TextChange {
+        let value = crate::view::inoink::text_panel::snap(id, value);
+        match id {
+            SliderId::FontSize => TextChange { font_size: Some(value), ..Default::default() },
+            SliderId::LineHeight => TextChange { line_height: Some(value), ..Default::default() },
+            _ => TextChange { margin_width: Some(value as i32), ..Default::default() },
+        }
+    }
+}
+
+fn save_reader_settings(context: &Context) {
+    let path = crate::settings::settings_path();
+    if let Err(e) = crate::helpers::save_toml(&context.settings, path.as_path()) {
+        eprintln!("Can't save settings: {:#}.", e);
+    }
+}
+
+/// Sends a `LiveTextTick` once the gap since the last live reflow has passed, unless one is due.
+fn schedule_live_tick(live: &mut LiveText, hub: &Hub) {
+    if live.tick_due {
+        return;
+    }
+    live.tick_due = true;
+    let wait = live.last_reflow.map_or(std::time::Duration::ZERO, |t| LIVE_REFLOW_GAP.saturating_sub(t.elapsed()));
+    if wait.is_zero() {
+        // Behind the finger events already queued, so they coalesce.
+        hub.send(Event::LiveTextTick).ok();
+    } else {
+        let hub = hub.clone();
+        thread::spawn(move || {
+            thread::sleep(wait);
+            hub.send(Event::LiveTextTick).ok();
+        });
+    }
+}
+
+/// The page to show after a relayout, kept on the anchor word: `anchor` is the remembered word
+/// and the page it was shown on, `current` the page shown now. Returns the anchor's offset.
+fn anchor_offset(anchor: Option<(usize, usize)>, current: usize) -> usize {
+    match anchor {
+        Some((offset, page)) if page == current => offset,
+        _ => current,
+    }
 }
 
 /// The article a reader is showing.
@@ -678,6 +765,8 @@ impl Reader {
                 thread_starts: Vec::new(),
                 doc_return: None,
                 return_label: None,
+                live_text: None,
+                text_anchor: None,
             })
         })
     }
@@ -757,6 +846,8 @@ impl Reader {
             thread_starts: Vec::new(),
             doc_return: None,
             return_label: None,
+            live_text: None,
+            text_anchor: None,
         }
     }
 
@@ -1302,9 +1393,9 @@ impl Reader {
             tool_bar.update_margin_width(margin_width, rq);
         }
         if let Some(index) = locate_by_id(self, ViewId::TextPanel) {
-            let (family, font_size, line_height, margin, align) = self.text_style(context);
+            let state = self.text_state(context);
             if let Some(panel) = self.children[index].downcast_mut::<crate::view::inoink::text_panel::TextPanel>() {
-                panel.update(&family, font_size, line_height, margin, align, rq);
+                panel.update(state, rq);
             }
         }
     }
@@ -1451,7 +1542,18 @@ impl Reader {
             },
         }
 
-        rq.add(RenderData::new(self.id, self.rect, update_mode));
+        // While a slider is dragged the page above the panel follows without waiting for the
+        // previous update (the panel itself is left alone until the release refresh).
+        let live = self.live_text.is_some();
+        if live {
+            let mut area = self.rect;
+            if let Some(index) = locate_by_id(self, ViewId::TextPanel) {
+                area.max.y = self.child(index).rect().min.y;
+            }
+            rq.add(RenderData::no_wait(self.id, area, update_mode));
+        } else {
+            rq.add(RenderData::new(self.id, self.rect, update_mode));
+        }
         let first_location = self.chunks.first().map(|c| c.location).unwrap();
         let last_location = self.chunks.last().map(|c| c.location).unwrap();
 
@@ -1481,8 +1583,8 @@ impl Reader {
             self.return_label = self.compute_return_label();
         }
 
-        if self.view_port.zoom_mode == ZoomMode::FitToPage ||
-           self.view_port.zoom_mode == ZoomMode::FitToWidth {
+        if !live && (self.view_port.zoom_mode == ZoomMode::FitToPage ||
+                     self.view_port.zoom_mode == ZoomMode::FitToWidth) {
             let doc2 = self.doc.clone();
             let hub2 = hub.clone();
             thread::spawn(move || {
@@ -2239,6 +2341,8 @@ impl Reader {
             }
 
             let families = reading_family_names(&context.settings.reader.font_path);
+            // Each family is listed in its own face.
+            context.fonts.load_reading_faces(families.iter().map(String::as_str), &context.settings.reader.font_path);
             let current_family = self.info.reader.as_ref()
                                      .and_then(|r| r.font_family.clone())
                                      .unwrap_or_else(|| context.settings.reader.font_family.clone());
@@ -2520,146 +2624,63 @@ impl Reader {
     }
 
     fn set_font_size(&mut self, font_size: f32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if Arc::strong_count(&self.doc) > 1 {
-            return;
-        }
-
-        if let Some(ref mut r) = self.info.reader {
-            r.font_size = Some(font_size);
-        }
-
-        let (width, height) = context.display.dims;
-        {
-            let mut doc = self.doc.lock().unwrap();
-
-            doc.layout(width, height, font_size, CURRENT_DEVICE.dpi);
-
-            if self.synthetic {
-                let current_page = self.current_page.min(doc.pages_count() - 1);
-                if let Some(location) =  doc.resolve_location(Location::Exact(current_page)) {
-                    self.current_page = location;
-                }
-            } else {
-                let ratio = doc.pages_count() / self.pages_count;
-                self.pages_count = doc.pages_count();
-                self.current_page = (ratio * self.current_page).min(self.pages_count - 1);
-            }
-        }
-
-        self.cache.clear();
-        self.text.clear();
-        self.update(None, hub, rq, context);
-        self.update_tool_bar(rq, context);
-        self.update_bottom_bar(rq);
-        self.remember_article_style(context);
+        self.restyle(TextChange { font_size: Some(font_size), ..Default::default() }, Restyle::Normal, hub, rq, context);
     }
 
     fn set_text_align(&mut self, text_align: TextAlign, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if Arc::strong_count(&self.doc) > 1 {
-            return;
-        }
-
-        if let Some(ref mut r) = self.info.reader {
-            r.text_align = Some(text_align);
-        }
-
-        {
-            let mut doc = self.doc.lock().unwrap();
-            doc.set_text_align(text_align);
-
-            if self.synthetic {
-                let current_page = self.current_page.min(doc.pages_count() - 1);
-                if let Some(location) =  doc.resolve_location(Location::Exact(current_page)) {
-                    self.current_page = location;
-                }
-            } else {
-                self.pages_count = doc.pages_count();
-                self.current_page = self.current_page.min(self.pages_count - 1);
-            }
-        }
-
-        self.cache.clear();
-        self.text.clear();
-        self.update(None, hub, rq, context);
-        self.update_tool_bar(rq, context);
-        self.update_bottom_bar(rq);
-        self.remember_article_style(context);
+        self.restyle(TextChange { text_align: Some(text_align), ..Default::default() }, Restyle::Normal, hub, rq, context);
     }
 
     fn set_font_family(&mut self, font_family: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if Arc::strong_count(&self.doc) > 1 {
-            return;
-        }
-
-        if let Some(ref mut r) = self.info.reader {
-            r.font_family = Some(font_family.to_string());
-        }
-
-        {
-            let mut doc = self.doc.lock().unwrap();
-            doc.set_font_family(font_family, family_search_path(font_family, &context.settings.reader.font_path));
-
-            if self.synthetic {
-                let current_page = self.current_page.min(doc.pages_count() - 1);
-                if let Some(location) =  doc.resolve_location(Location::Exact(current_page)) {
-                    self.current_page = location;
-                }
-            } else {
-                self.pages_count = doc.pages_count();
-                self.current_page = self.current_page.min(self.pages_count - 1);
-            }
-        }
-
-        self.cache.clear();
-        self.text.clear();
-        self.update(None, hub, rq, context);
-        self.update_tool_bar(rq, context);
-        self.update_bottom_bar(rq);
-        self.remember_article_style(context);
+        self.restyle(TextChange { font_family: Some(font_family.to_string()), ..Default::default() }, Restyle::Normal, hub, rq, context);
     }
 
     fn set_line_height(&mut self, line_height: f32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if Arc::strong_count(&self.doc) > 1 {
-            return;
-        }
-
-        if let Some(ref mut r) = self.info.reader {
-            r.line_height = Some(line_height);
-        }
-
-        {
-            let mut doc = self.doc.lock().unwrap();
-            doc.set_line_height(line_height);
-
-            if self.synthetic {
-                let current_page = self.current_page.min(doc.pages_count() - 1);
-                if let Some(location) =  doc.resolve_location(Location::Exact(current_page)) {
-                    self.current_page = location;
-                }
-            } else {
-                self.pages_count = doc.pages_count();
-                self.current_page = self.current_page.min(self.pages_count - 1);
-            }
-        }
-
-        self.cache.clear();
-        self.text.clear();
-        self.update(None, hub, rq, context);
-        self.update_tool_bar(rq, context);
-        self.update_bottom_bar(rq);
-        self.remember_article_style(context);
+        self.restyle(TextChange { line_height: Some(line_height), ..Default::default() }, Restyle::Normal, hub, rq, context);
     }
 
     fn set_margin_width(&mut self, width: i32, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
-        if Arc::strong_count(&self.doc) > 1 {
-            return;
+        self.restyle(TextChange { margin_width: Some(width), ..Default::default() }, Restyle::Normal, hub, rq, context);
+    }
+
+    /// Waits a little for the page prefetching threads to let go of the document (they hold it
+    /// for a moment after each page update). False if it is still busy.
+    fn doc_free(&self, wait: bool) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while Arc::strong_count(&self.doc) > 1 {
+            if !wait || std::time::Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(std::time::Duration::from_millis(5));
+        }
+        true
+    }
+
+    /// Applies a text change in one layout, keeping the word that began the page on screen.
+    /// Returns false when the document was busy and nothing changed.
+    fn restyle(&mut self, change: TextChange, mode: Restyle, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) -> bool {
+        if !self.doc_free(mode != Restyle::Live) {
+            return false;
+        }
+
+        // The preset the text matches becomes the one in force, so the change marks it.
+        if self.article.is_some() {
+            let current = self.current_text(context);
+            let s = &mut context.settings.reader;
+            if let Some((index, false)) = crate::settings::preset_in_force(&s.text_presets, s.text_preset.as_deref(), &current) {
+                s.text_preset = Some(s.text_presets[index].name.clone());
+            }
         }
 
         if let Some(ref mut r) = self.info.reader {
-            if self.reflowable {
-                r.margin_width = Some(width);
-            } else {
-                if width == 0 {
+            if let Some(ref v) = change.font_family { r.font_family = Some(v.clone()); }
+            if let Some(v) = change.font_size { r.font_size = Some(v); }
+            if let Some(v) = change.line_height { r.line_height = Some(v); }
+            if let Some(v) = change.text_align { r.text_align = Some(v); }
+            if let Some(width) = change.margin_width {
+                if self.reflowable {
+                    r.margin_width = Some(width);
+                } else if width == 0 {
                     r.screen_margin_width = None;
                 } else {
                     r.screen_margin_width = Some(width);
@@ -2667,20 +2688,32 @@ impl Reader {
             }
         }
 
+        let anchor = anchor_offset(self.text_anchor, self.current_page);
+        let (width, height) = context.display.dims;
         if self.reflowable {
             let mut doc = self.doc.lock().unwrap();
-            doc.set_margin_width(width);
+            if let Some(ref family) = change.font_family {
+                doc.set_font_family(family, family_search_path(family, &context.settings.reader.font_path));
+            }
+            if let Some(v) = change.text_align { doc.set_text_align(v); }
+            if let Some(v) = change.line_height { doc.set_line_height(v); }
+            if let Some(v) = change.margin_width { doc.set_margin_width(v); }
+            if let Some(v) = change.font_size { doc.layout(width, height, v, CURRENT_DEVICE.dpi); }
 
             if self.synthetic {
-                let current_page = self.current_page.min(doc.pages_count() - 1);
-                if let Some(location) =  doc.resolve_location(Location::Exact(current_page)) {
+                let offset = anchor.min(doc.pages_count().saturating_sub(1));
+                if let Some(location) = doc.resolve_location(Location::Exact(offset)) {
                     self.current_page = location;
                 }
+            } else if change.font_size.is_some() {
+                let ratio = doc.pages_count() / self.pages_count;
+                self.pages_count = doc.pages_count();
+                self.current_page = (ratio * self.current_page).min(self.pages_count - 1);
             } else {
                 self.pages_count = doc.pages_count();
                 self.current_page = self.current_page.min(self.pages_count - 1);
             }
-        } else {
+        } else if let Some(width) = change.margin_width {
             let next_margin_width = mm_to_px(width as f32, CURRENT_DEVICE.dpi) as i32;
             if self.view_port.zoom_mode == ZoomMode::FitToWidth {
                 // Apply the scale change.
@@ -2693,13 +2726,28 @@ impl Reader {
             }
             self.view_port.margin_width = next_margin_width;
         }
+        if self.synthetic {
+            self.text_anchor = Some((anchor, self.current_page));
+        }
 
-        self.text.clear();
         self.cache.clear();
-        self.update(None, hub, rq, context);
-        self.update_tool_bar(rq, context);
-        self.update_bottom_bar(rq);
-        self.remember_article_style(context);
+        self.text.clear();
+        self.show_restyled(mode, hub, rq, context);
+        true
+    }
+
+    /// Shows the page after a text change: fast while dragging, a full refresh when the drag ends.
+    fn show_restyled(&mut self, mode: Restyle, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        match mode {
+            Restyle::Live => self.update(Some(UpdateMode::Fast), hub, rq, context),
+            Restyle::Release => self.update(Some(UpdateMode::Full), hub, rq, context),
+            Restyle::Normal => self.update(None, hub, rq, context),
+        }
+        if mode != Restyle::Live {
+            self.update_tool_bar(rq, context);
+            self.update_bottom_bar(rq);
+            self.remember_article_style(context);
+        }
     }
 
     fn toggle_bookmark(&mut self, rq: &mut RenderQueue) {
@@ -3301,26 +3349,168 @@ impl Reader {
             self.children.remove(index);
         }
         self.toggle_article_bar(Some(false), rq, context);
-        let dpi = CURRENT_DEVICE.dpi;
-        let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as i32;
-        let height = 5 * scale_by_dpi(SMALL_BAR_HEIGHT, dpi) as i32 + thickness;
+        let height = crate::view::inoink::text_panel::panel_height(CURRENT_DEVICE.dpi);
         let rect = rect![self.rect.min.x, self.rect.max.y - height, self.rect.max.x, self.rect.max.y];
-        let (family, font_size, line_height, margin, align) = self.text_style(context);
-        let panel = TextPanel::new(rect, &family, font_size, line_height, margin, align, &context.settings.reader);
+        let state = self.text_state(context);
+        // The cards and the font row show each family in its own face.
+        let families: Vec<String> = state.presets.iter().map(|p| p.font_family.clone())
+                                         .chain(std::iter::once(state.text.font_family.clone())).collect();
+        context.fonts.load_reading_faces(families.iter().map(String::as_str), &context.settings.reader.font_path);
+        let panel = TextPanel::new(rect, state, &context.settings.reader);
         rq.add(RenderData::new(panel.id(), *panel.rect(), UpdateMode::Gui));
         self.children.push(Box::new(panel) as Box<dyn View>);
     }
 
-    fn text_style(&self, context: &Context) -> (String, f32, f32, i32, TextAlign) {
+    /// Queues a live reflow for a dragged slider's value (see `LiveText`).
+    fn queue_live_text(&mut self, id: SliderId, value: f32, hub: &Hub) {
+        if let Some(live) = self.live_text.as_mut() {
+            live.pending = Some((id, value));
+            schedule_live_tick(live, hub);
+        }
+    }
+
+    fn live_text_tick(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        let Some(live) = self.live_text.as_mut() else { return };
+        live.tick_due = false;
+        let Some((id, value)) = live.pending.take() else { return };
+        let change = TextChange::from_slider(id, value);
+        if self.text_unchanged(&change, context) {
+            return;
+        }
+        let done = self.restyle(change, Restyle::Live, hub, rq, context);
+        if let Some(live) = self.live_text.as_mut() {
+            if done {
+                live.last_reflow = Some(std::time::Instant::now());
+            } else if live.pending.is_none() {
+                // The document was busy: try again shortly.
+                live.pending = Some((id, value));
+                live.last_reflow = Some(std::time::Instant::now());
+                schedule_live_tick(live, hub);
+            }
+        }
+    }
+
+    /// Whether a change would leave the article's text as it is.
+    fn text_unchanged(&self, change: &TextChange, context: &Context) -> bool {
+        let cur = self.current_text(context);
+        let margin = self.info.reader.as_ref().and_then(|r| r.margin_width).unwrap_or(context.settings.reader.margin_width);
+        change.font_family.as_ref().is_none_or(|v| *v == cur.font_family) &&
+        change.font_size.is_none_or(|v| (v - cur.font_size).abs() < 0.01) &&
+        change.line_height.is_none_or(|v| (v - cur.line_height).abs() < 0.01) &&
+        change.text_align.is_none_or(|v| v == cur.text_align) &&
+        change.margin_width.is_none_or(|v| v == margin)
+    }
+
+    fn text_preset_action(&mut self, action: crate::view::inoink::text_panel::PresetAction, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        use crate::view::inoink::text_panel::PresetAction;
+        match action {
+            PresetAction::Apply(index) => {
+                let Some(p) = context.settings.reader.text_presets.get(index).cloned() else { return };
+                context.settings.reader.text_preset = Some(p.name.clone());
+                let cur = self.current_text(context);
+                let change = TextChange {
+                    font_family: (p.font_family != cur.font_family).then(|| p.font_family.clone()),
+                    font_size: Some(p.font_size),
+                    line_height: Some(p.line_height),
+                    text_align: Some(p.text_align),
+                    margin_width: None,
+                };
+                if self.text_unchanged(&change, context) {
+                    save_reader_settings(context);
+                    self.update_tool_bar(rq, context);
+                } else {
+                    context.fonts.load_reading_faces([p.font_family.as_str()], &context.settings.reader.font_path);
+                    self.restyle(change, Restyle::Normal, hub, rq, context);
+                }
+            },
+            PresetAction::SaveNew => {
+                self.toggle_preset_name_prompt(Some(true), hub, rq, context);
+            },
+            PresetAction::Update => {
+                let state = self.text_state(context);
+                if let Some((index, true)) = state.in_force() {
+                    let name = state.presets[index].name.clone();
+                    context.settings.reader.text_presets[index] = crate::settings::TextPreset { name: name.clone(), ..state.text };
+                    context.settings.reader.text_preset = Some(name);
+                    save_reader_settings(context);
+                    self.update_tool_bar(rq, context);
+                }
+            },
+            PresetAction::Hold(index, rect) => {
+                if let Some(index_menu) = locate_by_id(self, ViewId::TextPresetMenu) {
+                    rq.add(RenderData::expose(*self.child(index_menu).rect(), UpdateMode::Gui));
+                    self.children.remove(index_menu);
+                }
+                let Some(p) = context.settings.reader.text_presets.get(index) else { return };
+                let entries = vec![EntryKind::Command(format!("Delete \u{201c}{}\u{201d}", p.name), EntryId::DeleteTextPreset(index))];
+                let menu = Menu::new(rect, ViewId::TextPresetMenu, MenuKind::Contextual, entries, context);
+                rq.add(RenderData::new(menu.id(), *menu.rect(), UpdateMode::Gui));
+                self.children.push(Box::new(menu) as Box<dyn View>);
+            },
+        }
+    }
+
+    fn toggle_preset_name_prompt(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if let Some(index) = locate_by_id(self, ViewId::TextPresetName) {
+            if let Some(true) = enable {
+                return;
+            }
+            rq.add(RenderData::expose(*self.child(index).rect(), UpdateMode::Gui));
+            self.children.remove(index);
+            if self.focus == Some(ViewId::TextPresetNameInput) {
+                self.toggle_keyboard(false, None, hub, rq, context);
+            }
+        } else {
+            if let Some(false) = enable {
+                return;
+            }
+            let suggestion = crate::settings::suggest_preset_name(&context.settings.reader.text_presets, &self.current_text(context));
+            let mut input = NamedInput::new("Preset name".to_string(), ViewId::TextPresetName, ViewId::TextPresetNameInput, 16, context);
+            input.set_text(&suggestion, rq, context);
+            rq.add(RenderData::new(input.id(), *input.rect(), UpdateMode::Gui));
+            hub.send(Event::Focus(Some(ViewId::TextPresetNameInput))).ok();
+            self.children.push(Box::new(input) as Box<dyn View>);
+        }
+    }
+
+    /// Saves the current text as a new preset, first in the list, and makes it the one in force.
+    fn save_new_preset(&mut self, name: &str, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        if crate::settings::find_preset(&context.settings.reader.text_presets, name).is_some() {
+            self.notify(&format!("There is already a preset named {name}"), hub, rq, context);
+            return;
+        }
+        let preset = crate::settings::TextPreset { name: name.to_string(), ..self.current_text(context) };
+        context.settings.reader.text_presets.insert(0, preset);
+        context.settings.reader.text_preset = Some(name.to_string());
+        save_reader_settings(context);
+        self.update_tool_bar(rq, context);
+    }
+
+    /// The current text (font, size, line spacing, alignment) as an unnamed preset.
+    fn current_text(&self, context: &Context) -> crate::settings::TextPreset {
         let s = &context.settings.reader;
         let r = self.info.reader.as_ref();
-        (
-            r.and_then(|r| r.font_family.clone()).unwrap_or_else(|| s.font_family.clone()),
-            r.and_then(|r| r.font_size).unwrap_or(s.font_size),
-            r.and_then(|r| r.line_height).unwrap_or(s.line_height),
-            r.and_then(|r| r.margin_width).unwrap_or(s.margin_width),
-            r.and_then(|r| r.text_align).unwrap_or(s.text_align),
-        )
+        crate::settings::TextPreset {
+            name: String::new(),
+            font_family: r.and_then(|r| r.font_family.clone()).unwrap_or_else(|| s.font_family.clone()),
+            font_size: r.and_then(|r| r.font_size).unwrap_or(s.font_size),
+            line_height: r.and_then(|r| r.line_height).unwrap_or(s.line_height),
+            text_align: r.and_then(|r| r.text_align).unwrap_or(s.text_align),
+        }
+    }
+
+    fn text_state(&self, context: &Context) -> crate::view::inoink::text_panel::TextState {
+        let s = &context.settings.reader;
+        crate::view::inoink::text_panel::TextState {
+            text: self.current_text(context),
+            margin: self.info.reader.as_ref().and_then(|r| r.margin_width).unwrap_or(s.margin_width),
+            presets: s.text_presets.clone(),
+            chosen: s.text_preset.clone(),
+        }
     }
 
     /// One reading style for every article: copies the current choices into the settings.
@@ -3336,10 +3526,7 @@ impl Reader {
             if let Some(v) = r.font_family.clone() { s.font_family = v; }
             if let Some(v) = r.text_align { s.text_align = v; }
         }
-        let path = crate::settings::settings_path();
-        if let Err(e) = crate::helpers::save_toml(&context.settings, path.as_path()) {
-            eprintln!("Can't save settings: {:#}.", e);
-        }
+        save_reader_settings(context);
     }
 
     fn toggle_tag_prompt(&mut self, enable: Option<bool>, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
@@ -3523,6 +3710,11 @@ impl Reader {
     }
 
     /// The page shown (0-based) and the page count, for articles.
+    /// The location of the page shown (a text offset in articles).
+    pub fn location(&self) -> usize {
+        self.current_page
+    }
+
     pub fn page_position(&self) -> Option<(usize, usize)> {
         self.page_pos
     }
@@ -4836,17 +5028,67 @@ impl View for Reader {
                 self.toggle_go_to_page(None, ViewId::GoToResultsPage, hub, rq, context);
                 true
             },
-            Event::Slider(SliderId::FontSize, font_size, FingerStatus::Up) => {
-                let font_size = if self.article.is_some() { (font_size * 2.0).round() / 2.0 } else { font_size };
-                self.set_font_size(font_size, hub, rq, context);
+            // Dragging an Aa panel slider reflows the page as it goes.
+            Event::Slider(id @ (SliderId::FontSize | SliderId::LineHeight | SliderId::MarginWidth), v, FingerStatus::Down)
+                if self.article.is_some() && locate_by_id(self, ViewId::TextPanel).is_some() => {
+                self.live_text = Some(LiveText { pending: None, tick_due: false, last_reflow: None });
+                self.queue_live_text(id, v, hub);
                 true
             },
-            Event::Slider(SliderId::LineHeight, v, FingerStatus::Up) => {
-                self.set_line_height((v * 10.0).round() / 10.0, hub, rq, context);
+            Event::Slider(id @ (SliderId::FontSize | SliderId::LineHeight | SliderId::MarginWidth), v, FingerStatus::Motion)
+                if self.live_text.is_some() => {
+                self.queue_live_text(id, v, hub);
                 true
             },
-            Event::Slider(SliderId::MarginWidth, v, FingerStatus::Up) => {
-                self.set_margin_width(v.round() as i32, hub, rq, context);
+            Event::LiveTextTick => {
+                self.live_text_tick(hub, rq, context);
+                true
+            },
+            Event::Slider(id @ (SliderId::FontSize | SliderId::LineHeight | SliderId::MarginWidth), v, FingerStatus::Up) => {
+                let change = if id == SliderId::FontSize && self.article.is_none() {
+                    TextChange { font_size: Some(v), ..Default::default() }
+                } else {
+                    TextChange::from_slider(id, v)
+                };
+                let live = self.live_text.take();
+                let reflowed = live.as_ref().is_some_and(|l| l.last_reflow.is_some());
+                if self.article.is_some() && self.text_unchanged(&change, context) {
+                    if reflowed {
+                        // The page already shows the final value: just clean it up.
+                        self.show_restyled(Restyle::Release, hub, rq, context);
+                    } else {
+                        self.update_tool_bar(rq, context);
+                    }
+                } else {
+                    let mode = if live.is_some() { Restyle::Release } else { Restyle::Normal };
+                    self.restyle(change, mode, hub, rq, context);
+                }
+                true
+            },
+            Event::TextPreset(action) if self.article.is_some() => {
+                self.text_preset_action(action, hub, rq, context);
+                true
+            },
+            Event::Select(EntryId::DeleteTextPreset(index)) => {
+                let presets = &mut context.settings.reader.text_presets;
+                if index < presets.len() {
+                    let removed = presets.remove(index);
+                    let chosen = &mut context.settings.reader.text_preset;
+                    if chosen.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(&removed.name)) {
+                        *chosen = None;
+                    }
+                    save_reader_settings(context);
+                    self.update_tool_bar(rq, context);
+                }
+                true
+            },
+            Event::Close(ViewId::TextPresetName) => {
+                self.toggle_preset_name_prompt(Some(false), hub, rq, context);
+                true
+            },
+            Event::Submit(ViewId::TextPresetNameInput, ref text) => {
+                self.toggle_preset_name_prompt(Some(false), hub, rq, context);
+                self.save_new_preset(text, hub, rq, context);
                 true
             },
             Event::Toggle(ViewId::TextPanel) if self.article.is_some() => {
