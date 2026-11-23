@@ -63,8 +63,6 @@ use inoink::model::{ArticleId, ReadingPosition};
 
 const HISTORY_SIZE: usize = 32;
 const RECT_DIST_JITTER: f32 = 24.0;
-const ANNOTATION_DRIFT: u8 =  0x44;
-const HIGHLIGHT_DRIFT: u8 =  0x22;
 const MEM_SCHEME: &str = "mem:";
 
 pub struct Reader {
@@ -266,6 +264,11 @@ fn find_cut(frame: &Rectangle, y_pos: i32, scale: f32, dir: LinearDir, lines: &[
     })
 }
 
+/// How new highlights look (Settings: the last style and colour chosen).
+fn highlight_defaults(context: &Context) -> (inoink::highlight::HighlightStyle, inoink::highlight::HighlightColor) {
+    crate::view::inoink::highlight_mark::defaults(&context.settings.inoink, CURRENT_DEVICE.color_samples() > 1)
+}
+
 fn word_separator(lang: &str) -> &'static str {
     let l = lang.to_ascii_lowercase();
     match l.as_str() {
@@ -400,6 +403,9 @@ impl Reader {
                     text: quote.exact,
                     modified: chrono::DateTime::from_timestamp(a.added_on, 0).map(|d| d.naive_utc()).unwrap_or_default(),
                     source: AnnotationSource::Inoreader(a.id),
+                    // Inoreader's annotations are underlined: they cannot be edited here.
+                    style: inoink::highlight::HighlightStyle::Underline,
+                    color: inoink::highlight::HighlightColor::Gray,
                 });
             }
         }
@@ -421,6 +427,8 @@ impl Reader {
                     text: h.quote.exact.clone(),
                     modified: chrono::DateTime::from_timestamp(h.modified, 0).map(|d| d.naive_utc()).unwrap_or_default(),
                     source: AnnotationSource::Local(h.uid.clone()),
+                    style: h.style,
+                    color: h.color,
                 });
             }
         }
@@ -455,6 +463,7 @@ impl Reader {
         let Some(binding) = self.article.clone().filter(|b| b.kind == crate::view::inoink::actions::DocKind::Article) else {
             return AnnotationSource::Plato;
         };
+        let (style, color) = highlight_defaults(context);
         let saved = self.article_quote(sel).and_then(|quote| {
             let now = inoink::util::now_secs();
             let uid = inoink::highlight::new_uid();
@@ -469,6 +478,8 @@ impl Reader {
                 created: now,
                 modified: now,
                 deleted: false,
+                style,
+                color,
             };
             context.inoink.store_mut()?.insert_highlight(&h).ok().map(|_| uid)
         });
@@ -2088,6 +2099,14 @@ impl Reader {
                 entries.push(EntryKind::Command("Remove Note".to_string(), EntryId::RemoveAnnotationNote(sel)));
             }
 
+            entries.push(EntryKind::Separator);
+            entries.push(EntryKind::SubMenu("Style".to_string(), inoink::highlight::HighlightStyle::ALL.into_iter()
+                .map(|s| EntryKind::RadioButton(s.label().to_string(), EntryId::HighlightStyle(sel, s), s == annot.style)).collect()));
+            if CURRENT_DEVICE.color_samples() > 1 {
+                entries.push(EntryKind::SubMenu("Colour".to_string(), inoink::highlight::HighlightColor::ALL.into_iter()
+                    .map(|c| EntryKind::RadioButton(c.label().to_string(), EntryId::HighlightColor(sel, c), c == annot.color)).collect()));
+            }
+
             let selection_menu = Menu::new(rect, ViewId::AnnotationMenu, MenuKind::Contextual, entries, context);
             rq.add(RenderData::new(selection_menu.id(), *selection_menu.rect(), UpdateMode::Gui));
             self.children.push(Box::new(selection_menu) as Box<dyn View>);
@@ -2966,6 +2985,30 @@ impl Reader {
                            .find(|a| a.selection[0] == sel[0] && a.selection[1] == sel[1]))
     }
 
+    /// Changes how a highlight is drawn, saves it (highlights made on the device) and makes it
+    /// the look of the next highlights.
+    fn restyle_annotation(&mut self, sel: [TextLocation; 2], style: Option<inoink::highlight::HighlightStyle>, color: Option<inoink::highlight::HighlightColor>, rq: &mut RenderQueue, context: &mut Context) {
+        let Some(annot) = self.find_annotation_mut(sel) else { return };
+        if matches!(annot.source, AnnotationSource::Inoreader(_)) {
+            return;
+        }
+        annot.style = style.unwrap_or(annot.style);
+        annot.color = color.unwrap_or(annot.color);
+        let (style, color, source) = (annot.style, annot.color, annot.source.clone());
+        if let AnnotationSource::Local(uid) = source {
+            let now = inoink::util::now_secs();
+            if let Some(store) = context.inoink.store_mut() {
+                let _ = store.set_highlight_style(&uid, style, color, now);
+            }
+        }
+        context.settings.inoink.highlight_style = style;
+        context.settings.inoink.highlight_color = Some(color);
+        self.update_annotations();
+        if let Some(rect) = self.text_rect(sel) {
+            rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
+        }
+    }
+
     fn reseed(&mut self, rq: &mut RenderQueue, context: &mut Context) {
         if let Some(index) = locate::<TopBar>(self) {
             if let Some(top_bar) = self.child_mut(index).downcast_mut::<TopBar>() {
@@ -3222,6 +3265,10 @@ impl Reader {
             EntryKind::Separator,
             EntryKind::Command("Send to Karakeep".to_string(), EntryId::InoInk(InoInkEntry::ShareArticle)),
             EntryKind::Command("Show QR code".to_string(), EntryId::InoInk(InoInkEntry::QrArticle)),
+            EntryKind::SubMenu("Export highlights".to_string(), vec![
+                EntryKind::Command("Markdown".to_string(), EntryId::InoInk(InoInkEntry::ExportHighlights(inoink::highlight::ExportFormat::Markdown))),
+                EntryKind::Command("HTML".to_string(), EntryId::InoInk(InoInkEntry::ExportHighlights(inoink::highlight::ExportFormat::Html))),
+            ]),
             EntryKind::Separator,
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
             EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
@@ -3805,6 +3852,13 @@ impl Reader {
                 InoInkEntry::ShowQr(u) => {
                     let u = u.clone();
                     self.show_qr(&u, hub, rq, context);
+                    Some(true)
+                }
+                InoInkEntry::ExportHighlights(format) => {
+                    let msg = match crate::view::inoink::actions::export_highlights(context, *format) {
+                        Ok(m) | Err(m) => m,
+                    };
+                    self.notify(&msg, hub, rq, context);
                     Some(true)
                 }
                 InoInkEntry::Contents if article => {
@@ -4692,12 +4746,15 @@ impl View for Reader {
                     let text = self.text_excerpt(sel).unwrap();
                     let source = self.persist_new_highlight(sel, note, hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
+                        let (style, color) = highlight_defaults(context);
                         r.annotations.push(Annotation {
                             selection: sel,
                             note: note.to_string(),
                             text,
                             modified: Local::now().naive_local(),
                             source,
+                            style,
+                            color,
                         });
                     }
                     if let Some(rect) = self.text_rect(sel) {
@@ -5004,12 +5061,15 @@ impl View for Reader {
                     let text = self.text_excerpt([sel.start, sel.end]).unwrap();
                     let source = self.persist_new_highlight([sel.start, sel.end], "", hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
+                        let (style, color) = highlight_defaults(context);
                         r.annotations.push(Annotation {
                             selection: [sel.start, sel.end],
                             note: String::new(),
                             text,
                             modified: Local::now().naive_local(),
                             source,
+                            style,
+                            color,
                         });
                     }
                     if let Some(rect) = self.text_rect([sel.start, sel.end]) {
@@ -5090,6 +5150,14 @@ impl View for Reader {
                 if let Some(rect) = self.text_rect(sel) {
                     rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
                 }
+                true
+            },
+            Event::Select(EntryId::HighlightStyle(sel, style)) => {
+                self.restyle_annotation(sel, Some(style), None, rq, context);
+                true
+            },
+            Event::Select(EntryId::HighlightColor(sel, color)) => {
+                self.restyle_annotation(sel, None, Some(color), rq, context);
                 true
             },
             Event::Select(EntryId::RemoveAnnotation(sel)) => {
@@ -5301,44 +5369,34 @@ impl View for Reader {
                 }
 
                 if let Some(annotations) = self.annotations.get(&chunk.location) {
+                    let colour = CURRENT_DEVICE.color_samples() > 1;
                     for annot in annotations {
-                        let drift = if annot.note.is_empty() { HIGHLIGHT_DRIFT } else { ANNOTATION_DRIFT };
                         let [start, end] = annot.selection;
-                        if let Some(text) = self.text.get(&chunk.location) {
-                            let mut last_rect: Option<Rectangle> = None;
-                            for word in text.iter().filter(|w| w.location >= start && w.location <= end) {
-                                let rect = (word.rect * scale).to_rect() - chunk.frame.min + chunk.position;
-                                if matches!(annot.source, AnnotationSource::Inoreader(_)) {
-                                    // Inoreader's annotations are underlined: they cannot be edited here.
-                                    let t = scale_by_dpi(THICKNESS_MEDIUM, CURRENT_DEVICE.dpi).max(1.0) as i32;
-                                    let line = rect![rect.min.x, rect.max.y - t, rect.max.x, rect.max.y];
-                                    if let Some(ref r) = line.intersection(&region_rect) {
-                                        fb.draw_rectangle(r, BLACK);
-                                    }
-                                    continue;
+                        let Some(text) = self.text.get(&chunk.location) else { continue };
+                        // The words and the spaces between those on the same line.
+                        let mut rects: Vec<Rectangle> = Vec::new();
+                        let mut last_rect: Option<Rectangle> = None;
+                        for word in text.iter().filter(|w| w.location >= start && w.location <= end) {
+                            let rect = (word.rect * scale).to_rect() - chunk.frame.min + chunk.position;
+                            if let Some(last) = last_rect {
+                                // Are `rect` and `last` on the same line?
+                                if rect.max.y.min(last.max.y) - rect.min.y.max(last.min.y) > rect.height().min(last.height()) as i32 / 2 &&
+                                   (last.max.x < rect.min.x || rect.max.x < last.min.x) {
+                                    let space = if last.max.x < rect.min.x {
+                                        rect![last.max.x, (last.min.y + rect.min.y) / 2,
+                                              rect.min.x, (last.max.y + rect.max.y) / 2]
+                                    } else {
+                                        rect![rect.max.x, (last.min.y + rect.min.y) / 2,
+                                              last.min.x, (last.max.y + rect.max.y) / 2]
+                                    };
+                                    rects.push(space);
                                 }
-                                if let Some(ref sel_rect) = rect.intersection(&region_rect) {
-                                    fb.shift_region(sel_rect, drift);
-                                }
-                                if let Some(last) = last_rect {
-                                    // Are `rect` and `last` on the same line?
-                                    if rect.max.y.min(last.max.y) - rect.min.y.max(last.min.y) > rect.height().min(last.height()) as i32 / 2 &&
-                                       (last.max.x < rect.min.x || rect.max.x < last.min.x) {
-                                        let space = if last.max.x < rect.min.x {
-                                            rect![last.max.x, (last.min.y + rect.min.y) / 2,
-                                                  rect.min.x, (last.max.y + rect.max.y) / 2]
-                                        } else {
-                                            rect![rect.max.x, (last.min.y + rect.min.y) / 2,
-                                                  last.min.x, (last.max.y + rect.max.y) / 2]
-                                        };
-                                        if let Some(ref sel_rect) = space.intersection(&region_rect) {
-                                            fb.shift_region(sel_rect, drift);
-                                        }
-                                    }
-                                }
-                                last_rect = Some(rect);
                             }
+                            rects.push(rect);
+                            last_rect = Some(rect);
                         }
+                        let mark = crate::view::inoink::highlight_mark::Mark { style: annot.style, color: annot.color, noted: !annot.note.is_empty() };
+                        crate::view::inoink::highlight_mark::draw(fb, &rects, &region_rect, mark, colour);
                     }
                 }
 

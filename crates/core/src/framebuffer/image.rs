@@ -136,6 +136,29 @@ impl Framebuffer for Pixmap {
         }
     }
 
+    fn tint_region(&mut self, rect: &Rectangle, tint: [u8; 3]) {
+        if self.data.is_empty() {
+            return;
+        }
+        let gray = Color::Rgb(tint[0], tint[1], tint[2]).gray() as u16;
+        let rect = match rect.intersection(&rect![0, 0, self.width as i32, self.height as i32]) {
+            Some(r) => r,
+            None => return,
+        };
+        for y in rect.min.y..rect.max.y {
+            for x in rect.min.x..rect.max.x {
+                let addr = self.samples * (y * self.width as i32 + x) as usize;
+                if self.samples == 1 {
+                    self.data[addr] = (self.data[addr] as u16 * gray / 255) as u8;
+                } else {
+                    for (c, t) in self.data[addr..addr+3].iter_mut().zip(tint) {
+                        *c = (*c as u16 * t as u16 / 255) as u8;
+                    }
+                }
+            }
+        }
+    }
+
     fn shift_region(&mut self, rect: &Rectangle, drift: u8) {
         if self.data.is_empty() {
             return;

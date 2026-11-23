@@ -591,6 +591,9 @@ pub enum EntryId {
     RemoveAnnotation([TextLocation; 2]),
     EditAnnotationNote([TextLocation; 2]),
     RemoveAnnotationNote([TextLocation; 2]),
+    /// How a highlight is drawn: its style or colour.
+    HighlightStyle([TextLocation; 2], ::inoink::highlight::HighlightStyle),
+    HighlightColor([TextLocation; 2], ::inoink::highlight::HighlightColor),
     GoTo(usize),
     GoToSelectedPageName,
     SearchDirection(LinearDir),

@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0008.sql"),
     include_str!("../migrations/0009.sql"),
     include_str!("../migrations/0010.sql"),
+    include_str!("../migrations/0011.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -653,7 +654,7 @@ impl Store {
     /// Live highlights of an article in text order.
     pub fn highlights(&self, article: ArticleId) -> Result<Vec<crate::highlight::Highlight>> {
         let mut stmt = self.conn.prepare(
-            "SELECT uid,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified FROM highlights \
+            "SELECT uid,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified,style,color FROM highlights \
              WHERE account=?1 AND article=?2 AND deleted=0 ORDER BY start_loc,created",
         )?;
         let rows = stmt.query_map(params![self.account, article.to_db()], |r| {
@@ -668,6 +669,8 @@ impl Store {
                 created: r.get(8)?,
                 modified: r.get(9)?,
                 deleted: false,
+                style: crate::highlight::HighlightStyle::parse(&r.get::<_, String>(10)?),
+                color: crate::highlight::HighlightColor::parse(&r.get::<_, String>(11)?),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -675,8 +678,8 @@ impl Store {
 
     pub fn insert_highlight(&mut self, h: &crate::highlight::Highlight) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO highlights(account,uid,article,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified,deleted) \
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            "INSERT INTO highlights(account,uid,article,exact,prefix,suffix,note,content_hash,start_loc,end_loc,created,modified,deleted,style,color) \
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
             params![
                 self.account,
                 h.uid,
@@ -690,7 +693,9 @@ impl Store {
                 h.end_loc,
                 h.created,
                 h.modified,
-                h.deleted as i64
+                h.deleted as i64,
+                h.style.as_str(),
+                h.color.as_str()
             ],
         )?;
         Ok(())
@@ -699,6 +704,21 @@ impl Store {
     pub fn set_highlight_note(&mut self, uid: &str, note: &str, now: i64) -> Result<()> {
         self.conn
             .execute("UPDATE highlights SET note=?3, modified=?4 WHERE account=?1 AND uid=?2", params![self.account, uid, note, now])?;
+        Ok(())
+    }
+
+    /// Changes how a highlight is drawn. Style and colour stay on the device.
+    pub fn set_highlight_style(
+        &mut self,
+        uid: &str,
+        style: crate::highlight::HighlightStyle,
+        color: crate::highlight::HighlightColor,
+        now: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE highlights SET style=?3, color=?4, modified=?5 WHERE account=?1 AND uid=?2",
+            params![self.account, uid, style.as_str(), color.as_str(), now],
+        )?;
         Ok(())
     }
 
@@ -721,7 +741,7 @@ impl Store {
     /// Every live highlight with its article's details, newest article first.
     pub fn highlight_exports(&self) -> Result<Vec<crate::highlight::HighlightExport>> {
         let mut stmt = self.conn.prepare(
-            "SELECT h.uid,h.article,h.exact,h.note,a.title,a.author,a.canonical_url,a.origin_title,h.created,h.modified \
+            "SELECT h.uid,h.article,h.exact,h.note,a.title,a.author,a.canonical_url,a.origin_title,h.created,h.modified,h.style,h.color \
              FROM highlights h JOIN articles a ON a.account=h.account AND a.id=h.article \
              WHERE h.account=?1 AND h.deleted=0 ORDER BY a.timestamp_usec DESC, h.article, h.created",
         )?;
@@ -737,6 +757,8 @@ impl Store {
                 feed_title: r.get(7)?,
                 highlighted_at: r.get(8)?,
                 modified: r.get(9)?,
+                style: crate::highlight::HighlightStyle::parse(&r.get::<_, String>(10)?),
+                color: crate::highlight::HighlightColor::parse(&r.get::<_, String>(11)?),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

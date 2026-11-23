@@ -115,6 +115,10 @@ impl Framebuffer for FBCanvas {
         self.pixmap.invert_region(rect);
     }
 
+    fn tint_region(&mut self, rect: &Rectangle, tint: [u8; 3]) {
+        self.pixmap.tint_region(rect, tint);
+    }
+
     fn shift_region(&mut self, rect: &Rectangle, drift: u8) {
         self.pixmap.shift_region(rect, drift);
     }

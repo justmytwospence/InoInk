@@ -368,3 +368,131 @@ fn tapping_a_link_offers_return_but_skipping_a_thread_does_not() {
     assert!(page(&reader) > 0);
     assert!(reader.return_label().is_none(), "Skip reads on");
 }
+
+// ---- highlight styles ----------------------------------------------------------------------
+
+use inoink::highlight::{ExportFormat, HighlightColor, HighlightStyle};
+use plato_core::document::TextLocation;
+use plato_core::view::inoink::highlight_mark::{self, Mark};
+
+fn blank() -> Pixmap {
+    let mut p = Pixmap::new(200, 100, 3);
+    p.clear(plato_core::color::WHITE);
+    p
+}
+
+fn mark(style: HighlightStyle, color: HighlightColor) -> Mark {
+    Mark { style, color, noted: false }
+}
+
+#[test]
+fn shading_tints_on_colour_screens_and_grays_elsewhere() {
+    let word = [Rectangle::new(Point::new(10, 10), Point::new(60, 40))];
+    let clip = Rectangle::new(Point::new(0, 0), Point::new(200, 100));
+    let mut p = blank();
+    highlight_mark::draw(&mut p, &word, &clip, mark(HighlightStyle::Shaded, HighlightColor::Blue), true);
+    assert_eq!(p.get_pixel(20, 20).rgb(), HighlightColor::Blue.tint());
+    assert_eq!(p.get_pixel(100, 20).rgb(), [255, 255, 255], "outside the words");
+
+    let mut p = blank();
+    highlight_mark::draw(&mut p, &word, &clip, mark(HighlightStyle::Shaded, HighlightColor::Blue), false);
+    assert_eq!(p.get_pixel(20, 20).rgb(), [0xDD; 3], "grayscale: the usual gray");
+    let mut p = blank();
+    highlight_mark::draw(&mut p, &word, &clip, Mark { noted: true, ..mark(HighlightStyle::Shaded, HighlightColor::Gray) }, false);
+    assert_eq!(p.get_pixel(20, 20).rgb(), [0xBB; 3], "a note shades darker");
+
+    // Text under a tint stays as dark as it was.
+    let mut p = blank();
+    p.draw_rectangle(&Rectangle::new(Point::new(20, 20), Point::new(22, 22)), plato_core::color::BLACK);
+    highlight_mark::draw(&mut p, &word, &clip, mark(HighlightStyle::Shaded, HighlightColor::Yellow), true);
+    assert_eq!(p.get_pixel(21, 21).rgb(), [0, 0, 0]);
+}
+
+#[test]
+fn underlines_are_solid_or_dotted_in_the_ink() {
+    let word = [Rectangle::new(Point::new(10, 10), Point::new(100, 46))];
+    let clip = Rectangle::new(Point::new(0, 0), Point::new(200, 100));
+    let t = highlight_mark::line_thickness(36);
+    let mut p = blank();
+    highlight_mark::draw(&mut p, &word, &clip, mark(HighlightStyle::Underline, HighlightColor::Green), true);
+    assert_eq!(p.get_pixel(50, 45).rgb(), HighlightColor::Green.ink());
+    assert_eq!(p.get_pixel(50, (46 - t - 1) as u32).rgb(), [255, 255, 255], "only the bottom line");
+    let solid = (10..100).filter(|&x| p.get_pixel(x, 45).rgb() != [255, 255, 255]).count();
+    assert_eq!(solid, 90);
+
+    let mut p = blank();
+    highlight_mark::draw(&mut p, &word, &clip, mark(HighlightStyle::Dotted, HighlightColor::Gray), false);
+    let inked = (10..100).filter(|&x| p.get_pixel(x, 45).rgb() == [0, 0, 0]).count();
+    assert_eq!(t, 3);
+    assert!((20..=40).contains(&inked), "dots, about a third inked: {inked}");
+}
+
+fn hold_and_highlight(reader: &mut Reader, e: &mut Env, x: i32) -> usize {
+    let before = e.context.inoink.store().unwrap().highlights(ArticleId(1)).unwrap().len();
+    for y in (300..1500).step_by(37) {
+        drive(reader, e, Event::Gesture(GestureEvent::HoldFingerShort(Point::new(x, y), 0)));
+        drive(reader, e, Event::Select(EntryId::HighlightSelection));
+        let now = e.context.inoink.store().unwrap().highlights(ArticleId(1)).unwrap().len();
+        if now > before {
+            return now;
+        }
+        drive(reader, e, Event::Close(plato_core::view::ViewId::AnnotationMenu));
+    }
+    panic!("no word found to highlight");
+}
+
+#[test]
+fn highlight_style_is_saved_and_becomes_the_default() {
+    let long = long_article();
+    let mut e = env_with(&[(1, &long)]);
+    let mut reader = open_reader(&mut e, 1);
+    hold_and_highlight(&mut reader, &mut e, 300);
+    let h = e.context.inoink.store().unwrap().highlights(ArticleId(1)).unwrap().remove(0);
+    // Shading, gray on grayscale screens (as before styles) and yellow on colour ones.
+    let colour = plato_core::device::CURRENT_DEVICE.color_samples() > 1;
+    let expected = if colour { HighlightColor::Yellow } else { HighlightColor::Gray };
+    assert_eq!((h.style, h.color), (HighlightStyle::Shaded, expected));
+
+    let sel = [TextLocation::Dynamic(h.start_loc as usize), TextLocation::Dynamic(h.end_loc as usize)];
+    drive(&mut reader, &mut e, Event::Select(EntryId::HighlightStyle(sel, HighlightStyle::Dotted)));
+    drive(&mut reader, &mut e, Event::Select(EntryId::HighlightColor(sel, HighlightColor::Pink)));
+    let h = e.context.inoink.store().unwrap().highlights(ArticleId(1)).unwrap().remove(0);
+    assert_eq!((h.style, h.color), (HighlightStyle::Dotted, HighlightColor::Pink));
+    assert_eq!(e.context.settings.inoink.highlight_style, HighlightStyle::Dotted);
+    assert_eq!(e.context.settings.inoink.highlight_color, Some(HighlightColor::Pink));
+
+    // The next highlight is drawn the same way, and both come back after reopening.
+    hold_and_highlight(&mut reader, &mut e, 900);
+    let list = e.context.inoink.store().unwrap().highlights(ArticleId(1)).unwrap();
+    assert!(list.iter().all(|h| (h.style, h.color) == (HighlightStyle::Dotted, HighlightColor::Pink)), "{list:?}");
+    drop(reader);
+    let _ = open_reader(&mut e, 1);
+}
+
+// ---- export --------------------------------------------------------------------------------
+
+#[test]
+fn export_writes_markdown_and_html_beside_the_data() {
+    let long = long_article();
+    let mut e = env_with(&[(1, &long)]);
+    let mut reader = open_reader(&mut e, 1);
+    let exports = e.context.inoink.data_dir.parent().unwrap().join("exports");
+
+    sent(&e);
+    drive(&mut reader, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ExportHighlights(ExportFormat::Markdown))));
+    assert!(!exports.exists() || std::fs::read_dir(&exports).unwrap().next().is_none(), "nothing to export yet");
+
+    hold_and_highlight(&mut reader, &mut e, 300);
+    for format in [ExportFormat::Markdown, ExportFormat::Html] {
+        let msg = plato_core::view::inoink::actions::export_highlights(&e.context, format).unwrap();
+        assert!(msg.starts_with("Exported 1 highlight to exports/inoink-highlights-"), "{msg}");
+    }
+    let mut files: Vec<String> = std::fs::read_dir(&exports).unwrap().map(|f| f.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    files.sort();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files[0].ends_with(".html") && files[1].ends_with(".md"), "{files:?}");
+    let md = std::fs::read_to_string(exports.join(&files[1])).unwrap();
+    assert!(md.starts_with("# InoInk highlights") && md.contains("## Article 1"));
+    let html = std::fs::read_to_string(exports.join(&files[0])).unwrap();
+    assert!(html.contains("<h2>Article 1</h2>") && html.contains("class=\"shaded\""));
+}

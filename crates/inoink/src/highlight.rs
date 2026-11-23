@@ -187,6 +187,110 @@ pub fn rfc3339_utc(secs: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", t / 3600, (t % 3600) / 60, t % 60)
 }
 
+/// How a highlight made on the device is drawn. Inoreader's annotations carry no style, so it is
+/// kept on the device only.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HighlightStyle {
+    /// The words are shaded (tinted on colour screens).
+    #[default]
+    Shaded,
+    Underline,
+    /// A dotted underline.
+    Dotted,
+}
+
+impl HighlightStyle {
+    pub const ALL: [HighlightStyle; 3] = [HighlightStyle::Shaded, HighlightStyle::Underline, HighlightStyle::Dotted];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HighlightStyle::Shaded => "shaded",
+            HighlightStyle::Underline => "underline",
+            HighlightStyle::Dotted => "dotted",
+        }
+    }
+
+    /// The style stored as `s`; anything unknown is shaded.
+    pub fn parse(s: &str) -> HighlightStyle {
+        HighlightStyle::ALL.into_iter().find(|v| v.as_str() == s).unwrap_or_default()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HighlightStyle::Shaded => "Shading",
+            HighlightStyle::Underline => "Underline",
+            HighlightStyle::Dotted => "Dotted underline",
+        }
+    }
+}
+
+/// A highlight's colour. Grayscale screens draw every colour as gray.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HighlightColor {
+    #[default]
+    Yellow,
+    Green,
+    Blue,
+    Pink,
+    Gray,
+}
+
+impl HighlightColor {
+    pub const ALL: [HighlightColor; 5] =
+        [HighlightColor::Yellow, HighlightColor::Green, HighlightColor::Blue, HighlightColor::Pink, HighlightColor::Gray];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HighlightColor::Yellow => "yellow",
+            HighlightColor::Green => "green",
+            HighlightColor::Blue => "blue",
+            HighlightColor::Pink => "pink",
+            HighlightColor::Gray => "gray",
+        }
+    }
+
+    /// The colour stored as `s`; anything unknown is gray.
+    pub fn parse(s: &str) -> HighlightColor {
+        HighlightColor::ALL.into_iter().find(|v| v.as_str() == s).unwrap_or(HighlightColor::Gray)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HighlightColor::Yellow => "Yellow",
+            HighlightColor::Green => "Green",
+            HighlightColor::Blue => "Blue",
+            HighlightColor::Pink => "Pink",
+            HighlightColor::Gray => "Gray",
+        }
+    }
+
+    /// The tint multiplied into shaded text: saturated enough to show on a colour e-ink screen.
+    pub fn tint(self) -> [u8; 3] {
+        match self {
+            HighlightColor::Yellow => [0xF5, 0xE0, 0x5C],
+            HighlightColor::Green => [0xA8, 0xDC, 0x8C],
+            HighlightColor::Blue => [0x96, 0xC8, 0xEC],
+            HighlightColor::Pink => [0xF2, 0xA6, 0xC4],
+            HighlightColor::Gray => [0xDD, 0xDD, 0xDD],
+        }
+    }
+
+    /// The colour of underlines: the tint darkened so a thin line still reads; gray is black.
+    pub fn ink(self) -> [u8; 3] {
+        match self {
+            HighlightColor::Gray => [0, 0, 0],
+            c => c.tint().map(|v| (v as u16 * 11 / 20) as u8),
+        }
+    }
+
+    pub fn css(self) -> String {
+        let [r, g, b] = self.tint();
+        format!("#{r:02x}{g:02x}{b:02x}")
+    }
+}
+
 /// A highlight made on this device. Deleted ones are kept (`deleted`) so a later sync can tell
 /// the other side; `modified` says what changed since then.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -202,6 +306,8 @@ pub struct Highlight {
     pub created: i64,
     pub modified: i64,
     pub deleted: bool,
+    pub style: HighlightStyle,
+    pub color: HighlightColor,
 }
 
 /// A highlight with what a reading-notes service needs to know about its article.
@@ -218,6 +324,8 @@ pub struct HighlightExport {
     pub feed_title: String,
     pub highlighted_at: i64,
     pub modified: i64,
+    pub style: HighlightStyle,
+    pub color: HighlightColor,
 }
 
 /// Highlights as Markdown, grouped by article in the order given.
@@ -239,6 +347,116 @@ pub fn to_markdown(list: &[HighlightExport]) -> String {
         }
     }
     out
+}
+
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Paragraphs of `s` (separated by blank lines), each line break kept.
+fn html_paragraphs(s: &str) -> String {
+    s.replace("\r\n", "\n")
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .map(|p| format!("<p>{}</p>", html_escape(p.trim()).replace('\n', "<br>")))
+        .collect()
+}
+
+/// Highlights as one self-contained HTML page, grouped by article in the order given, each
+/// drawn in its style and colour. `exported_at` is a Unix time.
+pub fn to_html(list: &[HighlightExport], exported_at: i64) -> String {
+    let mut out = String::from(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\
+         <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <title>InoInk highlights</title><style>\
+         body{font-family:Georgia,serif;max-width:42em;margin:2em auto;padding:0 1em;line-height:1.5;color:#222}\
+         h2{margin-top:2em;font-size:1.3em}.meta{color:#666;font-size:.9em}.meta a{color:inherit}\
+         blockquote{margin:1em 0;padding:0}blockquote p{margin:.4em 0}\
+         .shaded p span{background:var(--mark);box-decoration-break:clone;-webkit-box-decoration-break:clone}\
+         .underline p span{text-decoration:underline 2px var(--ink);text-underline-offset:3px}\
+         .dotted p span{text-decoration:underline dotted 2px var(--ink);text-underline-offset:3px}\
+         .note{margin:.2em 0 1.4em 1em;padding-left:.8em;border-left:3px solid #ccc;color:#444}\
+         footer{margin-top:3em;color:#888;font-size:.85em}</style></head><body>\n",
+    );
+    let notes = list.iter().filter(|h| !h.note.is_empty()).count();
+    out.push_str(&format!(
+        "<h1>InoInk highlights</h1>\n<p class=\"meta\">{} highlight{} \u{b7} {} note{} \u{b7} exported {}</p>\n",
+        list.len(),
+        if list.len() == 1 { "" } else { "s" },
+        notes,
+        if notes == 1 { "" } else { "s" },
+        rfc3339_utc(exported_at)
+    ));
+    let mut current: Option<&str> = None;
+    for h in list {
+        if current != Some(h.article.as_str()) {
+            current = Some(h.article.as_str());
+            out.push_str(&format!("<h2>{}</h2>\n<p class=\"meta\">{}", html_escape(&h.title), html_escape(&h.feed_title)));
+            if !h.author.is_empty() {
+                out.push_str(&format!(" \u{b7} {}", html_escape(&h.author)));
+            }
+            if h.source_url.starts_with("https://") || h.source_url.starts_with("http://") {
+                out.push_str(&format!("<br><a href=\"{0}\">{0}</a>", html_escape(&h.source_url)));
+            }
+            out.push_str("</p>\n");
+        }
+        let [r, g, b] = h.color.ink();
+        let paragraphs = html_paragraphs(&h.text).replace("<p>", "<p><span>").replace("</p>", "</span></p>");
+        out.push_str(&format!(
+            "<blockquote class=\"{}\" data-color=\"{}\" style=\"--mark:{};--ink:#{r:02x}{g:02x}{b:02x}\">{}</blockquote>\n",
+            h.style.as_str(),
+            h.color.as_str(),
+            h.color.css(),
+            paragraphs
+        ));
+        if !h.note.is_empty() {
+            out.push_str(&format!("<div class=\"note\">{}</div>\n", html_paragraphs(&h.note)));
+        }
+    }
+    out.push_str("<footer>Exported from InoInk.</footer>\n</body></html>\n");
+    out
+}
+
+/// The files the device exports highlights to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportFormat {
+    Markdown,
+    Html,
+}
+
+impl ExportFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            ExportFormat::Markdown => "md",
+            ExportFormat::Html => "html",
+        }
+    }
+
+    /// The file's text, exported at `now` (Unix time).
+    pub fn render(self, list: &[HighlightExport], now: i64) -> String {
+        match self {
+            ExportFormat::Markdown => to_markdown(list),
+            ExportFormat::Html => to_html(list, now),
+        }
+    }
+
+    /// `inoink-highlights-2027-01-15-080000.md`: sorts by date, unique to the second.
+    pub fn file_name(self, now: i64) -> String {
+        let stamp: String = rfc3339_utc(now).chars().filter(|c| c.is_ascii_digit() || *c == '-' || *c == 'T').collect();
+        let stamp = stamp.replacen('T', "-", 1);
+        format!("inoink-highlights-{stamp}.{}", self.extension())
+    }
 }
 
 /// Highlights in the shape of Readwise's "create highlights" request. Nothing is sent.

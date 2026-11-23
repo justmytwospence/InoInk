@@ -264,6 +264,16 @@ impl Framebuffer for KoboFramebuffer2 {
         }
     }
 
+    fn tint_region(&mut self, rect: &Rectangle, tint: [u8; 3]) {
+        for y in rect.min.y..rect.max.y {
+            for x in rect.min.x..rect.max.x {
+                let rgb = self.get_pixel(x as u32, y as u32).rgb();
+                let color = Color::Rgb((rgb[0] as u16 * tint[0] as u16 / 255) as u8, (rgb[1] as u16 * tint[1] as u16 / 255) as u8, (rgb[2] as u16 * tint[2] as u16 / 255) as u8);
+                self.set_pixel(x as u32, y as u32, color);
+            }
+        }
+    }
+
     fn shift_region(&mut self, rect: &Rectangle, drift: u8) {
         for y in rect.min.y..rect.max.y {
             for x in rect.min.x..rect.max.x {

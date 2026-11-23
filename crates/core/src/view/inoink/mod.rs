@@ -7,6 +7,7 @@ pub mod article_end;
 pub mod categories;
 pub mod details;
 pub mod group_header;
+pub mod highlight_mark;
 pub mod home;
 pub mod image_view;
 pub mod light_panel;

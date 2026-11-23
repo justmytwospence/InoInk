@@ -123,6 +123,8 @@ fn export(uid: &str, article: &str, title: &str, author: &str, text: &str, note:
         feed_title: "Blog".into(),
         highlighted_at: 1_800_000_000,
         modified: 1_800_000_000,
+        style: Default::default(),
+        color: Default::default(),
     }
 }
 
@@ -154,4 +156,48 @@ fn readwise_json_fields_and_truncation() {
     assert_eq!(h[0]["highlighted_at"], "2027-01-15T08:00:00Z");
     assert_eq!(h[0]["source_url"], "https://blog.example/a");
     assert!(h[1].get("author").is_none() && h[1].get("note").is_none(), "empty author and note are omitted");
+}
+
+#[test]
+fn style_and_colour_names_round_trip_and_default() {
+    for st in HighlightStyle::ALL {
+        assert_eq!(HighlightStyle::parse(st.as_str()), st);
+    }
+    for c in HighlightColor::ALL {
+        assert_eq!(HighlightColor::parse(c.as_str()), c);
+    }
+    assert_eq!(HighlightStyle::parse("wavy"), HighlightStyle::Shaded);
+    assert_eq!(HighlightColor::parse("teal"), HighlightColor::Gray);
+    assert_eq!(HighlightColor::Gray.ink(), [0, 0, 0], "gray underlines are black");
+    assert!(HighlightColor::Yellow.ink().iter().zip(HighlightColor::Yellow.tint()).all(|(i, t)| *i < t), "ink is darker than the tint");
+}
+
+#[test]
+fn html_export_escapes_and_keeps_styles() {
+    let mut a = export("1", "a", "Fish & <chips>", "Ann", "one\n\ntwo <b>", "a \"note\"");
+    a.style = HighlightStyle::Dotted;
+    a.color = HighlightColor::Blue;
+    let mut b = export("2", "a", "Fish & <chips>", "Ann", "three", "");
+    b.source_url = "javascript:alert(1)".into();
+    let c = export("3", "b", "Second", "", "four", "");
+    let html = to_html(&[a, b, c], 1_800_000_000);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("<h2>Fish &amp; &lt;chips&gt;</h2>"));
+    assert_eq!(html.matches("<h2>").count(), 2, "grouped by article");
+    assert!(html.contains("3 highlights \u{b7} 1 note \u{b7} exported 2027-01-15T08:00:00Z"));
+    assert!(html.contains("class=\"dotted\" data-color=\"blue\""));
+    assert!(html.contains("<p><span>one</span></p><p><span>two &lt;b&gt;</span></p>"));
+    assert!(html.contains("<div class=\"note\"><p>a &quot;note&quot;</p></div>"));
+    assert!(html.contains("<a href=\"https://blog.example/a\">"));
+    assert!(!html.contains("javascript:"), "only web addresses become links");
+    assert!(!html.contains("<b>"));
+}
+
+#[test]
+fn export_file_names_sort_by_time() {
+    assert_eq!(ExportFormat::Markdown.file_name(1_800_000_000), "inoink-highlights-2027-01-15-080000.md");
+    assert_eq!(ExportFormat::Html.file_name(1_800_000_001), "inoink-highlights-2027-01-15-080001.html");
+    let list = [export("1", "a", "T", "", "one", "")];
+    assert_eq!(ExportFormat::Markdown.render(&list, 0), to_markdown(&list));
+    assert!(ExportFormat::Html.render(&list, 0).contains("<blockquote"));
 }

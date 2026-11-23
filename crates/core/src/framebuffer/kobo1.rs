@@ -137,6 +137,16 @@ impl Framebuffer for KoboFramebuffer1 {
         }
     }
 
+    fn tint_region(&mut self, rect: &Rectangle, tint: [u8; 3]) {
+        for y in rect.min.y..rect.max.y {
+            for x in rect.min.x..rect.max.x {
+                let rgb = (self.get_pixel_rgb)(self, x as u32, y as u32);
+                let color = [0, 1, 2].map(|i| (rgb[i] as u16 * tint[i] as u16 / 255) as u8);
+                (self.set_pixel_rgb)(self, x as u32, y as u32, color);
+            }
+        }
+    }
+
     fn shift_region(&mut self, rect: &Rectangle, drift: u8) {
         for y in rect.min.y..rect.max.y {
             for x in rect.min.x..rect.max.x {
