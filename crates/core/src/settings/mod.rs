@@ -551,6 +551,12 @@ pub struct InoInkSettings {
     pub sleep_screen: SleepScreen,
     /// What a sync does while the Wi-Fi is off: wait for it, or turn it on for the sync.
     pub wifi_policy: inoink::runtime::WifiPolicy,
+    /// How new highlights are drawn: the last style chosen.
+    pub highlight_style: inoink::highlight::HighlightStyle,
+    /// The colour of new highlights: the last chosen; unset means yellow on colour screens and
+    /// gray on others.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight_color: Option<inoink::highlight::HighlightColor>,
 }
 
 /// What the screen shows while the Kobo sleeps. Every choice but `Plato` powers off to a dark
@@ -602,6 +608,8 @@ impl Default for InoInkSettings {
             queue_titles: QueueTitles::WithBar,
             sleep_screen: SleepScreen::StatusCard,
             wifi_policy: inoink::runtime::WifiPolicy::Wait,
+            highlight_style: Default::default(),
+            highlight_color: None,
         }
     }
 }

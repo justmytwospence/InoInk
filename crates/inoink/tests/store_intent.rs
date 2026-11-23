@@ -709,6 +709,7 @@ fn migration_decodes_entities_in_titles() {
     {
         let c = rusqlite::Connection::open(&path).unwrap();
         c.execute("UPDATE articles SET title='Fine&mdash;Eventually.', origin_title='A &amp; B' WHERE id=1", []).unwrap();
+        c.execute_batch(DROP_HIGHLIGHT_STYLES).unwrap();
         c.pragma_update(None, "user_version", 6).unwrap();
     }
     let s = Store::open(&path, "acct").unwrap();
@@ -742,6 +743,8 @@ fn hl(uid: &str, article: u64, exact: &str, start: i64) -> inoink::highlight::Hi
         created: 100,
         modified: 100,
         deleted: false,
+        style: Default::default(),
+        color: Default::default(),
     }
 }
 
@@ -776,6 +779,50 @@ fn highlights_crud_tombstones_and_exports() {
     let (deleted, modified): (i64, i64) =
         s.conn().query_row("SELECT deleted,modified FROM highlights WHERE uid='b'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!((deleted, modified), (1, 300), "the tombstone stays");
+}
+
+/// Version 11 added these columns: a database rewound to an older version must not have them.
+const DROP_HIGHLIGHT_STYLES: &str = "ALTER TABLE highlights DROP COLUMN style; ALTER TABLE highlights DROP COLUMN color;";
+
+#[test]
+fn highlight_style_and_colour_round_trip() {
+    use inoink::highlight::{HighlightColor, HighlightStyle};
+    let mut s = store();
+    s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    let mut h = hl("a", 1, "dotted", 5);
+    h.style = HighlightStyle::Dotted;
+    h.color = HighlightColor::Pink;
+    s.insert_highlight(&h).unwrap();
+    let got = &s.highlights(id(1)).unwrap()[0];
+    assert_eq!((got.style, got.color), (HighlightStyle::Dotted, HighlightColor::Pink));
+
+    s.set_highlight_style("a", HighlightStyle::Underline, HighlightColor::Blue, 500).unwrap();
+    let got = &s.highlights(id(1)).unwrap()[0];
+    assert_eq!((got.style, got.color, got.modified), (HighlightStyle::Underline, HighlightColor::Blue, 500), "a change is an edit");
+    let ex = &s.highlight_exports().unwrap()[0];
+    assert_eq!((ex.style, ex.color), (HighlightStyle::Underline, HighlightColor::Blue));
+}
+
+#[test]
+fn highlights_from_before_styles_stay_gray_shading() {
+    use inoink::highlight::{HighlightColor, HighlightStyle};
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("db.sqlite");
+    {
+        let mut s = Store::open(&path, "acct").unwrap();
+        s.upsert_article(&rec(1, 10, &[]), 0).unwrap();
+    }
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch(DROP_HIGHLIGHT_STYLES).unwrap();
+        c.execute_batch("INSERT INTO highlights(account,uid,article,exact,created,modified) VALUES('acct','old',1,'old words',1,1)")
+            .unwrap();
+        c.pragma_update(None, "user_version", 10).unwrap();
+    }
+    let s = Store::open(&path, "acct").unwrap();
+    assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+    let got = &s.highlights(id(1)).unwrap()[0];
+    assert_eq!((got.uid.as_str(), got.style, got.color), ("old", HighlightStyle::Shaded, HighlightColor::Gray));
 }
 
 #[test]
@@ -879,6 +926,7 @@ fn migration_backfills_saved_at() {
     {
         let c = rusqlite::Connection::open(&path).unwrap();
         c.execute_batch("DROP TABLE saved_items; DROP TABLE local_progress;").unwrap();
+        c.execute_batch(DROP_HIGHLIGHT_STYLES).unwrap();
         c.pragma_update(None, "user_version", 9).unwrap();
     }
     let s = Store::open(&path, "acct").unwrap();

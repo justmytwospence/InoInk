@@ -93,6 +93,11 @@ pub struct Annotation {
     /// Where the annotation comes from; not stored with the book.
     #[serde(skip)]
     pub source: AnnotationSource,
+    /// How it is drawn (InoInk keeps it in its database).
+    #[serde(skip)]
+    pub style: inoink::highlight::HighlightStyle,
+    #[serde(skip)]
+    pub color: inoink::highlight::HighlightColor,
 }
 
 /// Origin of an annotation. InoInk articles keep theirs in its database, not in `Info`.
@@ -114,6 +119,8 @@ impl Default for Annotation {
             selection: [TextLocation::Dynamic(0), TextLocation::Dynamic(1)],
             modified: Local::now().naive_local(),
             source: AnnotationSource::Plato,
+            style: Default::default(),
+            color: inoink::highlight::HighlightColor::Gray,
         }
     }
 }

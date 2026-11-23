@@ -63,8 +63,6 @@ use inoink::model::{ArticleId, ReadingPosition};
 
 const HISTORY_SIZE: usize = 32;
 const RECT_DIST_JITTER: f32 = 24.0;
-const ANNOTATION_DRIFT: u8 =  0x44;
-const HIGHLIGHT_DRIFT: u8 =  0x22;
 const MEM_SCHEME: &str = "mem:";
 
 pub struct Reader {
@@ -118,6 +116,10 @@ pub struct Reader {
     first_location: Option<usize>,
     /// Offsets of the comments page's thread anchors, for the running header.
     thread_starts: Vec<usize>,
+    /// The other document (article or comments) this one was switched to from: Return goes back.
+    doc_return: Option<crate::view::inoink::actions::DocKind>,
+    /// "Return to page 3" while a jump can be undone (articles and comments only).
+    return_label: Option<String>,
 }
 
 /// The article a reader is showing.
@@ -262,6 +264,11 @@ fn find_cut(frame: &Rectangle, y_pos: i32, scale: f32, dir: LinearDir, lines: &[
     })
 }
 
+/// How new highlights look (Settings: the last style and colour chosen).
+fn highlight_defaults(context: &Context) -> (inoink::highlight::HighlightStyle, inoink::highlight::HighlightColor) {
+    crate::view::inoink::highlight_mark::defaults(&context.settings.inoink, CURRENT_DEVICE.color_samples() > 1)
+}
+
 fn word_separator(lang: &str) -> &'static str {
     let l = lang.to_ascii_lowercase();
     match l.as_str() {
@@ -306,6 +313,8 @@ impl Reader {
         let binding = ArticleBinding { id: article.id, version: article.version, content_hash: article.content_hash.clone(), kind: article.kind };
         let mut reader = Reader::with_document(rect, info, Box::new(doc), hub, context)?;
         reader.article = Some(binding);
+        // Switched here from the article's other document: Return goes back to it.
+        reader.doc_return = context.inoink.doc_return.take().filter(|(id, kind)| *id == article.id && *kind != article.kind).map(|(_, kind)| kind);
         if article.kind == crate::view::inoink::actions::DocKind::Article {
             reader.queue_titles = queue_titles(context, article.id);
             reader.queue_titles_always = context.settings.inoink.queue_titles == QueueTitles::Always;
@@ -394,6 +403,9 @@ impl Reader {
                     text: quote.exact,
                     modified: chrono::DateTime::from_timestamp(a.added_on, 0).map(|d| d.naive_utc()).unwrap_or_default(),
                     source: AnnotationSource::Inoreader(a.id),
+                    // Inoreader's annotations are underlined: they cannot be edited here.
+                    style: inoink::highlight::HighlightStyle::Underline,
+                    color: inoink::highlight::HighlightColor::Gray,
                 });
             }
         }
@@ -415,6 +427,8 @@ impl Reader {
                     text: h.quote.exact.clone(),
                     modified: chrono::DateTime::from_timestamp(h.modified, 0).map(|d| d.naive_utc()).unwrap_or_default(),
                     source: AnnotationSource::Local(h.uid.clone()),
+                    style: h.style,
+                    color: h.color,
                 });
             }
         }
@@ -449,6 +463,7 @@ impl Reader {
         let Some(binding) = self.article.clone().filter(|b| b.kind == crate::view::inoink::actions::DocKind::Article) else {
             return AnnotationSource::Plato;
         };
+        let (style, color) = highlight_defaults(context);
         let saved = self.article_quote(sel).and_then(|quote| {
             let now = inoink::util::now_secs();
             let uid = inoink::highlight::new_uid();
@@ -463,6 +478,8 @@ impl Reader {
                 created: now,
                 modified: now,
                 deleted: false,
+                style,
+                color,
             };
             context.inoink.store_mut()?.insert_highlight(&h).ok().map(|_| uid)
         });
@@ -659,6 +676,8 @@ impl Reader {
                 running_header: None,
                 first_location: None,
                 thread_starts: Vec::new(),
+                doc_return: None,
+                return_label: None,
             })
         })
     }
@@ -736,6 +755,8 @@ impl Reader {
             running_header: None,
             first_location: None,
             thread_starts: Vec::new(),
+            doc_return: None,
+            return_label: None,
         }
     }
 
@@ -1453,6 +1474,11 @@ impl Reader {
             self.progress = next.map(|n| n as f32 / self.pages_count.max(1) as f32).unwrap_or(1.0).clamp(0.0, 1.0);
             let position = self.doc.lock().unwrap().page_position(self.current_page);
             self.page_pos = position;
+            // Back on the page a jump left: nothing to return to any more.
+            while self.history.back() == Some(&self.current_page) {
+                self.history.pop_back();
+            }
+            self.return_label = self.compute_return_label();
         }
 
         if self.view_port.zoom_mode == ZoomMode::FitToPage ||
@@ -2071,6 +2097,14 @@ impl Reader {
                 entries.push(EntryKind::Separator);
                 entries.push(EntryKind::Command("Edit Note".to_string(), EntryId::EditAnnotationNote(sel)));
                 entries.push(EntryKind::Command("Remove Note".to_string(), EntryId::RemoveAnnotationNote(sel)));
+            }
+
+            entries.push(EntryKind::Separator);
+            entries.push(EntryKind::SubMenu("Style".to_string(), inoink::highlight::HighlightStyle::ALL.into_iter()
+                .map(|s| EntryKind::RadioButton(s.label().to_string(), EntryId::HighlightStyle(sel, s), s == annot.style)).collect()));
+            if CURRENT_DEVICE.color_samples() > 1 {
+                entries.push(EntryKind::SubMenu("Colour".to_string(), inoink::highlight::HighlightColor::ALL.into_iter()
+                    .map(|c| EntryKind::RadioButton(c.label().to_string(), EntryId::HighlightColor(sel, c), c == annot.color)).collect()));
             }
 
             let selection_menu = Menu::new(rect, ViewId::AnnotationMenu, MenuKind::Contextual, entries, context);
@@ -2764,6 +2798,38 @@ impl Reader {
         self.update(None, hub, rq, context);
     }
 
+    /// Opens the table of contents; choosing an entry jumps there (and Return comes back).
+    fn show_toc(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        self.toggle_bars(Some(false), hub, rq, context);
+        let mut doc = self.doc.lock().unwrap();
+        if let Some(toc) = self.toc().or_else(|| doc.toc()).filter(|toc| !toc.is_empty()) {
+            let chap = doc.chapter(self.current_page, &toc).map(|(c, _)| c.index).or_else(|| {
+                // HTML articles: the last heading at or before the page shown.
+                fn flat<'a>(toc: &'a [TocEntry], out: &mut Vec<&'a TocEntry>) {
+                    for e in toc {
+                        out.push(e);
+                        flat(&e.children, out);
+                    }
+                }
+                let mut all = Vec::new();
+                flat(&toc, &mut all);
+                all.into_iter().filter(|e| doc.resolve_location(e.location.clone()).is_some_and(|l| l <= self.current_page)).map(|e| e.index).last()
+            });
+            let html = toc_as_html(&toc, chap.unwrap_or(usize::MAX));
+            let link_uri = doc.chapter(self.current_page, &toc).and_then(|(chap, _)| match chap.location {
+                Location::Uri(ref uri) => Some(format!("@{}", uri)),
+                Location::Exact(offset) => Some(format!("@{}", offset)),
+                _ => None,
+            });
+            hub.send(Event::OpenHtml(html, link_uri)).ok();
+        }
+    }
+
+    /// Whether the document has headings enough for a table of contents (articles).
+    fn has_contents(&self) -> bool {
+        self.doc.lock().ok().and_then(|mut doc| doc.toc()).is_some_and(|toc| toc.len() + toc.iter().map(|e| e.children.len()).sum::<usize>() >= 2)
+    }
+
     fn toc(&self) -> Option<Vec<TocEntry>> {
         let mut index = 0;
         self.info.toc.as_ref()
@@ -2917,6 +2983,30 @@ impl Reader {
         self.info.reader.as_mut()
             .and_then(|r| r.annotations.iter_mut()
                            .find(|a| a.selection[0] == sel[0] && a.selection[1] == sel[1]))
+    }
+
+    /// Changes how a highlight is drawn, saves it (highlights made on the device) and makes it
+    /// the look of the next highlights.
+    fn restyle_annotation(&mut self, sel: [TextLocation; 2], style: Option<inoink::highlight::HighlightStyle>, color: Option<inoink::highlight::HighlightColor>, rq: &mut RenderQueue, context: &mut Context) {
+        let Some(annot) = self.find_annotation_mut(sel) else { return };
+        if matches!(annot.source, AnnotationSource::Inoreader(_)) {
+            return;
+        }
+        annot.style = style.unwrap_or(annot.style);
+        annot.color = color.unwrap_or(annot.color);
+        let (style, color, source) = (annot.style, annot.color, annot.source.clone());
+        if let AnnotationSource::Local(uid) = source {
+            let now = inoink::util::now_secs();
+            if let Some(store) = context.inoink.store_mut() {
+                let _ = store.set_highlight_style(&uid, style, color, now);
+            }
+        }
+        context.settings.inoink.highlight_style = style;
+        context.settings.inoink.highlight_color = Some(color);
+        self.update_annotations();
+        if let Some(rect) = self.text_rect(sel) {
+            rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
+        }
     }
 
     fn reseed(&mut self, rq: &mut RenderQueue, context: &mut Context) {
@@ -3175,11 +3265,20 @@ impl Reader {
             EntryKind::Separator,
             EntryKind::Command("Send to Karakeep".to_string(), EntryId::InoInk(InoInkEntry::ShareArticle)),
             EntryKind::Command("Show QR code".to_string(), EntryId::InoInk(InoInkEntry::QrArticle)),
+            EntryKind::SubMenu("Export highlights".to_string(), vec![
+                EntryKind::Command("Markdown".to_string(), EntryId::InoInk(InoInkEntry::ExportHighlights(inoink::highlight::ExportFormat::Markdown))),
+                EntryKind::Command("HTML".to_string(), EntryId::InoInk(InoInkEntry::ExportHighlights(inoink::highlight::ExportFormat::Html))),
+            ]),
             EntryKind::Separator,
             EntryKind::Command("Details".to_string(), EntryId::InoInk(InoInkEntry::OpenDetails(id))),
             EntryKind::Command("Load original page".to_string(), act(ArticleAction::LoadOriginal)),
         ];
         let mut entries = entries;
+        if self.has_contents() {
+            // Before Details: the article's headings.
+            let at = entries.len() - 2;
+            entries.insert(at, EntryKind::Command("Contents".to_string(), EntryId::InoInk(InoInkEntry::Contents)));
+        }
         if context.inoink.store().and_then(|s| s.discussion(id).ok().flatten()).is_some() {
             entries.push(EntryKind::Command("Refresh comments".to_string(), act(ArticleAction::RefreshComments)));
         }
@@ -3324,18 +3423,21 @@ impl Reader {
         nearest
     }
 
-    fn follow_link(&mut self, link: &BoundedText, hub: &Hub) {
+    fn follow_link(&mut self, link: &BoundedText, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
         let loc = {
             let mut doc = self.doc.lock().unwrap();
             doc.resolve_location(Location::LocalUri(self.current_page, link.text.clone()))
         };
         if let Some(location) = loc {
-            hub.send(Event::GoTo(location)).ok();
-        } else if link.text == inoink::content::discussion::COMMENTS_SCHEME || link.text == inoink::content::discussion::ARTICLE_SCHEME {
-            if let Some(id) = self.article.as_ref().map(|a| a.id) {
-                let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
-                hub.send(Event::ShowDocument(id, kind)).ok();
+            if link.text.starts_with("#inoink-t") {
+                // The comments' Skip to the next thread is reading on, not a jump to return from.
+                self.go_to_page(location, false, hub, rq, context);
+            } else {
+                hub.send(Event::GoTo(location)).ok();
             }
+        } else if link.text == inoink::content::discussion::COMMENTS_SCHEME || link.text == inoink::content::discussion::ARTICLE_SCHEME {
+            let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
+            self.switch_document(kind, hub, context);
         } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
             hub.send(Event::RetryImage(name.to_string())).ok();
         } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
@@ -3411,9 +3513,96 @@ impl Reader {
         self.running_header.clone()
     }
 
+    /// What Return goes back to: the page before the last jump, else the other document.
+    fn compute_return_label(&self) -> Option<String> {
+        use crate::view::inoink::actions::DocKind;
+        if let Some(&location) = self.history.back() {
+            let page = self.doc.lock().ok().and_then(|mut doc| doc.page_position(location)).map(|(p, _)| p + 1);
+            return Some(page.map_or_else(|| "Return".to_string(), |p| format!("Return to page {p}")));
+        }
+        self.doc_return.map(|kind| match kind {
+            DocKind::Article => "Return to the article".to_string(),
+            DocKind::Comments => "Return to the comments".to_string(),
+        })
+    }
+
+    /// The page shown (0-based) and the page count, for articles.
+    pub fn page_position(&self) -> Option<(usize, usize)> {
+        self.page_pos
+    }
+
+    /// The Return label, while a jump can be undone.
+    pub fn return_label(&self) -> Option<&str> {
+        self.return_label.as_deref()
+    }
+
+    /// Where Return is shown and tapped: the top margin, in place of the running header.
+    pub fn return_rect(&self) -> Option<Rectangle> {
+        self.article.as_ref()?;
+        self.return_label.as_ref()?;
+        let dpi = CURRENT_DEVICE.dpi;
+        let w = self.rect.width() as i32;
+        Some(rect![self.rect.min.x + w / 6, self.rect.min.y, self.rect.max.x - w / 6, self.rect.min.y + scale_by_dpi(76.0, dpi) as i32])
+    }
+
+    /// Goes back to where the last jump left: the page, or the other document.
+    fn take_return(&mut self, hub: &Hub, rq: &mut RenderQueue, context: &mut Context) {
+        if !self.history.is_empty() {
+            self.go_to_last_page(hub, rq, context);
+            return;
+        }
+        if let (Some(kind), Some(id)) = (self.doc_return.take(), self.article.as_ref().map(|a| a.id)) {
+            // Going back is not a new jump: the other document gets no Return of its own.
+            context.inoink.doc_return = None;
+            hub.send(Event::ShowDocument(id, kind)).ok();
+        }
+    }
+
+    /// Opens the article's other document (article or comments); it can return here.
+    fn switch_document(&mut self, kind: crate::view::inoink::actions::DocKind, hub: &Hub, context: &mut Context) {
+        let Some(a) = self.article.as_ref() else { return };
+        if a.kind != kind {
+            context.inoink.doc_return = Some((a.id, a.kind));
+        }
+        hub.send(Event::ShowDocument(a.id, kind)).ok();
+    }
+
+    /// Return as a pill in the top margin: "< Return to page 3".
+    fn render_return(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) -> bool {
+        let (Some(label), Some(area)) = (self.return_label.as_ref(), self.return_rect()) else { return false };
+        if !area.overlaps(clip) {
+            return true;
+        }
+        let dpi = CURRENT_DEVICE.dpi;
+        let font = crate::font::font_from_style(fonts, &crate::font::NORMAL_STYLE, dpi);
+        let x_height = font.x_heights.0 as i32;
+        let pad = scale_by_dpi(26.0, dpi) as i32;
+        let gap = scale_by_dpi(10.0, dpi) as i32;
+        let arrow = crate::view::icon::ICONS_PIXMAPS.get("angle-left-small");
+        let arrow_w = arrow.map_or(0, |p| p.width as i32 + gap);
+        let plan = font.plan(label, Some((area.width() as i32 - 2 * pad - arrow_w).max(0)), None);
+        let w = plan.width + arrow_w + 2 * pad;
+        let h = scale_by_dpi(48.0, dpi) as i32;
+        let cy = self.rect.min.y + scale_by_dpi(40.0, dpi) as i32;
+        let x0 = area.min.x + (area.width() as i32 - w) / 2;
+        let pill = rect![x0, cy - h / 2, x0 + w, cy - h / 2 + h];
+        let thickness = scale_by_dpi(THICKNESS_MEDIUM, dpi) as u16;
+        fb.draw_rounded_rectangle_with_border(&pill, &CornerSpec::Uniform(h / 2), &BorderSpec { thickness, color: BLACK }, &WHITE);
+        let mut x = pill.min.x + pad;
+        if let Some(p) = arrow {
+            fb.draw_blended_pixmap(p, pt!(x, cy - p.height as i32 / 2), BLACK);
+            x += p.width as i32 + gap;
+        }
+        font.render(fb, BLACK, &plan, pt!(x, cy + x_height / 2));
+        true
+    }
+
     /// The article's title in the top margin of every page, like a book's running header: it
-    /// covers no text and needs no dismissing.
+    /// covers no text and needs no dismissing. Return takes its place while there is a jump to undo.
     fn render_running_header(&self, fb: &mut dyn Framebuffer, clip: &Rectangle, fonts: &mut Fonts) {
+        if self.render_return(fb, clip, fonts) {
+            return;
+        }
         let Some(title) = self.running_header() else { return };
         let dpi = CURRENT_DEVICE.dpi;
         let pad = self.rect.width() as i32 / 12;
@@ -3539,8 +3728,12 @@ impl Reader {
                 if self.state == State::AdjustSelection {
                     return None;
                 }
+                if self.return_rect().is_some_and(|r| r.includes(c)) {
+                    self.take_return(hub, rq, context);
+                    return Some(true);
+                }
                 if let Some(link) = self.link_at(c) {
-                    self.follow_link(&link, hub);
+                    self.follow_link(&link, hub, rq, context);
                     return Some(true);
                 }
                 if article {
@@ -3561,6 +3754,14 @@ impl Reader {
                 Some(true)
             }
             Event::Gesture(GestureEvent::HoldFingerShort(c, _)) if self.rect.includes(c) => {
+                if let Some(r) = self.return_rect().filter(|r| r.includes(c)) {
+                    // Hold: stay here and forget the way back.
+                    self.history.clear();
+                    self.doc_return = None;
+                    self.return_label = None;
+                    rq.add(RenderData::new(self.id, r, UpdateMode::Gui));
+                    return Some(true);
+                }
                 if let Some(link) = self.link_at(c).filter(|l| l.text.starts_with("http:") || l.text.starts_with("https:")) {
                     let radius = scale_by_dpi(24.0, CURRENT_DEVICE.dpi) as i32;
                     self.toggle_link_menu(link.text, Rectangle::from_disk(c, radius), rq, context);
@@ -3653,6 +3854,17 @@ impl Reader {
                     self.show_qr(&u, hub, rq, context);
                     Some(true)
                 }
+                InoInkEntry::ExportHighlights(format) => {
+                    let msg = match crate::view::inoink::actions::export_highlights(context, *format) {
+                        Ok(m) | Err(m) => m,
+                    };
+                    self.notify(&msg, hub, rq, context);
+                    Some(true)
+                }
+                InoInkEntry::Contents if article => {
+                    self.show_toc(hub, rq, context);
+                    Some(true)
+                }
                 InoInkEntry::QrArticle => {
                     match self.article_url(context) {
                         Some(u) => self.show_qr(&u, hub, rq, context),
@@ -3743,6 +3955,11 @@ impl View for Reader {
             }
         }
         match *evt {
+            Event::ShowDocument(id, kind) if self.article.as_ref().is_some_and(|a| a.id == id && a.kind != kind) => {
+                // The article bar's switch: the next document can return here. The app opens it.
+                context.inoink.doc_return = self.article.as_ref().map(|a| (a.id, a.kind));
+                false
+            },
             Event::ArticleAction(id, ref action) if self.article.as_ref().map(|a| a.id) == Some(id) => {
                 self.run_article_action(action, hub, rq, context);
                 true
@@ -4259,10 +4476,9 @@ impl View for Reader {
                             hub.send(Event::GoTo(location)).ok();
                         } else {
                             if link.text == inoink::content::discussion::COMMENTS_SCHEME || link.text == inoink::content::discussion::ARTICLE_SCHEME {
-                                if let Some(id) = self.article.as_ref().map(|a| a.id) {
-                                    let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
-                                    hub.send(Event::ShowDocument(id, kind)).ok();
-                                }
+                                let kind = if link.text == inoink::content::discussion::COMMENTS_SCHEME { crate::view::inoink::actions::DocKind::Comments } else { crate::view::inoink::actions::DocKind::Article };
+                                drop(doc);
+                                self.switch_document(kind, hub, context);
                             } else if let Some(name) = link.text.strip_prefix(inoink::content::RETRY_SCHEME) {
                                 hub.send(Event::RetryImage(name.to_string())).ok();
                             } else if link.text.starts_with("https:") || link.text.starts_with("http:") {
@@ -4530,12 +4746,15 @@ impl View for Reader {
                     let text = self.text_excerpt(sel).unwrap();
                     let source = self.persist_new_highlight(sel, note, hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
+                        let (style, color) = highlight_defaults(context);
                         r.annotations.push(Annotation {
                             selection: sel,
                             note: note.to_string(),
                             text,
                             modified: Local::now().naive_local(),
                             source,
+                            style,
+                            color,
                         });
                     }
                     if let Some(rect) = self.text_rect(sel) {
@@ -4751,26 +4970,7 @@ impl View for Reader {
                 false
             },
             Event::Show(ViewId::TableOfContents) => {
-                {
-                    self.toggle_bars(Some(false), hub, rq, context);
-                }
-                let mut doc = self.doc.lock().unwrap();
-                if let Some(toc) = self.toc()
-                                       .or_else(|| doc.toc())
-                                       .filter(|toc| !toc.is_empty()) {
-                    let chap = doc.chapter(self.current_page, &toc)
-                                  .map(|(c, _)| c);
-                    let chap_index = chap.map_or(usize::MAX, |chap| chap.index);
-                    let html = toc_as_html(&toc, chap_index);
-                    let link_uri = chap.and_then(|chap| {
-                        match chap.location {
-                            Location::Uri(ref uri) => Some(format!("@{}", uri)),
-                            Location::Exact(offset) => Some(format!("@{}", offset)),
-                            _ => None,
-                        }
-                    });
-                    hub.send(Event::OpenHtml(html, link_uri)).ok();
-                }
+                self.show_toc(hub, rq, context);
                 true
             },
             Event::Select(EntryId::Annotations) => {
@@ -4861,12 +5061,15 @@ impl View for Reader {
                     let text = self.text_excerpt([sel.start, sel.end]).unwrap();
                     let source = self.persist_new_highlight([sel.start, sel.end], "", hub, rq, context);
                     if let Some(r) = self.info.reader.as_mut() {
+                        let (style, color) = highlight_defaults(context);
                         r.annotations.push(Annotation {
                             selection: [sel.start, sel.end],
                             note: String::new(),
                             text,
                             modified: Local::now().naive_local(),
                             source,
+                            style,
+                            color,
                         });
                     }
                     if let Some(rect) = self.text_rect([sel.start, sel.end]) {
@@ -4947,6 +5150,14 @@ impl View for Reader {
                 if let Some(rect) = self.text_rect(sel) {
                     rq.add(RenderData::new(self.id, rect, UpdateMode::Gui));
                 }
+                true
+            },
+            Event::Select(EntryId::HighlightStyle(sel, style)) => {
+                self.restyle_annotation(sel, Some(style), None, rq, context);
+                true
+            },
+            Event::Select(EntryId::HighlightColor(sel, color)) => {
+                self.restyle_annotation(sel, None, Some(color), rq, context);
                 true
             },
             Event::Select(EntryId::RemoveAnnotation(sel)) => {
@@ -5158,44 +5369,34 @@ impl View for Reader {
                 }
 
                 if let Some(annotations) = self.annotations.get(&chunk.location) {
+                    let colour = CURRENT_DEVICE.color_samples() > 1;
                     for annot in annotations {
-                        let drift = if annot.note.is_empty() { HIGHLIGHT_DRIFT } else { ANNOTATION_DRIFT };
                         let [start, end] = annot.selection;
-                        if let Some(text) = self.text.get(&chunk.location) {
-                            let mut last_rect: Option<Rectangle> = None;
-                            for word in text.iter().filter(|w| w.location >= start && w.location <= end) {
-                                let rect = (word.rect * scale).to_rect() - chunk.frame.min + chunk.position;
-                                if matches!(annot.source, AnnotationSource::Inoreader(_)) {
-                                    // Inoreader's annotations are underlined: they cannot be edited here.
-                                    let t = scale_by_dpi(THICKNESS_MEDIUM, CURRENT_DEVICE.dpi).max(1.0) as i32;
-                                    let line = rect![rect.min.x, rect.max.y - t, rect.max.x, rect.max.y];
-                                    if let Some(ref r) = line.intersection(&region_rect) {
-                                        fb.draw_rectangle(r, BLACK);
-                                    }
-                                    continue;
+                        let Some(text) = self.text.get(&chunk.location) else { continue };
+                        // The words and the spaces between those on the same line.
+                        let mut rects: Vec<Rectangle> = Vec::new();
+                        let mut last_rect: Option<Rectangle> = None;
+                        for word in text.iter().filter(|w| w.location >= start && w.location <= end) {
+                            let rect = (word.rect * scale).to_rect() - chunk.frame.min + chunk.position;
+                            if let Some(last) = last_rect {
+                                // Are `rect` and `last` on the same line?
+                                if rect.max.y.min(last.max.y) - rect.min.y.max(last.min.y) > rect.height().min(last.height()) as i32 / 2 &&
+                                   (last.max.x < rect.min.x || rect.max.x < last.min.x) {
+                                    let space = if last.max.x < rect.min.x {
+                                        rect![last.max.x, (last.min.y + rect.min.y) / 2,
+                                              rect.min.x, (last.max.y + rect.max.y) / 2]
+                                    } else {
+                                        rect![rect.max.x, (last.min.y + rect.min.y) / 2,
+                                              last.min.x, (last.max.y + rect.max.y) / 2]
+                                    };
+                                    rects.push(space);
                                 }
-                                if let Some(ref sel_rect) = rect.intersection(&region_rect) {
-                                    fb.shift_region(sel_rect, drift);
-                                }
-                                if let Some(last) = last_rect {
-                                    // Are `rect` and `last` on the same line?
-                                    if rect.max.y.min(last.max.y) - rect.min.y.max(last.min.y) > rect.height().min(last.height()) as i32 / 2 &&
-                                       (last.max.x < rect.min.x || rect.max.x < last.min.x) {
-                                        let space = if last.max.x < rect.min.x {
-                                            rect![last.max.x, (last.min.y + rect.min.y) / 2,
-                                                  rect.min.x, (last.max.y + rect.max.y) / 2]
-                                        } else {
-                                            rect![rect.max.x, (last.min.y + rect.min.y) / 2,
-                                                  last.min.x, (last.max.y + rect.max.y) / 2]
-                                        };
-                                        if let Some(ref sel_rect) = space.intersection(&region_rect) {
-                                            fb.shift_region(sel_rect, drift);
-                                        }
-                                    }
-                                }
-                                last_rect = Some(rect);
                             }
+                            rects.push(rect);
+                            last_rect = Some(rect);
                         }
+                        let mark = crate::view::inoink::highlight_mark::Mark { style: annot.style, color: annot.color, noted: !annot.note.is_empty() };
+                        crate::view::inoink::highlight_mark::draw(fb, &rects, &region_rect, mark, colour);
                     }
                 }
 

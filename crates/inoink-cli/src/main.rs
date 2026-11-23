@@ -39,9 +39,10 @@ const USAGE: &str = "inoink-cli <command>
       Build deterministic offline sample data (articles, images, tables, code).
   verify-cache --data DIR [--account ID]
       Check published content versions and images.
-  highlights --data DIR [--account ID] [--format markdown|json]
+  highlights --data DIR [--account ID] [--format markdown|html|json]
       Print the highlights made on the Kobo (DIR is the Kobo's .adds/inoink/data or a copy).
-      json uses Readwise's highlight fields; nothing is sent anywhere.
+      html draws each in its style and colour; json uses Readwise's highlight fields; nothing
+      is sent anywhere. The Kobo can also export them itself, to .adds/inoink/exports.
   acceptance --live --credentials FILE [--yes]
       Read-only checks against a real account (shows what it will request first).
 ";
@@ -499,6 +500,8 @@ fn fixtures(args: &[String]) -> Result<()> {
                 created: 1_800_000_000,
                 modified: 1_800_000_000,
                 deleted: false,
+                style: inoink::highlight::HighlightStyle::Shaded,
+                color: inoink::highlight::HighlightColor::Gray,
             })?;
         }
     }
@@ -510,8 +513,8 @@ fn fixtures(args: &[String]) -> Result<()> {
 fn highlights(args: &[String]) -> Result<()> {
     let data = PathBuf::from(arg(args, "--data").ok_or_else(|| Error::InvalidRequest("--data is required".into()))?);
     let format = arg(args, "--format").unwrap_or_else(|| "markdown".into());
-    if format != "markdown" && format != "json" {
-        return Err(Error::InvalidRequest("--format must be markdown or json".into()));
+    if !matches!(format.as_str(), "markdown" | "html" | "json") {
+        return Err(Error::InvalidRequest("--format must be markdown, html or json".into()));
     }
     let db = if data.join("inoink.db").exists() { data.join("inoink.db") } else { data.join("db.sqlite") };
     let account = match arg(args, "--account") {
@@ -536,6 +539,8 @@ fn highlights(args: &[String]) -> Result<()> {
     let list = Store::open(&db, &account)?.highlight_exports()?;
     if format == "json" {
         println!("{}", serde_json::to_string_pretty(&inoink::highlight::to_readwise_json(&list)).unwrap_or_default());
+    } else if format == "html" {
+        print!("{}", inoink::highlight::to_html(&list, inoink::util::now_secs()));
     } else {
         print!("{}", inoink::highlight::to_markdown(&list));
     }

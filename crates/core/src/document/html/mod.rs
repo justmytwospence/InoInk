@@ -308,8 +308,10 @@ impl Document for HtmlDocument {
         Some((index, self.pages.len()))
     }
 
+    /// The headings (`h1` to `h4`), nested by level: articles have no other table of contents.
     fn toc(&mut self) -> Option<Vec<TocEntry>> {
-        None
+        let toc = heading_toc(self.content.root());
+        (!toc.is_empty()).then_some(toc)
     }
 
     fn chapter<'a>(&mut self, _offset: usize, _toc: &'a [TocEntry]) -> Option<(&'a TocEntry, f32)> {
@@ -508,4 +510,37 @@ impl Document for HtmlDocument {
     fn has_synthetic_page_numbers(&self) -> bool {
         true
     }
+}
+
+/// The headings under `root` as a table of contents, nested by level. Each entry points at the
+/// heading's first text, so a heading that starts a page resolves to that page.
+pub fn heading_toc(root: NodeRef) -> Vec<TocEntry> {
+    let mut flat: Vec<(u8, String, usize)> = Vec::new();
+    for node in root.descendants() {
+        let level = match node.tag_name() {
+            Some("h1") => 1,
+            Some("h2") => 2,
+            Some("h3") => 3,
+            Some("h4") => 4,
+            _ => continue,
+        };
+        let title = decode_entities(&node.text()).split_whitespace().collect::<Vec<_>>().join(" ");
+        if title.is_empty() {
+            continue;
+        }
+        let offset = node.descendants().find(|d| matches!(d.data(), dom::NodeData::Text(..))).map_or(node.offset(), |d| d.offset());
+        flat.push((level, title, offset));
+    }
+    fn take(flat: &[(u8, String, usize)], pos: &mut usize, parent: u8) -> Vec<TocEntry> {
+        let mut out = Vec::new();
+        while *pos < flat.len() && flat[*pos].0 > parent {
+            let (level, ref title, offset) = flat[*pos];
+            let index = *pos;
+            *pos += 1;
+            let children = take(flat, pos, level);
+            out.push(TocEntry { title: title.clone(), location: Location::Exact(offset), index, children });
+        }
+        out
+    }
+    take(&flat, &mut 0, 0)
 }

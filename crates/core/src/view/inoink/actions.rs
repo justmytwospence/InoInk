@@ -97,6 +97,10 @@ pub enum InoInkEntry {
     SubscribeUrl(String),
     /// Show the open article's address as a QR code.
     QrArticle,
+    /// The open article's headings, to jump to one.
+    Contents,
+    /// Write every highlight to a file in `.adds/inoink/exports`.
+    ExportHighlights(inoink::highlight::ExportFormat),
     /// Send a link (address, title) to Karakeep.
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
@@ -368,6 +372,34 @@ pub fn release_article(context: &mut Context, id: ArticleId, version: i64) {
     if let Some(store) = context.inoink.store_mut() {
         let _ = store.release_lease(id, version);
     }
+}
+
+/// Where the device writes highlight exports: `exports` beside the data directory, so
+/// `.adds/inoink/exports` on the Kobo.
+pub fn exports_dir(context: &Context) -> PathBuf {
+    let data = &context.inoink.data_dir;
+    data.parent().map_or_else(|| data.join("exports"), |p| p.join("exports"))
+}
+
+/// Writes every highlight made on the device to a new file in [`exports_dir`] and says where.
+pub fn export_highlights(context: &Context, format: inoink::highlight::ExportFormat) -> Result<String, String> {
+    let store = context.inoink.store().ok_or("The database is not available while USB storage is shared")?;
+    let list = store.highlight_exports().map_err(|e| format!("Could not read the highlights: {e}"))?;
+    if list.is_empty() {
+        return Err("No highlights to export yet".to_string());
+    }
+    let now = inoink::util::now_secs();
+    let dir = exports_dir(context);
+    let name = format.file_name(now);
+    let write = || -> std::io::Result<()> {
+        std::fs::create_dir_all(&dir)?;
+        let tmp = dir.join(format!(".{name}.tmp"));
+        std::fs::write(&tmp, format.render(&list, now))?;
+        std::fs::rename(&tmp, dir.join(&name))
+    };
+    write().map_err(|e| format!("Could not export the highlights: {e}"))?;
+    let n = list.len();
+    Ok(format!("Exported {n} highlight{} to exports/{name}", if n == 1 { "" } else { "s" }))
 }
 
 /// Queues a link for Karakeep. It is sent as soon as the network allows.

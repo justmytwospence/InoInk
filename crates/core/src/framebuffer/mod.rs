@@ -36,6 +36,9 @@ pub trait Framebuffer {
     fn set_blended_pixel(&mut self, x: u32, y: u32, color: Color, alpha: f32);
     fn invert_region(&mut self, rect: &Rectangle);
     fn shift_region(&mut self, rect: &Rectangle, drift: u8);
+    /// Multiplies every pixel of `rect` by `tint` (a highlighter: white becomes the tint, black
+    /// stays black).
+    fn tint_region(&mut self, rect: &Rectangle, tint: [u8; 3]);
     fn update(&mut self, rect: &Rectangle, mode: UpdateMode) -> Result<u32, Error>;
     fn wait(&self, token: u32) -> Result<i32, Error>;
     fn save(&self, path: &str) -> Result<(), Error>;
