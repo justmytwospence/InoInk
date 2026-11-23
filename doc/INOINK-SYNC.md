@@ -84,7 +84,11 @@ kept. Main menu > Settings > Inoreader API budget shows the server-reported usag
 each zone, when they reset and how many requests the last sync used. Automatic metadata refresh
 and reconciliation run at most every 15 minutes; writes are
 debounced two seconds (ten at most). There is no timer: sync starts on launch, a wake or network
-event, a committed change, or when you ask, so the device is never kept awake.
+event, a committed change, or when you ask, so the device is never kept awake. A sync that comes
+due while the Wi-Fi is off waits for it, or turns it on for the sync (Settings > Sync without
+Wi-Fi). After 3 failed syncs in a row, syncs no longer start on their own until the device wakes
+or you tap sync; pending changes are kept. Details, with every timer and the Wi-Fi rules:
+[INOINK-POWER.md](INOINK-POWER.md).
 
 ## Offline content
 

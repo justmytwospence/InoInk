@@ -176,6 +176,13 @@ says which will happen: Quit, or Quit (the Kobo restarts). To
 restart the interface directly anyway, put `INOINK_RESTART_NICKEL=1` in
 `.adds/inoink/data/config.sh`.
 
+The Wi-Fi setting (Main menu > Settings > Sync without Wi-Fi) decides whether InoInk touches the
+chip on its own. With **Wait for Wi-Fi** (the default) it never does: start with the Wi-Fi off
+and leave it off, and quitting is quick. With **Turn on Wi-Fi to sync**, the launch sync turns the
+Wi-Fi on whenever you are signed in, so on these models quitting always restarts the Kobo. If
+you want quick quits on a MediaTek Kobo, keep Wait for Wi-Fi and turn the Wi-Fi on with the top
+bar icon when you want to sync. See [INOINK-POWER.md](INOINK-POWER.md#wi-fi).
+
 ## Update
 
 Run the install command again with the new package. Only `.adds/inoink/releases` and the small
@@ -273,6 +280,11 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   The sync icon shows a dot and turns while a sync runs; the main menu and Main menu > Status show when the last sync was (Synced just now, 5 min ago, 2 h ago, yesterday, then the date, such as Nov 14).
 - InoInk syncs when it starts, wakes or gets a network connection (at most every 15 minutes), and
   sends your changes a few seconds after you make them; there is no timer keeping the Kobo awake.
+  While the Wi-Fi is off, a sync waits for it (Main menu > Settings > Sync without Wi-Fi > Wait for
+  Wi-Fi, the default), or turns it on for the sync and off again afterwards (Turn on Wi-Fi to
+  sync; it only turns off Wi-Fi it turned on itself). After 3 failed syncs in a row InoInk stops
+  syncing on its own until the Kobo wakes or you tap sync. Timers, Wi-Fi rules and storage
+  writes: [INOINK-POWER.md](INOINK-POWER.md).
   A sync with nothing new costs one Inoreader request. Settings > Inoreader API budget shows
   today's reads and writes against the limits Inoreader reports, when they reset and how many
   requests the last sync used.
@@ -339,7 +351,7 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   line is a retryable placeholder.
 - Short messages appear one at a time, centred just below the top bar; a new one replaces the one showing. After **Archive** or a bulk change, the list updates without a message. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
 - Main menu: Follow a feed, Settings (where the previous and next titles show, the
-  [sleep screen](#sleep-screen), offline storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
+  [sleep screen](#sleep-screen), sync without Wi-Fi, offline storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,
   Karakeep) and About.
