@@ -6,7 +6,8 @@ your Inoreader account directly, keeps articles and their images for offline rea
 your changes back when it can. There is no server, browser extension or read-later service in
 between.
 
-Project page with screenshots: <https://justmytwospence.github.io/InoInk/>
+Project page with screenshots, the device list, answers to common questions and an installer that
+runs in Chrome or Edge: <https://justmytwospence.github.io/InoInk/>
 
 InoInk is **not affiliated with Inoreader or Rakuten Kobo**. It uses only Inoreader's documented
 public API and does not try to match the Inoreader website feature for feature; see
@@ -87,7 +88,9 @@ but it is built to run on every device that runs Kobo firmware 4.6 or newer, inc
 Other e-readers (Kindle, PocketBook, reMarkable, Android) are not supported: each would need its
 own port. Reports from other devices are very welcome: open a **Device report** issue (the log
 line `device:` in `.adds/inoink/data/inoink.log` and Main menu > Status > Device say what you have).
-[doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how.
+[doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) says what has been checked, and how. The
+project page's device list and installer use the same groups (`site/kobo.js`; a test keeps the two
+in step).
 
 InoInk only touches its own folder on the Kobo (`.adds/inoink`) and, if you use NickelMenu, one
 menu file (`.adds/nm/inoink`). Your books, settings and Kobo account are left alone. While it
@@ -110,27 +113,36 @@ runs, the normal Kobo interface is stopped; it comes back when you quit.
    Save, and keep the **App ID** and **App key** it shows at hand. If New application is greyed
    out, your account already has an application: you can use that one instead (InoInk then shares
    its daily request budget), with its own redirect URI in step 4 below.
-4. A computer (macOS or Linux) for installing and signing in.
+4. A computer: Chrome or Edge to install from the project page (or macOS or Linux for the install
+   script), and macOS or Linux for signing in.
 
 ## Install
 
 Download from the [latest release](https://github.com/justmytwospence/InoInk/releases/latest):
 
 - `inoink-<version>-kobo.tar.gz`: the app
-- `install-inoink.sh`: the installer
+- `install-inoink.sh`: the installer (not needed with the browser installer)
 - `inoink-cli-<platform>`: the sign-in helper (or build it yourself, below)
 
 Then:
 
 1. Connect the Kobo by USB and tap **Connect** on the Kobo.
-2. Install, with the menu entry:
+2. Install, with the menu entry, in one of two ways:
 
-   ```sh
-   sh install-inoink.sh inoink-<version>-kobo.tar.gz /Volumes/KOBOeReader --menu
-   ```
+   - **In Chrome or Edge:** on the [project page](https://justmytwospence.github.io/InoInk/#installer),
+     choose **Install or remove on Kobo**, then the KOBOeReader drive. The page shows your model,
+     firmware and what is installed, checks the package against the checksum GitHub publishes,
+     and writes the same files as the script. GitHub does not let pages download release files
+     themselves, so the page asks you to download the package and choose it. Without NickelMenu,
+     install it first with [KoboPatch Web UI](https://kp.nicoverbruggen.be).
+   - **With the script** (macOS or Linux):
 
-   Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,
-   ejects the Kobo when it is done.
+     ```sh
+     sh install-inoink.sh inoink-<version>-kobo.tar.gz /Volumes/KOBOeReader --menu
+     ```
+
+     Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,
+     ejects the Kobo when it is done.
 3. Unplug the Kobo, open the NickelMenu and choose **InoInk**. The first start creates the Kobo's
    own encryption key and shows "Sign in required". Quit InoInk from its main menu (≡, Quit).
 4. Connect the Kobo again (tap **Connect**) and sign in on the computer:
@@ -148,7 +160,9 @@ Then:
    verify..."). It asks for your App key at a hidden prompt, opens Inoreader in your browser for
    you to approve, and writes the sign-in to the Kobo **encrypted to that Kobo's key**. If you
    used an existing application whose redirect URI is not `localhost`, pass that URI instead;
-   after approving, paste the address your browser ends on into the terminal.
+   after approving, paste the address your browser ends on into the terminal. Signing in cannot
+   move to the project page: Inoreader's token endpoint sends no CORS headers, so a page cannot
+   read its answer without a server in between that would see your App key and tokens.
 5. Eject the Kobo and open InoInk again. It picks up the sign-in, connects using the Kobo's
    saved Wi-Fi network, and syncs.
 
@@ -168,9 +182,11 @@ Then:
   and always quit before plugging the Kobo into a computer.
 
 To update, run step 2 again with the new package. Your data, sign-in and settings are kept, and
-the previous version stays installed for rollback. To remove InoInk, run
-`scripts/remove-inoink.sh /Volumes/KOBOeReader` from this repository (add `--purge-data` to
-delete the cache and sign-in too).
+the previous version stays installed for rollback. To remove InoInk, use **Remove InoInk** in the
+browser installer, or run `scripts/remove-inoink.sh /Volumes/KOBOeReader` from this repository.
+Both keep your data by default; `--reset-settings` (Reset settings) also deletes the settings,
+and `--purge-data` (Delete everything) deletes the whole `.adds/inoink` folder, sign-in and
+highlights included.
 
 More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md).
 

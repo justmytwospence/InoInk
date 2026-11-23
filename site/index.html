@@ -9,6 +9,7 @@
 <meta property="og:description" content="Your Inoreader feeds on e-ink. Offline first, no server in between, highlights and notes included.">
 <meta property="og:image" content="shots/06-article.webp">
 <link rel="stylesheet" href="style.css">
+<script type="module" src="page.js"></script>
 </head>
 <body>
 
@@ -19,6 +20,8 @@
       <a href="#features">Features</a>
       <a href="#screens">Screens</a>
       <a href="#install">Install</a>
+      <a href="#devices">Devices</a>
+      <a href="#faq">FAQ</a>
       <a href="https://github.com/justmytwospence/InoInk">GitHub</a>
     </span>
   </nav>
@@ -29,8 +32,8 @@
         newsfeed, save what matters, and read it later in proper book typography, offline, away
         from the browser tabs.</p>
       <p class="cta">
-        <a class="button" href="https://github.com/justmytwospence/InoInk/releases/latest">Download the latest release</a>
-        <a class="button ghost" href="https://github.com/justmytwospence/InoInk#readme">Read the docs</a>
+        <a class="button" href="#installer">Install or remove on Kobo</a>
+        <a class="button ghost" href="https://github.com/justmytwospence/InoInk/releases/latest">Latest release</a>
       </p>
       <p class="fine">Free and open source (AGPL). Unofficial: not affiliated with Inoreader or Rakuten Kobo.</p>
     </div>
@@ -128,14 +131,16 @@
     <div>
       <h3>You need</h3>
       <ul>
-        <li>A <strong>Kobo</strong> or a Tolino on Kobo firmware (developed on a Libra Colour, firmware 4.46.23852), ideally with
+        <li>A <strong>Kobo</strong> or a Tolino on Kobo firmware 4.6 or newer (developed on a Libra Colour,
+          firmware 4.46.23852; see <a href="#devices">devices</a>), ideally with
           <a href="https://pgaskin.net/NickelMenu/">NickelMenu</a> for a launcher entry.</li>
         <li>An <strong>Inoreader plan with API access</strong> and your own app registration:
           in <a href="https://www.inoreader.com/preferences/other">Preferences &gt; Developer API</a>,
           click New application, choose Platform Other, Redirect URI
           <code>http://localhost:8080/callback</code> and scope Read and write, and note the App ID
           and App key.</li>
-        <li>A Mac or Linux computer for installing and signing in.</li>
+        <li>A computer: <strong>Chrome or Edge</strong> installs from this page (or a Mac or Linux
+          computer runs the install script), and a <strong>Mac or Linux</strong> computer signs in.</li>
       </ul>
       <h3>First five minutes</h3>
       <ul>
@@ -151,25 +156,240 @@
     <div>
       <h3>Install</h3>
       <ol>
-        <li>Download the Kobo package, <code>install-inoink.sh</code> and <code>inoink-cli</code> from the
-          <a href="https://github.com/justmytwospence/InoInk/releases/latest">latest release</a>.</li>
-        <li>Connect the Kobo by USB and run<br>
+        <li>Connect the Kobo by USB, tap <strong>Connect</strong> on it, and install InoInk with the
+          <a href="#installer">installer below</a> in Chrome or Edge.
+          In another browser, download the Kobo package and <code>install-inoink.sh</code> from the
+          <a href="https://github.com/justmytwospence/InoInk/releases/latest">latest release</a> and run<br>
           <code>sh install-inoink.sh inoink-&lt;version&gt;-kobo.tar.gz /Volumes/KOBOeReader --menu</code></li>
         <li>Eject, open InoInk once from NickelMenu (it creates its own key and asks you to sign in),
           then quit it from its main menu.</li>
-        <li>Connect the Kobo again and sign in from the computer. On a Mac, first run
+        <li>Connect the Kobo again and sign in from the computer with <code>inoink-cli</code> from the
+          same release. On a Mac, first run
           <code>chmod +x inoink-cli-macos-arm64</code> and
           <code>xattr -d com.apple.quarantine inoink-cli-macos-arm64</code> (the helper is not signed
           by Apple), then<br>
           <code>./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader</code><br>
           It asks for your App key and opens Inoreader in your browser to approve.
-          It then offers to set up Karakeep too (press Enter to skip).</li>
+          It then offers to set up Karakeep too (press Enter to skip).
+          <a href="#faq-signin">Why not on this page?</a></li>
         <li>Eject and open InoInk again. It syncs, and you are reading.</li>
       </ol>
       <p>The <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-SETUP.md">setup guide</a>
         covers every step, updates and removal.</p>
     </div>
   </div>
+
+  <div id="installer" class="installer" aria-live="polite">
+    <h3>Install or remove on Kobo</h3>
+
+    <div data-step="intro">
+      <p>This page copies InoInk to your Kobo, updates it, or removes it, right in your browser:
+        nothing from your Kobo is uploaded, and the only download is the InoInk release from GitHub.</p>
+      <ol class="steps">
+        <li>If InoInk is open on the Kobo, quit it from its main menu.</li>
+        <li>Connect the Kobo by USB and tap <strong>Connect</strong> on it.</li>
+        <li>Choose the drive named <strong>KOBOeReader</strong> and allow the page to edit it.</li>
+      </ol>
+      <p class="actions"><button type="button" class="button" data-action="pick">Choose your Kobo</button></p>
+      <p class="warn" data-show="unsupported" hidden>This browser cannot write to a USB drive from a web page.
+        Use <strong>Chrome or Edge on a computer</strong>, or install with <code>install-inoink.sh</code>
+        as described above.</p>
+      <p class="warn" data-show="pick-error" hidden></p>
+    </div>
+
+    <div data-step="device" hidden>
+      <dl class="facts">
+        <dt>Device</dt><dd><span data-field="model"></span> <span class="pill" data-field="model-status"></span></dd>
+        <dt>Firmware</dt><dd><span data-field="firmware"></span> <span class="pill" data-field="firmware-status"></span></dd>
+        <dt>InoInk</dt><dd data-field="installed"></dd>
+        <dt>Latest release</dt><dd data-field="latest">Checking GitHub...</dd>
+        <dt>NickelMenu</dt><dd data-field="nickelmenu"></dd>
+      </dl>
+      <p class="note-box" data-field="device-note" hidden></p>
+      <p class="note-box" data-show="no-nickelmenu" hidden>NickelMenu is not installed, so InoInk gets no
+        menu entry. <a href="https://kp.nicoverbruggen.be">KoboPatch Web UI</a> installs NickelMenu from your
+        browser; install it first, or start <code>.adds/inoink/current/inoink.sh</code> with another launcher.</p>
+      <label class="check" data-show="menu-option"><input type="checkbox" data-field="menu" checked> Add InoInk to NickelMenu</label>
+      <p class="actions">
+        <button type="button" class="button" data-action="install" disabled>Install InoInk</button>
+        <button type="button" class="button ghost" data-action="remove" hidden>Remove InoInk</button>
+        <button type="button" class="button ghost" data-action="restart">Choose another drive</button>
+      </p>
+    </div>
+
+    <div data-step="package" hidden>
+      <p>GitHub does not let web pages download release files directly, so download the package yourself,
+        then choose it here. The page checks it against the checksum GitHub publishes before copying it.</p>
+      <ol class="steps">
+        <li><a class="button ghost" data-field="download" href="https://github.com/justmytwospence/InoInk/releases/latest">Download the package</a></li>
+        <li><label class="button" for="package-file">Choose the downloaded file</label>
+          <input id="package-file" type="file" accept=".gz,.tgz,application/gzip" data-field="file" hidden></li>
+      </ol>
+      <p class="actions"><button type="button" class="button ghost" data-action="back">Back</button></p>
+    </div>
+
+    <div data-step="working" hidden>
+      <p><strong data-field="working-title"></strong></p>
+      <progress data-field="progress" max="1"></progress>
+      <p class="fine" data-field="working-detail">Keep the Kobo connected.</p>
+    </div>
+
+    <div data-step="remove" hidden>
+      <p>InoInk and its menu entry are removed. What should happen to its data on the Kobo?</p>
+      <div class="choices">
+        <label><input type="radio" name="remove-level" value="keep" checked>
+          <span><strong>Keep my data</strong><br>Your sign-in, articles, highlights and settings stay in
+          <code>.adds/inoink/data</code>, ready if you install InoInk again.</span></label>
+        <label><input type="radio" name="remove-level" value="settings">
+          <span><strong>Reset settings</strong><br>Also deletes the settings (text, sorting and other
+          preferences); your sign-in, articles and highlights stay.</span></label>
+        <label><input type="radio" name="remove-level" value="all">
+          <span><strong>Delete everything</strong><br>Deletes <code>.adds/inoink</code> completely: sign-in,
+          downloaded articles, settings, and highlights and notes made on the Kobo, which exist nowhere
+          else (export them first with <code>inoink-cli highlights</code>).</span></label>
+      </div>
+      <p class="actions">
+        <button type="button" class="button" data-action="remove-confirm">Remove InoInk</button>
+        <button type="button" class="button ghost" data-action="back">Cancel</button>
+      </p>
+    </div>
+
+    <div data-step="done" hidden>
+      <p><strong data-field="done-title"></strong></p>
+      <p data-field="done-message"></p>
+      <p class="actions"><button type="button" class="button ghost" data-action="restart">Done</button></p>
+    </div>
+
+    <div data-step="error" hidden>
+      <p class="warn" data-field="error-message"></p>
+      <p class="fine">Nothing was changed unless the message says otherwise. The <a href="#faq-wrong">FAQ</a>
+        covers what to do when something goes wrong.</p>
+      <p class="actions"><button type="button" class="button ghost" data-action="restart">Start again</button></p>
+    </div>
+  </div>
+</section>
+
+<section id="devices" class="devices">
+  <h2>Devices</h2>
+  <p class="note">InoInk runs on Kobo firmware 4.6 or newer, on Kobos and Tolinos. It has been tried on one
+    Libra Colour; the installer above tells you which group yours is in.</p>
+  <div class="device-groups" data-field="device-list">
+    <noscript><p>The list needs JavaScript; the
+      <a href="https://github.com/justmytwospence/InoInk#status">README</a> has it too.</p></noscript>
+  </div>
+  <p class="center"><button type="button" class="button ghost" data-action="all-devices" hidden>Show all devices</button></p>
+  <p class="note">Firmware 5 and later is experimental: official NickelMenu does not run on it, so start
+    <code>.adds/inoink/current/inoink.sh</code> another way. Tried InoInk on another model?
+    <a href="https://github.com/justmytwospence/InoInk/issues/new?template=device-report.md">Send a device report</a>.</p>
+</section>
+
+<section id="faq" class="faq">
+  <h2>Questions</h2>
+
+  <h3>Installing</h3>
+  <details>
+    <summary>Which browsers can install from this page?</summary>
+    <p>Chrome and Edge on a computer: they let a page write to a drive you choose. Safari, Firefox and
+      phones cannot, so use <code>install-inoink.sh</code> on a Mac or Linux
+      computer instead; it writes the same files.</p>
+  </details>
+  <details id="faq-signin">
+    <summary>Why do I still sign in with <code>inoink-cli</code>?</summary>
+    <p>Signing in ends with a request to Inoreader's token endpoint, and Inoreader does not let web pages read
+      its answer (it sends no CORS headers; checked in November 2026). A page could only sign in through a
+      server in between, which would see your App key and tokens, and InoInk has no server. So
+      <code>inoink-cli authorize</code> signs in on your computer and writes the sign-in to the Kobo
+      encrypted to the Kobo's own key.</p>
+  </details>
+  <details>
+    <summary>Do I need NickelMenu?</summary>
+    <p>It adds InoInk to the Kobo's menu, which is how you start it. <a href="https://kp.nicoverbruggen.be">KoboPatch
+      Web UI</a> installs NickelMenu from your browser. Without it, start
+      <code>.adds/inoink/current/inoink.sh</code> with any other script launcher.</p>
+  </details>
+  <details>
+    <summary>What does the page do with my Kobo?</summary>
+    <p>It reads <code>.kobo/version</code> (model and firmware) and InoInk's own folder, and writes only
+      <code>.adds/inoink</code> and the menu entry <code>.adds/nm/inoink</code>: the package as
+      <code>INSTALL.TGZ</code>, its checksum, and a small launcher. The Kobo unpacks the package itself the
+      next time InoInk starts. Nothing is uploaded; the page only asks GitHub for the release.</p>
+  </details>
+
+  <h3>Updates and firmware</h3>
+  <details>
+    <summary>How do I update InoInk?</summary>
+    <p>Connect the Kobo and use the installer again: it shows the version on the Kobo and the latest release.
+      Your sign-in, articles and settings are kept, and the previous version stays installed so you can go
+      back to it.</p>
+  </details>
+  <details>
+    <summary>What happens when the Kobo updates its firmware?</summary>
+    <p>InoInk changes no system files: it lives in <code>.adds/inoink</code>, which firmware updates leave in
+      place, so InoInk and your data are expected to stay, and NickelMenu says it persists between firmware
+      upgrades. This has not yet been checked on a device across an update. A move to firmware 5 or later is
+      different: InoInk is experimental there and official NickelMenu does not run, so the menu entry may
+      be gone.</p>
+  </details>
+
+  <h3>Removing</h3>
+  <details>
+    <summary>How do I remove InoInk?</summary>
+    <p>Choose your Kobo in the installer, then <strong>Remove InoInk</strong>. Keep my data removes the app
+      and its menu entry and keeps <code>.adds/inoink/data</code>; Reset settings also deletes the settings;
+      Delete everything removes <code>.adds/inoink</code> completely. Highlights and notes made on the Kobo
+      exist only there: export them first with <code>inoink-cli highlights</code>. From a terminal,
+      <code>scripts/remove-inoink.sh</code> does the same (<code>--reset-settings</code>,
+      <code>--purge-data</code>). To cancel the sign-in itself, delete the application in Inoreader's
+      Preferences &gt; Developer API.</p>
+  </details>
+
+  <h3 id="faq-wrong">When something goes wrong</h3>
+  <details>
+    <summary>The page cannot open my Kobo</summary>
+    <p>Tap <strong>Connect</strong> on the Kobo first, then choose the drive itself (KOBOeReader), not a folder
+      on it. On a Mac, Chrome may need access to removable volumes in System Settings &gt; Privacy &amp;
+      Security &gt; Files and Folders.</p>
+  </details>
+  <details>
+    <summary>InoInk does not start, or the update did not happen</summary>
+    <p>The Kobo checks the package before it installs it and leaves it alone when it is damaged. Look in
+      <code>.adds/inoink/data/inoink.log</code>: "installed release" means it worked, "update not installed"
+      says why not. Install again, and always eject the Kobo before unplugging it.</p>
+  </details>
+  <details>
+    <summary>How do I go back to the previous version?</summary>
+    <p>Write the name in <code>.adds/inoink/previous-release</code> into
+      <code>.adds/inoink/active-release</code>, or install an older package from the
+      <a href="https://github.com/justmytwospence/InoInk/releases">releases</a> with the installer.</p>
+  </details>
+  <details>
+    <summary>Where do I report a problem?</summary>
+    <p><a href="https://github.com/justmytwospence/InoInk/issues">Open an issue</a> with your model, firmware,
+      InoInk version (Main menu &gt; Status) and the relevant lines of <code>inoink.log</code>. Never post
+      <code>credentials.json</code> or your App key.</p>
+  </details>
+
+  <h3>Your data</h3>
+  <details>
+    <summary>What does InoInk keep on the Kobo?</summary>
+    <p>Everything is in <code>.adds/inoink/data</code>: the database (article states, changes waiting to be
+      sent, highlights and notes), downloaded articles and images, settings, the sign-in
+      (<code>credentials.json</code>, with your App key and tokens), the Kobo's own key, the Karakeep setup
+      and a log. The Kobo's storage has no file permissions, so anyone with the device can read them: use an
+      app registration you can revoke.</p>
+  </details>
+  <details>
+    <summary>What else does it touch?</summary>
+    <p>Only the menu entry <code>.adds/nm/inoink</code>. Your books, library, Kobo account and settings are
+      left alone. While it runs, InoInk stops the Kobo interface and brings it back when you quit (on
+      MediaTek models, by restarting the Kobo if the Wi-Fi was used).</p>
+  </details>
+  <details>
+    <summary>Who does it talk to?</summary>
+    <p>Inoreader's API, the websites of the articles you read (for full text and images), Hacker News and
+      Lobsters for discussions, and your Karakeep if you set it up. There is no InoInk server and no
+      analytics.</p>
+  </details>
 </section>
 
 <section class="honest">
