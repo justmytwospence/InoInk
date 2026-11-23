@@ -76,7 +76,7 @@ public API and does not try to match the Inoreader website feature for feature; 
 Early and unofficial. It is developed and tested on one Kobo Libra Colour on firmware 4.46.23852,
 but it is built to run on every device that runs Kobo firmware 4.6 or newer, including Tolinos:
 
-- **Tested:** Kobo Libra Colour.
+- **Tested:** Kobo Libra Colour on firmware 4.46.23852.
 - **Expected to work, not yet tested** (Linux 4.x and newer, the same code paths): Clara Colour,
   Clara BW, Elipsa 2E, Clara 2E, Libra 2, Sage, Elipsa, Nia, Libra H₂O, Forma, Clara HD,
   Aura H₂O Edition 2 (revision 2), Aura Edition 2 (revision 2), and the Tolino Vision Color,
@@ -85,9 +85,17 @@ but it is built to run on every device that runs Kobo firmware 4.6 or newer, inc
   start): Aura ONE, Glo HD, Touch 2.0, Aura Edition 2 (revision 1), Aura H₂O Edition 2
   (revision 1), Aura H₂O, Aura, Aura HD, Glo, Mini and Touch A/B/C. Main menu > Status says
   "(experimental)" on these.
-- **Firmware 5.x:** experimental. Official NickelMenu does not run on it (a community build is in
-  testing), so the launcher entry may be missing; without NickelMenu, start
-  `.adds/inoink/current/inoink.sh` with any script launcher.
+- **Firmware 5.x and newer:** experimental. Official NickelMenu does not run on it (a community
+  build is in testing), and a firmware update there removes NickelMenu, so the launcher entry may
+  be missing; without NickelMenu, start `.adds/inoink/current/inoink.sh` with any script
+  launcher. [After a Kobo firmware update](doc/INOINK-SETUP.md#after-a-kobo-firmware-update)
+  says how to get the entry back (NickelModManager can restore it for you).
+
+InoInk checks itself when it starts. On a model or firmware that is not listed as tested, it
+shows a page once naming them and asking for a Device report; it never refuses to start. If its
+own files are damaged, it starts the previous version instead, or leaves the Kobo interface
+running and shows "InoInk can't start" with what to do (reinstall); see
+[Start-up check](doc/INOINK-SETUP.md#start-up-check).
 
 Other e-readers (Kindle, PocketBook, reMarkable, Android) are not supported: each would need its
 own port. Reports from other devices are very welcome: open a **Device report** issue (the log
@@ -186,7 +194,8 @@ Then:
   and always quit before plugging the Kobo into a computer.
 
 To update, run step 2 again with the new package. Your data, sign-in and settings are kept, and
-the previous version stays installed for rollback. To remove InoInk, use **Remove InoInk** in the
+the previous version stays installed for rollback. Installing also brings an existing menu entry up
+to date. To remove InoInk, use **Remove InoInk** in the
 browser installer, or run `scripts/remove-inoink.sh /Volumes/KOBOeReader` from this repository.
 Both keep your data by default; `--reset-settings` (Reset settings) also deletes the settings,
 and `--purge-data` (Delete everything) deletes the whole `.adds/inoink` folder, sign-in and

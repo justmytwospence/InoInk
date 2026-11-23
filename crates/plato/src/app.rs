@@ -40,6 +40,7 @@ use plato_core::view::dialog::Dialog;
 use plato_core::view::intermission::Intermission;
 use plato_core::view::notification::show_notification;
 use plato_core::device::{CURRENT_DEVICE, Orientation, FrontlightKind};
+use plato_core::startup_check;
 use plato_core::font::Fonts;
 use plato_core::rtc::Rtc;
 use plato_core::context::Context;
@@ -448,6 +449,16 @@ pub fn run() -> Result<(), Error> {
                                                         context.fb.rect().height());
 
     let mut bus = VecDeque::with_capacity(4);
+
+    // Start-up self-check: a one-time page on an untested model or firmware, and the launcher's
+    // note when it started the previous release because the active one is damaged.
+    if let Some(html) = startup_check::device_notice(&context.settings.inoink.data_dir) {
+        tx.send(Event::OpenHtml(html, None)).ok();
+    }
+    if let Some(note) = startup_check::launcher_notice() {
+        eprintln!("launcher: {note}");
+        show_notification(view.as_mut(), note, &tx, &mut rq, &mut context);
+    }
 
     schedule_task(TaskId::CheckBattery, Event::CheckBattery,
                   BATTERY_REFRESH_INTERVAL, &tx, &mut tasks);

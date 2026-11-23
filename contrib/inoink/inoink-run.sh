@@ -187,7 +187,10 @@ find . -iname 'FSCK*' -exec echo "warning: disk check leftover {}" \; >> "$LOG" 
 LIBC_FATAL_STDERR_=1 ./inoink >> "$LOG" 2>&1
 STATUS=$?
 if [ "$STATUS" = 127 ]; then
-	# The program could not be loaded: record why.
+	# The program could not be loaded: record why, and mark this release so that the next launch
+	# falls back to the previous one, or explains in NickelMenu instead of stopping the Kobo
+	# interface again (see inoink-dispatch.sh). Reinstalling the release clears the mark.
+	date > LOADFAIL
 	{
 		echo "--- loader failure; LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
 		ls -la libs

@@ -14,7 +14,9 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
 - Never log or commit credentials (tokens, client secret, callback URLs). Secrets are never
   accepted on a command line.
 - Other models are supported on a best-effort basis: never claim a model works without a device
-  report; keep the compatibility list in README.md current.
+  report; keep the compatibility list in README.md current. Tested model and firmware pairs live
+  in `TESTED` (`crates/inoink/src/device_check.rs`), which drives the app's untested-device
+  notice; a test fails unless README > Status names exactly those.
 - Hardware claims need hardware evidence. Emulator and automated results are reported separately
   (`doc/INOINK-ACCEPTANCE.md`); unperformed cases stay NOT RUN.
 

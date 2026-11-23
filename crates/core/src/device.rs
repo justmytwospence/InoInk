@@ -2,6 +2,7 @@ use std::env;
 use std::fmt;
 use lazy_static::lazy_static;
 use crate::input::TouchProto;
+use inoink::device_check::Tier;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Model {
@@ -295,6 +296,17 @@ impl Device {
         self.mark() <= 6
     }
 
+    /// What the start-up device check (`inoink::device_check`) is told about this model.
+    pub fn tier(&self) -> Tier {
+        if self.model == Model::Unknown {
+            Tier::Unknown
+        } else if self.is_experimental() {
+            Tier::Experimental
+        } else {
+            Tier::Expected
+        }
+    }
+
     pub fn has_gyroscope(&self) -> bool {
         matches!(self.model,
                  Model::Forma | Model::Forma32GB | Model::LibraH2O | Model::Elipsa |
@@ -461,7 +473,7 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use super::{Device, Model};
+    use super::{Device, Model, Tier};
 
     #[test]
     fn codenames_and_aliases() {
@@ -480,6 +492,9 @@ mod tests {
         assert!(Device::new("monza", "").has_frontlight());
         assert!(Device::new("alyssum", "").is_experimental());
         assert!(!Device::new("nova", "").is_experimental());
+        assert_eq!(Device::new("alyssum", "").tier(), Tier::Experimental);
+        assert_eq!(Device::new("monza", "").tier(), Tier::Expected);
+        assert_eq!(Device::new("futurebird", "999").tier(), Tier::Unknown);
     }
 
     #[test]

@@ -1,1 +1,3 @@
-menu_item  :main  :InoInk  :cmd_spawn  :quiet:/mnt/onboard/.adds/inoink/current/inoink.sh
+menu_item  :main  :InoInk  :cmd_output  :9000:quiet:/mnt/onboard/.adds/inoink/current/inoink.sh --check
+  chain_success  :cmd_spawn  :quiet:/mnt/onboard/.adds/inoink/current/inoink.sh
+  chain_failure  :cmd_output  :9000:/mnt/onboard/.adds/inoink/current/inoink.sh --why
