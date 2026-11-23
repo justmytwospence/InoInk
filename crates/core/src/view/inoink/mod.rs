@@ -14,6 +14,7 @@ pub mod manage;
 pub mod page_progress;
 pub mod qr_view;
 pub mod row;
+pub mod sleep;
 pub mod state;
 pub mod tab_bar;
 pub mod text_panel;

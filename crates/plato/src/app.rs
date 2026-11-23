@@ -479,7 +479,7 @@ pub fn run() -> Result<(), Error> {
                             resume(TaskId::Suspend, &mut tasks, view.as_mut(), &tx, &mut rq, &mut context);
                         } else {
                             view.handle_event(&Event::Suspend, &tx, &mut bus, &mut rq, &mut context);
-                            let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &context);
+                            let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &mut context);
                             rq.add(RenderData::new(interm.id(), *interm.rect(), UpdateMode::Full));
                             schedule_task(TaskId::PrepareSuspend, Event::PrepareSuspend,
                                           PREPARE_SUSPEND_WAIT_DELAY, &tx, &mut tasks);
@@ -503,7 +503,7 @@ pub fn run() -> Result<(), Error> {
                         }
 
                         view.handle_event(&Event::Suspend, &tx, &mut bus, &mut rq, &mut context);
-                        let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &context);
+                        let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &mut context);
                         rq.add(RenderData::new(interm.id(), *interm.rect(), UpdateMode::Full));
                         schedule_task(TaskId::PrepareSuspend, Event::PrepareSuspend,
                                       PREPARE_SUSPEND_WAIT_DELAY, &tx, &mut tasks);
@@ -787,7 +787,7 @@ pub fn run() -> Result<(), Error> {
                     tx.send(Event::NetworkChanged).ok();
                 }
 
-                let interm = Intermission::new(context.fb.rect(), IntermKind::Share, &context);
+                let interm = Intermission::new(context.fb.rect(), IntermKind::Share, &mut context);
                 rq.add(RenderData::new(interm.id(), *interm.rect(), UpdateMode::Full));
                 view.children_mut().push(Box::new(interm) as Box<dyn View>);
                 tx.send(Event::Share).ok();
@@ -1281,7 +1281,7 @@ pub fn run() -> Result<(), Error> {
                 let seconds = 60.0 * context.settings.auto_suspend;
                 if inactive_since.elapsed() > Duration::from_secs_f32(seconds) {
                     view.handle_event(&Event::Suspend, &tx, &mut bus, &mut rq, &mut context);
-                    let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &context);
+                    let interm = Intermission::new(context.fb.rect(), IntermKind::Suspend, &mut context);
                     rq.add(RenderData::new(interm.id(), *interm.rect(), UpdateMode::Full));
                     schedule_task(TaskId::PrepareSuspend, Event::PrepareSuspend,
                                   PREPARE_SUSPEND_WAIT_DELAY, &tx, &mut tasks);

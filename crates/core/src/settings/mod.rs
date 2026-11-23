@@ -547,6 +547,36 @@ pub struct InoInkSettings {
     pub mark_read_on_open: bool,
     /// Where the previous and next articles are named while reading.
     pub queue_titles: QueueTitles,
+    /// What the screen shows while the Kobo sleeps.
+    pub sleep_screen: SleepScreen,
+}
+
+/// What the screen shows while the Kobo sleeps. Every choice but `Plato` powers off to a dark
+/// status card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SleepScreen {
+    /// Unread and Read later counts, the last sync and the battery, on a plain page.
+    StatusCard,
+    /// The screen as it was (the article or the list), with a small Sleeping label.
+    CurrentPage,
+    /// The current page with a PNG from the screensaver folder drawn over it.
+    Picture,
+    /// Plato's screen: the logo and "Sleeping", or the image set in `intermissions`.
+    Plato,
+}
+
+impl SleepScreen {
+    pub const ALL: [SleepScreen; 4] = [SleepScreen::StatusCard, SleepScreen::CurrentPage, SleepScreen::Picture, SleepScreen::Plato];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SleepScreen::StatusCard => "Status card",
+            SleepScreen::CurrentPage => "Current page",
+            SleepScreen::Picture => "Picture over the page",
+            SleepScreen::Plato => "Logo",
+        }
+    }
 }
 
 /// Where the previous and next articles of the list are named while reading.
@@ -568,6 +598,7 @@ impl Default for InoInkSettings {
             pinned_folders: Vec::new(),
             mark_read_on_open: false,
             queue_titles: QueueTitles::WithBar,
+            sleep_screen: SleepScreen::StatusCard,
         }
     }
 }

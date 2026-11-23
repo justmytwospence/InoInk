@@ -291,8 +291,8 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
 - Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
   line is a retryable placeholder.
 - Short messages appear one at a time, centred just below the top bar; a new one replaces the one showing. After **Archive** or a bulk change, the list updates without a message. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
-- Main menu: Follow a feed, Settings (where the previous and next titles show, offline
-  storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
+- Main menu: Follow a feed, Settings (where the previous and next titles show, the
+  [sleep screen](#sleep-screen), offline storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,
   Inoreader API budget), Manage (rename or move feeds between folders, unfollow, rename or delete folders, keep a
   folder offline, monitoring searches), Status (sync, changes waiting, Inoreader's daily limits,
   Karakeep) and About.
@@ -304,6 +304,37 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   already knows.
 - Quit InoInk before connecting the Kobo to a computer. Suspend stops network work before the
   device sleeps.
+
+## Sleep screen
+
+Main menu > Settings > Sleep screen chooses what the Kobo shows while it sleeps:
+
+- **Status card** (the default): "Sleeping" over a card with the number of unread articles in
+  the Newsfeed and of articles in Read later (the counts in the tabs), when InoInk last synced
+  ("Synced today at 9:41 PM"), changes still waiting to be sent, and the battery.
+- **Current page**: the screen as you left it, an article or the list, with a small "Sleeping"
+  label at the bottom.
+- **Picture over the page**: the current page with one of your pictures over it. Copy PNG files
+  into `.adds/inoink/screensaver` on the Kobo drive (create the folder; it sits next to
+  `.adds/inoink/data`). Each time the Kobo sleeps one is picked at random and scaled to fit the
+  screen without cropping. Transparent parts let the page show through, so a drawing with a
+  transparent background sits on the page, while an opaque picture covers it. Colour pictures
+  keep their colours on colour screens and turn to greys on black-and-white ones. Files over
+  20 MB or wider or taller than 8192 pixels, and files that are not PNGs, are skipped; with none
+  left the page shows on its own. Settings > Sleep screen reminds you of the folder while it is
+  empty.
+- **Logo**: Plato's screen, "Sleeping" with the logo, or the image named under
+  `[intermissions]` in `.adds/inoink/data/Settings.toml`.
+
+Powering off (holding the power button, a nearly empty battery, or the automatic power-off after
+days asleep) shows the status card in white on black with "Powered off", whichever is chosen
+above, except Logo, which keeps Plato's dark "Powered off" screen.
+
+The screens are drawn from what is already on the Kobo: the counts and the time of the last sync
+from its database and the battery level. Going to sleep never turns on the Wi-Fi, downloads or
+writes anything for them. Each screen is shown with a full refresh, which also clears ghosting
+from the page. The choice is saved in `Settings.toml` as
+`sleep-screen` (`status-card`, `current-page`, `picture` or `plato`) under `[inoink]`.
 
 ## Karakeep
 

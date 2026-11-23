@@ -27,6 +27,7 @@ document tests inside the build container, and the install/launcher tests).
 | Highlights: Inoreader offsets (UTF-16) and quote anchoring (hyphenation, repeats, hints, missing text), ids and timestamps, Markdown and Readwise-shaped export | `crates/inoink/tests/highlights.rs` (13) | PASS |
 | Documents and views: rooted resources (incl. symlinks), image hit data, offsets under font/rotation change, defaults, Done/Undo/Mark read, opening does not mark read, failed save, frozen list scope, tags, article swipes, page buttons and footer chevrons, word-boundary truncation, new marks per visit, selection mode, end-of-article popup (state, Up next, swipe on, grace, Back to list), one toast at a time, back by title, running headers (title, thread), left borders across pages | `crates/core/tests/inoink_document.rs` (5), `inoink_views.rs` (68), `font_crop.rs` (2), in the container | PASS |
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
+| Sleep screens: setting default and TOML round trip, Settings > Sleep screen entries and choice, card counts, last sync (this session and after a restart), battery and pending lines, status card and dark power-off drawn, current page left alone with its label, PNG over the page (opaque, transparent, hidden and broken files skipped), Logo keeps Plato's screens, picture scaling with alpha | `crates/core/tests/sleep_screen.rs` (7), `crates/core/src/view/inoink/sleep.rs` (6), in the container | PASS |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (38) |
@@ -217,6 +218,12 @@ that was merged.
 | Inverted page-turn buttons also swap the swipe directions | NOT RUN |
 | Long titles end at a whole word with an ellipsis (lists, bar, end popup); titles with dashes and ampersands show the characters, not `&mdash;`/`&amp;` | NOT RUN |
 | Hacker News links to sites that refused InoInk before (401/403) now download | NOT RUN |
+| Sleep screen Status card (default): the power button and the sleep cover show "Sleeping" with the unread and Read later counts as in the tabs, "Synced today at ..." and the battery level; no Wi-Fi or sync starts for it; waking restores the list or article without ghosting | NOT RUN |
+| Sleep screen Current page: an article page and the list stay as they were with the "Sleeping" label at the bottom, sharp after the full refresh, in portrait and landscape | NOT RUN |
+| Sleep screen Picture over the page: a transparent PNG in `.adds/inoink/screensaver` sits on the page and an opaque one covers it, in colour on the Libra Colour and in greys on a black-and-white Kobo; with the folder empty the page shows alone and Settings > Sleep screen names the folder | NOT RUN |
+| Sleep screen Logo: Plato's "Sleeping" screen, as before | NOT RUN |
+| Power off (hold the power button): the white-on-black "Powered off" card stays on screen after the Kobo is off | NOT RUN |
+| Sleep screens with Invert colors on: the card and pictures are readable and pictures keep their colours | NOT RUN |
 | Teaser feeds open as the full page; Full text Never keeps the teaser | NOT RUN |
 | Footer chevrons with the bar (tap a side opens that article; none at the ends of the list); Always: titles beside the progress line are legible and clear of the text at the default margin | NOT RUN |
 | Tapping a link opens a reading view; holding shows the link menu | NOT RUN |
