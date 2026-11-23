@@ -5,9 +5,10 @@ use crate::geom::Rectangle;
 use crate::font::{Fonts, font_from_style, DISPLAY_STYLE};
 use super::{View, Event, Hub, Bus, Id, ID_FEEDER, RenderQueue};
 use crate::framebuffer::Framebuffer;
-use crate::settings::{IntermKind, LOGO_SPECIAL_PATH, COVER_SPECIAL_PATH};
+use crate::settings::{IntermKind, SleepScreen, LOGO_SPECIAL_PATH, COVER_SPECIAL_PATH};
 use crate::color::{TEXT_NORMAL, TEXT_INVERTED_HARD};
 use crate::context::Context;
+use super::inoink::sleep::{self, Picture, SleepStatus};
 
 pub struct Intermission {
     id: Id,
@@ -21,16 +22,33 @@ pub enum Message {
     Text(String),
     Image(PathBuf),
     Cover(PathBuf),
+    /// InoInk's status card: the state, the counts, the last sync and the battery.
+    Card(String, Box<SleepStatus>),
+    /// The screen left as it was, with an optional picture and a small label over it.
+    Page(Option<Box<Picture>>),
 }
 
 impl Intermission {
-    pub fn new(rect: Rectangle, kind: IntermKind, context: &Context) -> Intermission {
-        let path = &context.settings.intermissions[kind];
-        let message = match path.to_str() {
-            Some(LOGO_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
-            // InoInk has no book covers: the cover setting falls back to the logo text.
-            Some(COVER_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
-            _ => Message::Image(path.clone()),
+    /// The screen for sleeping, powering off or sharing. Sleep and power-off follow Settings >
+    /// Sleep screen; sharing, and the Plato choice, use Plato's `intermissions`.
+    pub fn new(rect: Rectangle, kind: IntermKind, context: &mut Context) -> Intermission {
+        let choice = context.settings.inoink.sleep_screen;
+        let message = match (kind, choice) {
+            (IntermKind::Share, _) | (_, SleepScreen::Plato) => {
+                let path = &context.settings.intermissions[kind];
+                match path.to_str() {
+                    Some(LOGO_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
+                    // InoInk has no book covers: the cover setting falls back to the logo text.
+                    Some(COVER_SPECIAL_PATH) => Message::Text(kind.text().to_string()),
+                    _ => Message::Image(path.clone()),
+                }
+            },
+            // A page left on screen for days says nothing: powering off always shows the card.
+            (IntermKind::PowerOff, _) | (IntermKind::Suspend, SleepScreen::StatusCard) => {
+                Message::Card(kind.text().to_string(), Box::new(SleepStatus::gather(context)))
+            },
+            (IntermKind::Suspend, SleepScreen::CurrentPage) => Message::Page(None),
+            (IntermKind::Suspend, SleepScreen::Picture) => Message::Page(sleep::random_picture(context, &rect).map(Box::new)),
         };
         Intermission {
             id: ID_FEEDER.next(),
@@ -54,12 +72,27 @@ impl View for Intermission {
         true
     }
 
-    fn render(&self, fb: &mut dyn Framebuffer, _rect: Rectangle, fonts: &mut Fonts) {
+    fn render(&self, fb: &mut dyn Framebuffer, rect: Rectangle, fonts: &mut Fonts) {
         let scheme = if self.halt {
             TEXT_INVERTED_HARD
         } else {
             TEXT_NORMAL
         };
+
+        match self.message {
+            Message::Card(ref title, ref status) => {
+                sleep::render_card(fb, fonts, &self.rect, title, status, self.halt);
+                return;
+            },
+            Message::Page(ref picture) => {
+                if let Some(picture) = picture {
+                    sleep::draw_picture(fb, picture, &self.rect, &rect);
+                }
+                sleep::render_label(fb, fonts, &self.rect, IntermKind::Suspend.text());
+                return;
+            },
+            _ => (),
+        }
 
         fb.draw_rectangle(&self.rect, scheme[0]);
 
@@ -133,6 +166,7 @@ impl View for Intermission {
                     }
                 }
             },
+            Message::Card(..) | Message::Page(..) => (),
         }
     }
 

@@ -87,6 +87,8 @@ pub struct InoInk {
     /// The sync worker. `None` when not signed in (the app still reads what is cached).
     pub handle: Option<Handle>,
     pub status: SyncStatus,
+    /// When the last sync finished this session, kept while later ones run or fail.
+    pub last_sync: Option<i64>,
     pub cache: Cache,
     /// The tab shown.
     pub tab: Tab,
@@ -163,6 +165,7 @@ impl InoInk {
             store: Some(store),
             handle: None,
             status: SyncStatus::Idle { last_sync: None },
+            last_sync: None,
             cache,
             tab: Tab::Newsfeed,
             collection: Collection::All,
@@ -399,6 +402,9 @@ impl InoInk {
     pub fn apply(&mut self, u: &Update) -> bool {
         match u {
             Update::Status(s) => {
+                if let SyncStatus::Idle { last_sync: Some(t) } = s {
+                    self.last_sync = Some(*t);
+                }
                 self.status = s.clone();
                 false
             }

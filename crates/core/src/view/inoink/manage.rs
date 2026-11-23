@@ -4,7 +4,7 @@
 use crate::context::Context;
 use crate::device::CURRENT_DEVICE;
 use inoink::store::FullText;
-use crate::settings::{ButtonScheme, QueueTitles, RotationLock};
+use crate::settings::{ButtonScheme, QueueTitles, RotationLock, SleepScreen};
 use crate::view::inoink::actions::{InoInkEntry, SAVE_FAILED};
 use crate::view::{EntryId, EntryKind};
 use inoink::model::*;
@@ -128,6 +128,7 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
             ],
         ),
     ];
+    entries.push(EntryKind::SubMenu("Sleep screen".into(), sleep_screen_entries(context)));
     entries.push(EntryKind::SubMenu(
         "Offline storage".into(),
         [256u64, 512, 1024, 2048].iter().map(|b| EntryKind::RadioButton(format!("{b} MB"), EntryId::InoInk(InoInkEntry::CacheBudget(*b)), s.cache_budget_mb == *b)).collect(),
@@ -161,6 +162,21 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
     }
     entries.push(EntryKind::CheckBox("Invert colors".into(), EntryId::ToggleInverted, context.fb.inverted()));
     entries.push(EntryKind::SubMenu("Inoreader API budget".into(), api_budget_entries(context)));
+    entries
+}
+
+/// Settings > Sleep screen, with where the pictures go until there are some.
+pub fn sleep_screen_entries(context: &Context) -> Vec<EntryKind> {
+    let current = context.settings.inoink.sleep_screen;
+    let mut entries: Vec<EntryKind> = SleepScreen::ALL
+        .iter()
+        .map(|&s| EntryKind::RadioButton(s.label().to_string(), EntryId::InoInk(InoInkEntry::SetSleepScreen(s)), s == current))
+        .collect();
+    let dir = crate::view::inoink::sleep::screensaver_dir(&context.inoink.data_dir);
+    if crate::view::inoink::sleep::pictures(&dir).is_empty() {
+        entries.push(EntryKind::Separator);
+        entries.push(EntryKind::Message("For a picture, put PNG files in .adds/inoink/screensaver".into(), None));
+    }
     entries
 }
 
@@ -311,6 +327,11 @@ pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&st
         }
         InoInkEntry::UnreadDays(d) => {
             context.settings.inoink.recent_unread_days = *d;
+            Ok(None)
+        }
+        InoInkEntry::SetSleepScreen(s) => {
+            context.settings.inoink.sleep_screen = *s;
+            context.inoink.settings.sleep_screen = *s;
             Ok(None)
         }
         InoInkEntry::SetFullText(feed, mode) => {

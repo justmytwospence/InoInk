@@ -63,6 +63,10 @@ public API and does not try to match the Inoreader website feature for feature; 
 - Kobo conveniences: starts with the light and the Wi-Fi state the Kobo was using, a light panel
   (bulb icon) and a slide along the left edge for brightness, page-turn buttons, and a Wi-Fi icon
   in the top bar that is also the Wi-Fi switch.
+- Sleep screens, after [Kobalt](https://kobalt.nicoverbruggen.be)'s: a status card with your
+  unread and Read later counts, when InoInk last synced and the battery (the default); the
+  page you were on, left as it was with a small Sleeping label; that page with a picture of
+  yours over it; or the classic logo. Powering off shows the card in white on black.
 - Tags, likes, broadcast, feed and folder management, and monitoring searches, as far as the
   public API allows.
 
@@ -200,6 +204,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Messages:** short notes appear one at a time, centred below the top bar. Archive and bulk
   changes update the list without one; Main menu > Undo last change reverts them.
 - **USB:** quit InoInk before connecting to a computer.
+- **Sleep screen:** Main menu > Settings > Sleep screen chooses Status card, Current page,
+  Picture over the page or Logo. For pictures, copy PNG files into `.adds/inoink/screensaver`
+  on the Kobo drive: one is picked at random each time, scaled to fit the screen, and
+  transparent parts let the page show through (until there is a PNG there, the page shows on its
+  own). The screen is drawn from what is already on the Kobo: going to sleep never waits for the
+  network. See [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#sleep-screen).
 - **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting after the Wi-Fi was used restarts the Kobo (about half a minute), because restarting
   only the Kobo interface can then crash it. With the Wi-Fi off from start to quit, it returns to
   the Kobo interface directly. The menu says which: Quit, or Quit (the Kobo restarts). See
