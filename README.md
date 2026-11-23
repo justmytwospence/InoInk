@@ -273,6 +273,13 @@ the Release workflow builds release versions.
 the desktop emulator and writes screenshots to `target/inoink-emulator-shots`. Create the sample
 data first with `cargo run -p inoink-cli -- fixtures --output target/inoink-fixtures`.
 
+To review UI changes screen by screen, `scripts/preview-macos.sh --capture` saves the tour's
+screens, and `node scripts/review/review.mjs` turns them into rounds on a local page where notes
+are pinned to places on a screen, with before and after side by side
+([doc/INOINK-SCREEN-REVIEW.md](doc/INOINK-SCREEN-REVIEW.md)). To time a release on a real Kobo
+(page turns, opening the list and articles, memory, a sync with nothing new), see
+[doc/INOINK-BENCHMARKS.md](doc/INOINK-BENCHMARKS.md).
+
 ### Interactive desktop preview (Apple Silicon Mac)
 
 With Homebrew, Rust (see `rust-toolchain.toml`) and Xcode command-line tools installed, run:
@@ -298,6 +305,7 @@ scripts/preview-macos.sh --build-only  # prepare/build without opening a window
 scripts/preview-macos.sh --inoreader   # use a sandbox snapshot of your real articles
 scripts/preview-macos.sh --inoreader --refresh  # replace local experiments with a fresh snapshot
 scripts/preview-macos.sh --live        # your real account, syncing (changes reach Inoreader)
+scripts/preview-macos.sh --capture     # the scripted tour without a window, for screen review
 ```
 
 The Inoreader mode asks for a **dedicated read-only authorization** on first use; a separate
@@ -330,8 +338,8 @@ firmware and build you checked. Testing on other Kobo and Tolino models is espec
 
 Merging is releasing: once CI passes on `main`, the Release workflow publishes the next version
 to everyone. The version follows the pull request title: `feat:` bumps the minor version, a
-breaking change (`feat!:`) the major, anything else the patch, and changes to docs, CI or tests
-alone release nothing. `scripts/version.sh next` shows what merging now would publish. Details:
+breaking change (`feat!:`) the major, anything else the patch, and changes to docs, CI, tests or
+development tools alone release nothing. `scripts/version.sh next` shows what merging now would publish. Details:
 [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#development-and-releases).
 
 ## Documentation
@@ -343,6 +351,8 @@ alone release nothing. `scripts/version.sh next` shows what merging now would pu
 | [doc/INOINK-SYNC.md](doc/INOINK-SYNC.md) | How changes are saved, sent and reconciled |
 | [doc/INOINK-POWER.md](doc/INOINK-POWER.md) | Timers, Wi-Fi rules and storage writes: what costs power |
 | [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) | What was tested: automated, emulator, device |
+| [doc/INOINK-SCREEN-REVIEW.md](doc/INOINK-SCREEN-REVIEW.md) | Reviewing screens: rounds, pinned notes, before and after |
+| [doc/INOINK-BENCHMARKS.md](doc/INOINK-BENCHMARKS.md) | Timing a release on a real Kobo |
 | [doc/UPSTREAM.md](doc/UPSTREAM.md) | Relationship to Plato |
 | [doc/LICENSES.md](doc/LICENSES.md) | Licenses of everything that ships |
 | [doc/plato/](doc/plato/README.md) | Plato's original documentation |
@@ -356,6 +366,8 @@ alone release nothing. `scripts/version.sh next` shows what merging now would pu
   `snapshot` for the desktop preview).
 - `crates/core`, `crates/plato`, `crates/emulator`: Plato's renderer, device layer and app,
   with the InoInk interface in `crates/core/src/view/inoink`.
+- `crates/inoink-bench`: the on-device benchmark (its own Cargo workspace, standard library
+  only); `scripts/review`: the screen review page. Development tools; neither ships.
 
 ## License
 

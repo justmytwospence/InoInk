@@ -43,10 +43,15 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
   content pipeline, cache, sync worker). No UI dependency; testable without hardware.
 - `crates/inoink-cli`: computer-side helper (`authorize`, `karakeep`, `highlights`, `provision`, `fixtures`, `verify-cache`, `acceptance`, and `snapshot-login` / `snapshot` for the desktop preview).
 - `crates/core`, `crates/plato`, `crates/emulator`: inherited renderer, device and app code.
+- `crates/inoink-bench`: on-device benchmark (own Cargo workspace, std only; `doc/INOINK-BENCHMARKS.md`).
+  `scripts/review`: screen review page (Node, no packages; `doc/INOINK-SCREEN-REVIEW.md`). Neither ships.
 
 ## Commands
 
 - `cargo test --locked -p inoink -p inoink-cli`
 - `cargo clippy --locked -p inoink -p inoink-cli --all-targets -- -D warnings`
 - `cargo fmt --all -- --check`
-- `scripts/test-inoink.sh` runs the three above.
+- `scripts/test-inoink.sh` runs the three above, the dev tools' checks (`crates/inoink-bench` with
+  `--manifest-path`, `node --test scripts/review/review.test.mjs`) and the container and package tests.
+- UI changes: `scripts/preview-macos.sh --capture`, then `node scripts/review/review.mjs round` / `serve`
+  / `notes` for a screen review round.

@@ -37,6 +37,9 @@ document tests inside the build container, and the install/launcher tests).
 | Start-up self-check, device side: tested/untested firmware and model, Tolino and unknown models, firmware 5+, one notice per model and firmware, README Status names exactly the tested list, model tiers | `crates/inoink/src/device_check.rs` (4), `crates/core/src/device.rs` (`codenames_and_aliases`) | PASS 2026-11-23 |
 | Inherited Plato unit tests | `crates/core` | PASS (38) |
 | Browser installer: writes the same files as `install-inoink.sh` (compared file for file) and the Kobo's launcher installs them; damaged copy discarded; no launcher entry without NickelMenu; removal at three levels matches `remove-inoink.sh`; `cksum` and SHA-256 match the system tools; tar formats (ustar, pax, GNU long names); unsafe, incomplete and foreign packages refused; `.kobo/version` parsing, firmware limits, device list agrees with the README; release lookup and verification; blocked download reported | `tests/web-installer.test.mjs` (11, Node) | PASS |
+| Screen review tool: rounds and carry-over of verdicts, replies, the queue, Before mappings, the notes output; the server takes feedback for the latest round only, needs JSON from its own origin and refuses other host names | `scripts/review/review.test.mjs` (9), Node.js | PASS 2026-11-23 |
+| Device benchmark tool: touch coordinates against InoInk's device table (every supported model and rotation), input event layout, screen signatures, settings and the shipped `bench.cfg`, the startup log, the report, whole runs against a simulated InoInk (including runs that must stop) | `crates/inoink-bench` (21), macOS and container Linux | PASS 2026-11-23 |
+| `scripts/kobo-bench.sh` copies only short names, keeps edited settings, collects once, refuses to remove uncollected results, never touches InoInk | `tests/kobo-bench.sh` | PASS 2026-11-23 |
 
 ## Build and package (computer only)
 
@@ -108,6 +111,8 @@ cached separately under `target/macos-preview`.
 | Visible window fits; click/hold/drag and B/F navigate; menu Undo works | NOT RUN (human interaction) |
 | Rotation keeps input aligned; S saves a full-resolution screenshot; Escape/window close quits | NOT RUN (human interaction) |
 | Relaunch retains sample changes/settings; `--reset` restores fresh state | NOT RUN (human interaction) |
+| `--capture`: the tour without a window on fresh sample data (or a copy of the snapshot) with default settings; the preview's state untouched; only that device's earlier capture replaced; failures keep it | PASS 2026-11-23: `tests/preview-macos.sh` (macOS and container Linux); a real capture on macOS arm64 saved 19 PNGs at 1264x1680 |
+| Screen review page in a browser: pins, notes, comparison, rounds | See [screen review](#screen-review) |
 
 The native article screenshot was also compared visually with the existing Linux-container
 Libra Colour tour: layout and content match, with no observed clipping or corruption. The native
@@ -130,6 +135,16 @@ occur while downloading, but article and account state must not be changed.
 | Live read-only authorization and snapshot retrieval on macOS | NOT RUN |
 | Mark read, star, Archive and Undo in preview; compare actual Inoreader state | NOT RUN (human interaction) |
 | Relaunch preserves local experiments; refresh replaces them without affecting account | NOT RUN (human interaction) |
+
+### Screen review
+
+[INOINK-SCREEN-REVIEW.md](INOINK-SCREEN-REVIEW.md) shows captured screens one at a time with
+notes pinned to them. Automated checks are listed above.
+
+| Check | Result |
+|---|---|
+| A round from a real capture (19 screens) in headless Chrome, driven by a script: the queue filter on first open, a pin and its note saved to `feedback.json`, Right marks seen, side by side with Before, a newer round turns the page read only with a banner, Open loads it, the changed screen shows the earlier notes and its differences | PASS 2026-11-23 (macOS arm64, Chrome, Node 23) |
+| The same by hand: layout at several window sizes, Hold to compare, zoom, finishing a round | NOT RUN (human interaction) |
 
 ### Screen geometries
 
@@ -269,6 +284,26 @@ that was merged.
 | Turn on Wi-Fi to sync on a MediaTek Kobo: the menu says Quit (the Kobo restarts) after the launch sync, and quitting restarts the Kobo cleanly | NOT RUN |
 | Sleep during a sync that turned the Wi-Fi on: the Wi-Fi is off during sleep and not back at wake until the wake sync asks for it | NOT RUN |
 | Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
+
+## Device benchmarks
+
+Timings from a real Kobo with `inoink-bench` ([INOINK-BENCHMARKS.md](INOINK-BENCHMARKS.md)), one
+table per release, pasted from `scripts/kobo-bench.sh collect`. Times run from the input to the
+framebuffer (the e-ink refresh is not included); compare releases on the same device and firmware
+only. No emulator or simulated numbers belong here.
+
+| Check on the Libra Colour | Result |
+|---|---|
+| `scripts/kobo-bench.sh install` copies the benchmark and its menu entry; the Kobo's disk check leaves them alone | NOT RUN |
+| **InoInk benchmark** in NickelMenu starts InoInk and the run; the run waits for the list and the startup sync | NOT RUN |
+| Injected page-button presses turn list and article pages | NOT RUN |
+| Injected taps land where aimed: the first row, the sync button, the middle of an article, its title | NOT RUN |
+| The run ends with an `end` line, InoInk stays usable, and `collect` prints the table | NOT RUN |
+
+### Releases
+
+No device run yet. Add each release as `#### <version> (<model>, firmware <firmware>)` with the
+date, the number of runs and the table.
 
 ## Known gaps
 
