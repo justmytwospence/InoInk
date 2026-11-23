@@ -24,6 +24,10 @@ Components distributed with the Kobo package:
   MiTeX 0.2.7 definitions   Apache-2.0          MiTeX authors (LaTeX to Typst)
   Typst 0.15.1              Apache-2.0          Typst authors (formula typesetting)
   Fonts                 SIL Open Font License 1.1 (see doc/LICENSES.md for each font)
+  Reading fonts         SIL Open Font License 1.1   Libron (Nico Verbruggen, after Newsreader by
+                        the Newsreader Project Authors); NV Bitter, NV Jost, NV Literata
+                        (Nico Verbruggen's eBook Fonts, after Bitter, Jost and Literata by
+                        their project authors), unmodified, in fonts/reading
   Rust crates           see doc/LICENSES.md
 
 Full license texts are in the `licenses/` directory of the package. The complete corresponding

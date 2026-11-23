@@ -459,6 +459,40 @@ pub struct FontFamily {
     pub bold_italic: Font,
 }
 
+/// Where the e-ink reading fonts bundled with InoInk live, relative to the installation.
+pub const BUNDLED_FONTS_PATH: &str = "fonts/reading";
+
+/// The bundled reading font families (see `scripts/update-reading-fonts.sh`), offered in the Aa
+/// panel next to the default family and the fonts the user added to the font path.
+pub const BUNDLED_FONT_FAMILIES: [&str; 4] = ["Libron", "NV Bitter", "NV Jost", "NV Literata"];
+
+/// The directory to search for a reading font family: the built-in default and the bundled
+/// families come with InoInk (a bundled family wins over a same-named one the user added),
+/// anything else comes from the user's font path.
+pub fn family_search_path<'a>(family_name: &str, user_path: &'a str) -> &'a str {
+    if family_name == crate::settings::DEFAULT_FONT_FAMILY {
+        "fonts"
+    } else if BUNDLED_FONT_FAMILIES.contains(&family_name) {
+        BUNDLED_FONTS_PATH
+    } else {
+        user_path
+    }
+}
+
+/// Every reading font family the Aa panel offers: the default, the bundled families and those
+/// found in the user's font path (which may not exist).
+pub fn reading_family_names<P: AsRef<Path>>(user_path: P) -> BTreeSet<String> {
+    let mut families = if user_path.as_ref().exists() {
+        family_names(user_path).map_err(|e| eprintln!("Can't get family names: {:#}.", e))
+                               .unwrap_or_default()
+    } else {
+        BTreeSet::new()
+    };
+    families.insert(crate::settings::DEFAULT_FONT_FAMILY.to_string());
+    families.extend(BUNDLED_FONT_FAMILIES.iter().map(|f| f.to_string()));
+    families
+}
+
 pub fn family_names<P: AsRef<Path>>(search_path: P) -> Result<BTreeSet<String>, Error> {
     if !search_path.as_ref().exists() {
         return Err(format_err!("the search path doesn't exist"));
