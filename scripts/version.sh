@@ -4,8 +4,9 @@
 #   version.sh next   the release that merging HEAD should publish, from the conventional-commit
 #                     subjects since the last release: a breaking change (type! or
 #                     "BREAKING CHANGE:") bumps major, feat bumps minor, anything else patch.
-#                     Commits that touch only docs, CI or tests do not count; prints nothing when
-#                     no commit since the last release changes what ships.
+#                     Commits that touch only docs, CI, tests or development tools (the desktop
+#                     preview, screen review, the device benchmark) do not count; prints nothing
+#                     when no commit since the last release changes what ships.
 # Needs full history and tags (actions/checkout with fetch-depth: 0).
 set -eu
 cd "$(dirname "$0")/.."
@@ -16,7 +17,7 @@ BASE=${LAST#v}
 RANGE=${LAST:+$LAST..}HEAD
 
 # Paths that never reach a user.
-NOT_SHIPPED='^(doc/|site/|[^/]*\.md$|LICENSE|THIRD-PARTY-NOTICES$|\.github/|\.agents/|\.claude/|skills-lock\.json$|tests/|crates/[^/]*/tests/|scripts/(version|kobo-dev|test-inoink|check-reproducibility|license-audit)\.sh$)'
+NOT_SHIPPED='^(doc/|site/|[^/]*\.md$|LICENSE|THIRD-PARTY-NOTICES$|\.github/|\.agents/|\.claude/|skills-lock\.json$|tests/|crates/[^/]*/tests/|scripts/(version|kobo-dev|kobo-bench|preview-macos|test-inoink|check-reproducibility|license-audit)\.sh$|scripts/review/|crates/inoink-bench/)'
 
 case "${1:-}" in
 	dev)
