@@ -314,8 +314,12 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   to every article. The font menu lists Libertinus Serif (the default), the bundled e-ink fonts
   Libron, NV Bitter, NV Jost and NV Literata, and the fonts in the Kobo's `fonts` folder (if one
   of those has the name of a bundled font, the bundled one is used). More holds Mark read/unread, Tags, Like, Broadcast, Send to Karakeep, Show
-  QR code, Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
+  QR code, Export highlights, Contents (when the article has headings: tap one to go there), Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page (the article switches to the full page in place, from the top, when it arrives).
+- Return: after a jump (a footnote or a link to another part of the article, a heading chosen from
+  Contents, or the Article | comments switch) a "Return to page 3" (or "Return to the article")
+  button replaces the title in the top margin. Tap it to go back where you were; hold it to stay
+  and dismiss it. It also goes away when you page back to that page yourself.
 - Swipe left or right to turn pages. Paging past the last page opens the end-of-article popup: choose what happens to the article (Mark read by default; Archive, which also removes the star, when it is starred, with Undo in the main menu, and preselected on a saved article if you chose it last time; or Keep unread), see the next article of the list, and tap Next article (or swipe on, or press forward) to open it, or tap Back to list. Swiping back, the back button or a tap outside closes the popup. Swipe up or hold the forward button
   for the next article of the list without the popup; swipe down or hold the back button for the previous one (swipe directions follow Settings >
   Page-turn buttons: Inverted swaps them; it reopens where you left it; paging back from the first page opens its last page). Changing
@@ -329,11 +333,20 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   page when they are downloaded. InoInk learns which feeds do this; Manage > a feed > Full text sets
   Always or Never for one feed.
 - Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
-  a highlight to add, edit or remove its note, or to remove it. They are saved on the Kobo and
-  found again if the article text is later replaced (for example by Load original page). Inoreader's
+  a highlight to add, edit or remove its note, or to remove it, and to change its Style (shading,
+  underline, dotted underline) or, on colour screens, its Colour (yellow, green, blue, pink, gray).
+  The look you choose last is used for the next highlights; new highlights are shaded, yellow on
+  colour screens and gray on others. Grayscale screens draw every colour as gray. They are saved
+  on the Kobo and found again if the article text is later replaced (for example by Load original
+  page). Styles and colours stay on the Kobo: Inoreader's annotations have neither. Inoreader's
   own annotations are underlined and read-only; hold one to see its note. Details lists both.
-  `inoink-cli highlights --data /Volumes/KOBOeReader/.adds/inoink/data` prints yours as Markdown
-  (`--format json` gives Readwise's highlight fields; nothing is sent anywhere).
+- Export highlights: More > Export highlights > Markdown or HTML writes every highlight made on
+  the Kobo, grouped by article, to a new file in `.adds/inoink/exports`
+  (`inoink-highlights-<date>-<time>.md` or `.html`; the HTML shows each in its style and colour).
+  Connect the Kobo by USB to copy them. From a computer,
+  `inoink-cli highlights --data /Volumes/KOBOeReader/.adds/inoink/data` prints them as Markdown
+  (`--format html` as the same page; `--format json` gives Readwise's highlight fields; nothing is
+  sent anywhere).
 - Links in an article: tap one for a reading view of the page (InoInk fetches it and extracts the
   text, without images; https only, needs Wi-Fi). Hold one for a menu: Open in reading view, Show
   QR code (scan it with a phone to open the page there), Send to Karakeep, Follow in Inoreader
@@ -349,8 +362,10 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   names the thread you are in (Thread 3 of 12). Ages are as of the last refresh (More > Refresh
   comments).
   Pages that cannot be extracted (paywalls, scripts, PDFs) fall back to the feed text with a note.
-- Tap an image to enlarge it; tap again to zoom, swipe to pan. A grey "Image unavailable - retry"
-  line is a retryable placeholder.
+- Tap an image to enlarge it. Pinch or spread two fingers, or use Zoom out, Fit and Zoom in at the
+  bottom, to zoom (up to 4x, less for very large images); drag to pan; double-tap to switch between
+  fitting the screen and 2x around the tap. Each image keeps its zoom and position until InoInk
+  quits. A grey "Image unavailable - retry" line is a retryable placeholder.
 - Short messages appear one at a time, centred just below the top bar; a new one replaces the one showing. After **Archive** or a bulk change, the list updates without a message. **Main menu > Undo last change** restores the latest such change until it is replaced by another Archive or bulk change. There is no countdown; Undo is available for the current app session.
 - Main menu: Follow a feed, Settings (where the previous and next titles show, the
   [sleep screen](#sleep-screen), sync without Wi-Fi, offline storage, how long to keep unread articles, page-turn buttons, rotation, invert colors,

@@ -56,8 +56,15 @@ public API and does not try to match the Inoreader website feature for feature; 
   default), Archive (preselected on a saved article if you chose it last time) or Keep unread, see the next article's title, and tap Next article or swipe on
   to it, or tap Back to list. Swiping up or holding forward skips the popup. A line under the article shows progress,
   time left and your place in the list, with ‹ › to open the previous or next article.
-- Highlights and notes: hold a word to highlight it or add a note; Inoreader's own annotations
-  are shown underlined. `inoink-cli highlights` exports yours as Markdown or Readwise-style JSON.
+- Highlights and notes: hold a word to highlight it or add a note, shaded, underlined or with a
+  dotted underline, in colour on colour screens; Inoreader's own annotations are shown underlined.
+  More > Export highlights writes yours as Markdown or HTML to `.adds/inoink/exports`, and
+  `inoink-cli highlights` prints them as Markdown, HTML or Readwise-style JSON.
+- Return after a jump: after following a footnote or a link inside the article, choosing a heading
+  from More > Contents, or switching between article and comments, a Return button in the top
+  margin takes you back.
+- Images: tap one to enlarge it, then pinch or use the buttons to zoom, drag to pan and double-tap
+  to switch between fit and enlarged; each image keeps its zoom while InoInk runs.
 - Links: tap a link for a reading view of the page; hold it for Open in reading view, Show QR code
   (to open it on your phone), Send to Karakeep or Follow in Inoreader.
 - Offline first: text and colour images are cached; every change is saved on the Kobo first and
@@ -225,7 +232,8 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   API budget today's requests.
 - **Article:** tap the middle of the page for the bar (the arrow and the title go back; Aa, Star, Archive, More) and the progress
   line; tap the left or right third to turn pages. More: Mark read, Tags, Like, Broadcast, Send to
-  Karakeep, Show QR code, Details, Load original page (the article switches to it when it arrives). Tap an image to enlarge it.
+  Karakeep, Show QR code, Export highlights, Contents (articles with headings), Details, Load original page (the article
+  switches to it when it arrives). Tap an image to enlarge it. After a jump, Return in the top margin goes back; hold it to stay.
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
   also changes brightness.
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
@@ -361,4 +369,6 @@ available under the [MIT License](LICENSE-MIT), so you can reuse them in other p
 either license. Bundled fonts and libraries keep their own licenses; see
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES) and [doc/LICENSES.md](doc/LICENSES.md).
 
-Plato is copyright Bastien Dejean and contributors.
+Plato is copyright Bastien Dejean and contributors. Return after a jump, the image viewer and
+highlight styles follow ideas from [Kobalt](https://github.com/nicoverbruggen/kobalt) (MIT); no
+Kobalt code is included.
