@@ -549,6 +549,8 @@ pub struct InoInkSettings {
     pub queue_titles: QueueTitles,
     /// What the screen shows while the Kobo sleeps.
     pub sleep_screen: SleepScreen,
+    /// What a sync does while the Wi-Fi is off: wait for it, or turn it on for the sync.
+    pub wifi_policy: inoink::runtime::WifiPolicy,
 }
 
 /// What the screen shows while the Kobo sleeps. Every choice but `Plato` powers off to a dark
@@ -599,6 +601,7 @@ impl Default for InoInkSettings {
             mark_read_on_open: false,
             queue_titles: QueueTitles::WithBar,
             sleep_screen: SleepScreen::StatusCard,
+            wifi_policy: inoink::runtime::WifiPolicy::Wait,
         }
     }
 }

@@ -132,8 +132,15 @@ fn cache_config(s: &InoInkSettings) -> CacheConfig {
 impl InoInk {
     /// Opens the data directory: imports provisioned credentials if present, opens the
     /// database and, when signed in, starts the sync worker. `hub` receives sync updates as
-    /// [`Event::Sync`]. `online` is false for the emulator's offline fixtures.
+    /// [`Event::Sync`]. `online` is false for the emulator's offline fixtures. The worker takes
+    /// the network as up from the start.
     pub fn open(settings: &InoInkSettings, hub: Sender<Event>, online: bool) -> Result<InoInk, String> {
+        Self::open_with(settings, hub, online, online)
+    }
+
+    /// [`InoInk::open`] for the Kobo, where the network is not up yet: `network_up` false makes
+    /// the worker wait for [`Lifecycle::NetworkUp`] (or ask for the Wi-Fi) before it syncs.
+    pub fn open_with(settings: &InoInkSettings, hub: Sender<Event>, online: bool, network_up: bool) -> Result<InoInk, String> {
         let dir = settings.data_dir.clone();
         // Treat even an invalid marker as offline-only, before touching credentials or the DB.
         let sandbox = inoink::snapshot::is_sandbox(&dir);
@@ -187,14 +194,14 @@ impl InoInk {
         };
         me.load_ui_state();
         if let (true, Some(creds)) = (online, creds) {
-            me.start_sync(creds.app_config(), creds_store, &db, hub)?;
+            me.start_sync(creds.app_config(), creds_store, &db, hub, network_up)?;
         } else if online {
             me.status = SyncStatus::NeedsSignIn;
         }
         Ok(me)
     }
 
-    fn start_sync(&mut self, cfg: inoink::api::AppConfig, creds: FileCredentials, db: &Path, hub: Sender<Event>) -> Result<(), String> {
+    fn start_sync(&mut self, cfg: inoink::api::AppConfig, creds: FileCredentials, db: &Path, hub: Sender<Event>, network_up: bool) -> Result<(), String> {
         let transport = Arc::new(UreqTransport::new());
         let clock = Arc::new(SystemClock);
         let api = ApiClient::new(cfg.clone(), transport, clock.clone(), Arc::new(creds)).map_err(|e| e.to_string())?;
@@ -211,7 +218,8 @@ impl InoInk {
         let account = self.account.clone();
         let db2 = db.to_path_buf();
         let reopen_account = account.clone();
-        let handle = runtime::start(engine, &account, Box::new(move || Store::open(&db2, &reopen_account)), utx);
+        let opts = runtime::Options { wifi: self.settings.wifi_policy, online: network_up, ..Default::default() };
+        let handle = runtime::start_with(engine, &account, Box::new(move || Store::open(&db2, &reopen_account)), utx, opts);
         std::thread::Builder::new()
             .name("inoink-updates".into())
             .spawn(move || {
@@ -444,6 +452,8 @@ impl InoInk {
             SyncStatus::NeedsSignIn => "Sign in required".to_string(),
             SyncStatus::Error(_) => "Sync problem".to_string(),
             SyncStatus::Paused => "Sync paused".to_string(),
+            SyncStatus::Connecting => "Turning on Wi-Fi".to_string(),
+            SyncStatus::Stopped => format!("Sync stopped after {} failures: tap sync to retry", runtime::MAX_FAILURES),
         };
         if pending > 0 {
             format!("{base} \u{b7} {pending} to send")

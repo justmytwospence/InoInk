@@ -1341,3 +1341,50 @@ fn the_last_article_has_no_next_button() {
     let reader = show_end(&mut e, &[4], false, 4);
     assert!(end_popup(&reader).continue_rect().is_none());
 }
+
+/// The radio buttons of Main menu > Settings > Sync without Wi-Fi: (label, selected).
+fn wifi_policy_radios(e: &Env) -> Vec<(String, bool)> {
+    let menu = plato_core::view::inoink::manage::main_menu_entries(&e.context);
+    let settings = menu.into_iter().find_map(|k| match k {
+        EntryKind::SubMenu(l, v) if l == "Settings" => Some(v),
+        _ => None,
+    }).expect("Settings");
+    let wifi = settings.into_iter().find_map(|k| match k {
+        EntryKind::SubMenu(l, v) if l == "Sync without Wi-Fi" => Some(v),
+        _ => None,
+    }).expect("Sync without Wi-Fi");
+    wifi.into_iter().filter_map(|k| match k {
+        EntryKind::RadioButton(l, _, on) => Some((l, on)),
+        _ => None,
+    }).collect()
+}
+
+#[test]
+fn wifi_policy_defaults_to_wait_and_is_saved() {
+    use inoink::runtime::{SyncStatus, WifiPolicy};
+    let mut e = env();
+    assert_eq!(e.context.settings.inoink.wifi_policy, WifiPolicy::Wait);
+    assert_eq!(wifi_policy_radios(&e), vec![("Wait for Wi-Fi".to_string(), true), ("Turn on Wi-Fi to sync".to_string(), false)]);
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::SetWifiPolicy(WifiPolicy::TurnOn))));
+    assert_eq!(e.context.settings.inoink.wifi_policy, WifiPolicy::TurnOn);
+    assert_eq!(e.context.inoink.settings.wifi_policy, WifiPolicy::TurnOn);
+    assert_eq!(wifi_policy_radios(&e), vec![("Wait for Wi-Fi".to_string(), false), ("Turn on Wi-Fi to sync".to_string(), true)]);
+
+    // Saved in Settings.toml; a file from before the setting existed reads as Wait.
+    let path = e.context.inoink.data_dir.join("Settings-test.toml");
+    plato_core::helpers::save_toml(&e.context.settings, &path).unwrap();
+    assert!(std::fs::read_to_string(&path).unwrap().contains("wifi-policy = \"turn-on\""));
+    let back: Settings = plato_core::helpers::load_toml(&path).unwrap();
+    assert_eq!(back.inoink.wifi_policy, WifiPolicy::TurnOn);
+    let old = std::fs::read_to_string(&path).unwrap().replace("wifi-policy = \"turn-on\"\n", "");
+    std::fs::write(&path, old).unwrap();
+    let back: Settings = plato_core::helpers::load_toml(&path).unwrap();
+    assert_eq!(back.inoink.wifi_policy, WifiPolicy::Wait);
+
+    e.context.inoink.status = SyncStatus::Connecting;
+    assert_eq!(e.context.inoink.status_text(), "Turning on Wi-Fi");
+    e.context.inoink.status = SyncStatus::Stopped;
+    assert_eq!(e.context.inoink.status_text(), "Sync stopped after 3 failures: tap sync to retry");
+}

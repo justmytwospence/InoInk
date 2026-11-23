@@ -26,16 +26,21 @@ impl Fetcher for NoImages {
     }
 }
 
-/// Delegates to the fake server after a delay; counts requests; can be told to hang.
+/// Delegates to the fake server after a delay; counts requests; can be told to hang or to
+/// fail as if there were no network.
 struct Slow {
     inner: Arc<Fake>,
     delay: Duration,
     requests: AtomicUsize,
     hang: AtomicBool,
+    fail: AtomicBool,
 }
 impl Transport for Slow {
     fn send(&self, req: &HttpRequest) -> Result<HttpResponse> {
         self.requests.fetch_add(1, Ordering::SeqCst);
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(inoink::error::Error::Offline);
+        }
         let ms = if self.hang.load(Ordering::SeqCst) { 1500 } else { self.delay.as_millis() as u64 };
         std::thread::sleep(Duration::from_millis(ms));
         self.inner.send(req)
@@ -62,6 +67,10 @@ fn engine_for(dir: &Path, slow: &Arc<Slow>, clock: &Arc<FixedClock>, tokens: &Ar
 }
 
 fn env(delay_ms: u64, articles: u64) -> Env {
+    env_with(delay_ms, articles, Options::default())
+}
+
+fn env_with(delay_ms: u64, articles: u64, opts: Options) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let fake = Fake::new();
     fake.with(|s| s.subs.push(SSub { id: FEED.into(), title: "Blog".into(), url: String::new(), folders: vec![], first_usec: 0 }));
@@ -73,6 +82,7 @@ fn env(delay_ms: u64, articles: u64) -> Env {
         delay: Duration::from_millis(delay_ms),
         requests: AtomicUsize::new(0),
         hang: AtomicBool::new(false),
+        fail: AtomicBool::new(false),
     });
     let clock = FixedClock::new(NOW);
     let tokens = Arc::new(MemTokens::default());
@@ -81,7 +91,7 @@ fn env(delay_ms: u64, articles: u64) -> Env {
     let engine = engine_for(dir.path(), &slow, &clock, &tokens);
     let (utx, urx) = channel();
     let path: PathBuf = dir.path().join("db.sqlite");
-    let handle = start(engine, "42", Box::new(move || Store::open(&path, "42")), utx);
+    let handle = start_with(engine, "42", Box::new(move || Store::open(&path, "42")), utx, opts);
     Env { dir, fake, slow, clock, handle: Some(handle), updates: urx }
 }
 
@@ -108,6 +118,37 @@ impl Env {
     fn drain(&self) -> Vec<Update> {
         self.updates.try_iter().collect()
     }
+    /// Collects updates until `pred` matches one (returned last) or `timeout` passes.
+    fn until(&self, timeout: Duration, pred: impl Fn(&Update) -> bool) -> Vec<Update> {
+        let end = Instant::now() + timeout;
+        let mut out = vec![];
+        while let Ok(u) = self.updates.recv_timeout(end.saturating_duration_since(Instant::now())) {
+            let hit = pred(&u);
+            out.push(u);
+            if hit {
+                break;
+            }
+        }
+        out
+    }
+    fn requests(&self) -> usize {
+        self.slow.requests.load(Ordering::SeqCst)
+    }
+}
+
+/// Starts without a network, as on the Kobo, with short delays for the tests.
+fn offline(wifi: WifiPolicy) -> Options {
+    Options {
+        wifi,
+        online: false,
+        settle: Duration::from_millis(50),
+        connect_timeout: Duration::from_secs(2),
+        local_connect_interval: Duration::from_secs(4),
+    }
+}
+
+fn wifi_requests(us: &[Update]) -> Vec<bool> {
+    us.iter().filter_map(|u| if let Update::Wifi(on) = u { Some(*on) } else { None }).collect()
 }
 
 #[test]
@@ -332,4 +373,206 @@ fn browse_and_open_online_run_on_the_worker_and_report_back() {
             _ => {}
         }
     }
+}
+
+#[test]
+fn wait_holds_syncs_until_the_network_is_up_and_never_asks_for_wifi() {
+    let e = env_with(1, 3, offline(WifiPolicy::Wait));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(e.requests(), 0, "the launch sync waits for the network");
+    let mut ui = e.ui_store();
+    ui.apply_intent(ArticleId(1), &Membership::Read, true).unwrap();
+    e.h().changed();
+    e.h().submit(Command::SyncNow);
+    let us = e.until(Duration::from_secs(3), |u| matches!(u, Update::WaitingForWifi));
+    assert!(us.iter().any(|u| matches!(u, Update::WaitingForWifi)), "a tapped sync says it waits: {us:?}");
+    assert_eq!(e.requests(), 0);
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    let cycles = e.wait_cycles(2, Duration::from_secs(3));
+    assert_eq!(cycles.len(), 1, "everything that waited goes in one pass");
+    assert!(cycles[0].error.is_none());
+    assert!(!cycles[0].skipped_interval, "the waiting sync the user asked for refreshes");
+    assert!(e.fake.a(1).read);
+    assert!(wifi_requests(&e.drain()).is_empty());
+}
+
+#[test]
+fn turn_on_asks_for_wifi_and_hands_it_back_after_the_sync() {
+    let e = env_with(1, 3, offline(WifiPolicy::TurnOn));
+    let us = e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    assert_eq!(wifi_requests(&us), vec![true], "the launch sync asks for the Wi-Fi");
+    let connecting = |u: &Update| *u == Update::Status(SyncStatus::Connecting);
+    assert!(us.iter().any(connecting) || e.until(Duration::from_millis(200), connecting).iter().any(connecting));
+    assert_eq!(e.requests(), 0);
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    let us = e.until(Duration::from_secs(3), |u| matches!(u, Update::Wifi(false)));
+    let cycle = us.iter().position(|u| matches!(u, Update::Cycle(c) if c.error.is_none()));
+    let release = us.iter().position(|u| matches!(u, Update::Wifi(false)));
+    assert!(cycle.is_some() && release.is_some() && cycle < release, "synced, then handed back: {us:?}");
+    // The app turns it off.
+    e.h().set_lifecycle(Lifecycle::NetworkDown);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(wifi_requests(&e.drain()).is_empty(), "nothing asks again on its own");
+}
+
+#[test]
+fn turn_on_keeps_the_wifi_for_changes_made_during_the_sync() {
+    let e = env_with(150, 3, offline(WifiPolicy::TurnOn));
+    e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    e.until(Duration::from_secs(2), |u| *u == Update::Status(SyncStatus::Syncing));
+    let mut ui = e.ui_store();
+    // The worker may be writing at this moment; the UI would try again on its next action.
+    let mut tries = 0;
+    while ui.apply_intent(ArticleId(2), &Membership::Read, true).is_err() {
+        tries += 1;
+        assert!(tries < 40, "the database stayed locked");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    e.h().changed();
+    let us = e.until(Duration::from_secs(6), |u| matches!(u, Update::Wifi(false)));
+    let cycles = us.iter().filter(|u| matches!(u, Update::Cycle(_))).count();
+    assert_eq!(cycles, 2, "the change went out before the Wi-Fi was handed back: {us:?}");
+    assert!(e.fake.a(2).read);
+}
+
+#[test]
+fn turn_on_gives_up_when_no_connection_comes() {
+    let e = env_with(1, 3, Options { connect_timeout: Duration::from_millis(400), ..offline(WifiPolicy::TurnOn) });
+    let us = e.until(Duration::from_secs(3), |u| matches!(u, Update::Wifi(false)));
+    assert_eq!(wifi_requests(&us), vec![true, false], "asked, then handed back at the deadline");
+    assert!(e
+        .until(Duration::from_millis(300), |u| *u == Update::Status(SyncStatus::Offline))
+        .contains(&Update::Status(SyncStatus::Offline)));
+    assert_eq!(e.requests(), 0);
+}
+
+#[test]
+fn turn_on_connects_for_local_changes_at_most_every_interval() {
+    let e = env_with(1, 3, offline(WifiPolicy::TurnOn));
+    e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    let connected = Instant::now();
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    e.until(Duration::from_secs(3), |u| matches!(u, Update::Wifi(false)));
+    e.h().set_lifecycle(Lifecycle::NetworkDown);
+    let mut ui = e.ui_store();
+    ui.apply_intent(ArticleId(3), &Membership::Read, true).unwrap();
+    e.h().changed();
+    // The debounce (2 s) ends before the interval (4 s): the change waits for the interval.
+    let us = e.until(Duration::from_secs(6), |u| matches!(u, Update::Wifi(true)));
+    assert_eq!(wifi_requests(&us), vec![true]);
+    let after = connected.elapsed();
+    // Not at the end of the debounce (about 2.3 s), but at the interval.
+    assert!(after >= Duration::from_secs(3), "asked again after {after:?}");
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    e.until(Duration::from_secs(3), |u| matches!(u, Update::Wifi(false)));
+    assert!(e.fake.a(3).read);
+}
+
+#[test]
+fn turning_wifi_off_while_connecting_is_respected() {
+    let e = env_with(1, 3, Options { connect_timeout: Duration::from_secs(30), ..offline(WifiPolicy::TurnOn) });
+    e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    e.h().set_lifecycle(Lifecycle::NetworkDown);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(wifi_requests(&e.drain()).is_empty(), "no second request after the user switched the Wi-Fi off");
+    assert_eq!(e.requests(), 0);
+}
+
+#[test]
+fn switching_to_wait_hands_the_wifi_back() {
+    let e = env_with(1, 3, Options { connect_timeout: Duration::from_secs(30), ..offline(WifiPolicy::TurnOn) });
+    e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    e.h().submit(Command::SetWifiPolicy(WifiPolicy::Wait));
+    let us = e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(false)));
+    assert_eq!(wifi_requests(&us), vec![false]);
+    // The launch sync still waits, and goes when the Wi-Fi comes on.
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1);
+}
+
+#[test]
+fn switching_to_turn_on_connects_for_a_waiting_sync() {
+    let e = env_with(1, 3, offline(WifiPolicy::Wait));
+    std::thread::sleep(Duration::from_millis(200));
+    e.h().submit(Command::SetWifiPolicy(WifiPolicy::TurnOn));
+    let us = e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)));
+    assert_eq!(wifi_requests(&us), vec![true]);
+}
+
+#[test]
+fn three_failures_in_a_row_stop_automatic_syncs_until_a_tap_or_a_wake() {
+    let e = env_with(1, 3, Options { settle: Duration::from_millis(50), ..Options::default() });
+    e.slow.fail.store(true, Ordering::SeqCst);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(5)).len(), 1, "launch fails");
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1);
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    let us = e.until(Duration::from_secs(3), |u| matches!(u, Update::Cycle(_)));
+    assert!(us.contains(&Update::Status(SyncStatus::Stopped)), "the third failure stops: {us:?}");
+    let n = e.requests();
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    let mut ui = e.ui_store();
+    ui.apply_intent(ArticleId(1), &Membership::Read, true).unwrap();
+    e.h().changed();
+    assert!(e.wait_cycles(1, Duration::from_millis(2600)).is_empty(), "no retries on their own");
+    assert_eq!(e.requests(), n);
+    // A tap tries again.
+    e.slow.fail.store(false, Ordering::SeqCst);
+    e.h().submit(Command::SyncNow);
+    let c = e.wait_cycles(1, Duration::from_secs(3));
+    assert!(c.len() == 1 && c[0].error.is_none());
+    assert!(e.fake.a(1).read);
+}
+
+#[test]
+fn a_wake_resets_the_failure_count() {
+    let e = env_with(1, 3, Options { settle: Duration::from_millis(50), ..Options::default() });
+    e.slow.fail.store(true, Ordering::SeqCst);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(5)).len(), 1);
+    for _ in 0..2 {
+        e.h().set_lifecycle(Lifecycle::NetworkUp);
+        assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1);
+    }
+    e.h().set_lifecycle(Lifecycle::Suspend);
+    e.slow.fail.store(false, Ordering::SeqCst);
+    e.h().set_lifecycle(Lifecycle::Resume);
+    let c = e.wait_cycles(1, Duration::from_secs(3));
+    assert!(c.len() == 1 && c[0].error.is_none(), "the wake sync runs");
+}
+
+#[test]
+fn a_success_resets_the_failure_count() {
+    let e = env_with(1, 3, Options { settle: Duration::from_millis(50), ..Options::default() });
+    e.slow.fail.store(true, Ordering::SeqCst);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(5)).len(), 1);
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1);
+    e.slow.fail.store(false, Ordering::SeqCst);
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    assert!(e.wait_cycles(1, Duration::from_secs(3))[0].error.is_none());
+    e.slow.fail.store(true, Ordering::SeqCst);
+    for _ in 0..2 {
+        e.h().set_lifecycle(Lifecycle::NetworkUp);
+        assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1);
+    }
+    e.h().set_lifecycle(Lifecycle::NetworkUp);
+    assert_eq!(e.wait_cycles(1, Duration::from_secs(3)).len(), 1, "two failures since the success: still retrying");
+}
+
+#[test]
+fn connections_that_never_come_count_as_failures() {
+    let e = env_with(1, 3, Options { connect_timeout: Duration::from_millis(400), ..offline(WifiPolicy::TurnOn) });
+    for i in 0..3 {
+        e.h().submit(Command::Refill);
+        let us = e.until(Duration::from_secs(3), |u| matches!(u, Update::Wifi(false)));
+        assert_eq!(wifi_requests(&us), vec![true, false], "attempt {i}");
+    }
+    let us = e.until(Duration::from_millis(300), |u| matches!(u, Update::Status(_)));
+    assert!(us.contains(&Update::Status(SyncStatus::Stopped)), "{us:?}");
+    e.h().changed();
+    std::thread::sleep(Duration::from_millis(2500));
+    assert!(wifi_requests(&e.drain()).is_empty(), "stopped: local changes do not turn the Wi-Fi on");
+    e.h().submit(Command::SyncNow);
+    assert_eq!(wifi_requests(&e.until(Duration::from_secs(2), |u| matches!(u, Update::Wifi(true)))), vec![true], "a tap does");
 }

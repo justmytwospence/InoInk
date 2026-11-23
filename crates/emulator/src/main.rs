@@ -463,6 +463,16 @@ fn main() -> Result<(), Error> {
                 },
                 Event::Sync(ref u) => {
                     context.inoink.apply(u);
+                    // "Turn on Wi-Fi to sync": switch the simulated Wi-Fi as the Kobo app does.
+                    if let plato_core::inoink::runtime::Update::Wifi(on) = u {
+                        if *on && !context.settings.wifi {
+                            context.wifi_for_sync = true;
+                            tx.send(Event::SetWifi(true)).ok();
+                        } else if !*on && context.wifi_for_sync {
+                            context.wifi_for_sync = false;
+                            tx.send(Event::SetWifi(false)).ok();
+                        }
+                    }
                     if let plato_core::inoink::runtime::Update::Cached(id, _) = u {
                         if let Some((open, mode)) = context.inoink.opening {
                             if open == *id {

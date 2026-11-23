@@ -215,7 +215,9 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   one segment per page while they fit across the screen, otherwise a line; either way only the
   page shown is dark.
 - **Sync:** InoInk syncs on its own when it starts, wakes or gets a network connection, and sends
-  your changes a few seconds after you make them. Tap the sync icon to sync now; it shows a dot
+  your changes a few seconds after you make them. While the Wi-Fi is off a sync waits for it, or,
+  with Settings > Sync without Wi-Fi > Turn on Wi-Fi to sync, turns it on and off again
+  afterwards. After 3 failed syncs in a row it waits for a wake or your tap. Tap the sync icon to sync now; it shows a dot
   and turns while a sync runs. the main menu shows when the last sync was ("Synced 5 min ago"), and Settings > Inoreader
   API budget today's requests.
 - **Article:** tap the middle of the page for the bar (the arrow and the title go back; Aa, Star, Archive, More) and the progress
@@ -237,7 +239,7 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
   network. See [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#sleep-screen).
 - **Quitting:** on MediaTek models (Libra Colour, Clara Colour, Clara BW, Elipsa 2E), quitting after the Wi-Fi was used restarts the Kobo (about half a minute), because restarting
   only the Kobo interface can then crash it. With the Wi-Fi off from start to quit, it returns to
-  the Kobo interface directly. The menu says which: Quit, or Quit (the Kobo restarts). See
+  the Kobo interface directly (so not with Turn on Wi-Fi to sync, which uses the Wi-Fi at launch). The menu says which: Quit, or Quit (the Kobo restarts). See
   [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#quitting).
 
 ## Build from source
@@ -328,6 +330,7 @@ alone release nothing. `scripts/version.sh next` shows what merging now would pu
 | [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md) | Install, sign in, update, remove, everyday use |
 | [doc/INOINK-API.md](doc/INOINK-API.md) | What Inoreader's public API allows, and the limits |
 | [doc/INOINK-SYNC.md](doc/INOINK-SYNC.md) | How changes are saved, sent and reconciled |
+| [doc/INOINK-POWER.md](doc/INOINK-POWER.md) | Timers, Wi-Fi rules and storage writes: what costs power |
 | [doc/INOINK-ACCEPTANCE.md](doc/INOINK-ACCEPTANCE.md) | What was tested: automated, emulator, device |
 | [doc/UPSTREAM.md](doc/UPSTREAM.md) | Relationship to Plato |
 | [doc/LICENSES.md](doc/LICENSES.md) | Licenses of everything that ships |

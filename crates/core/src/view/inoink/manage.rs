@@ -129,6 +129,7 @@ fn settings_entries(context: &Context) -> Vec<EntryKind> {
         ),
     ];
     entries.push(EntryKind::SubMenu("Sleep screen".into(), sleep_screen_entries(context)));
+    entries.push(EntryKind::SubMenu("Sync without Wi-Fi".into(), wifi_policy_entries(context)));
     entries.push(EntryKind::SubMenu(
         "Offline storage".into(),
         [256u64, 512, 1024, 2048].iter().map(|b| EntryKind::RadioButton(format!("{b} MB"), EntryId::InoInk(InoInkEntry::CacheBudget(*b)), s.cache_budget_mb == *b)).collect(),
@@ -178,6 +179,14 @@ pub fn sleep_screen_entries(context: &Context) -> Vec<EntryKind> {
         entries.push(EntryKind::Message("For a picture, put PNG files in .adds/inoink/screensaver".into(), None));
     }
     entries
+}
+
+/// What a sync does while the Wi-Fi is off.
+pub fn wifi_policy_entries(context: &Context) -> Vec<EntryKind> {
+    use inoink::runtime::WifiPolicy;
+    let p = context.settings.inoink.wifi_policy;
+    let radio = |label: &str, v: WifiPolicy| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(InoInkEntry::SetWifiPolicy(v)), p == v);
+    vec![radio("Wait for Wi-Fi", WifiPolicy::Wait), radio("Turn on Wi-Fi to sync", WifiPolicy::TurnOn)]
 }
 
 /// Today's Inoreader request budget, as the server last reported it in its response headers.
@@ -332,6 +341,12 @@ pub fn apply(context: &mut Context, entry: &InoInkEntry, prompt_text: Option<&st
         InoInkEntry::SetSleepScreen(s) => {
             context.settings.inoink.sleep_screen = *s;
             context.inoink.settings.sleep_screen = *s;
+            Ok(None)
+        }
+        InoInkEntry::SetWifiPolicy(p) => {
+            context.settings.inoink.wifi_policy = *p;
+            context.inoink.settings.wifi_policy = *p;
+            context.inoink.submit(inoink::runtime::Command::SetWifiPolicy(*p));
             Ok(None)
         }
         InoInkEntry::SetFullText(feed, mode) => {
