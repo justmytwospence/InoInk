@@ -93,7 +93,8 @@ Do not delete the auth directory while a refresh is in progress.
 
 1. Connect the Kobo by USB and open its storage.
 2. Install: `scripts/install-inoink.sh dist/inoink-<version>-kobo.tar.gz /path/to/KOBOeReader --menu`
-   (`--menu` adds the NickelMenu entry when NickelMenu is installed).
+   (`--menu` adds the NickelMenu entry when NickelMenu is installed), or use the
+   [browser installer](#browser-installer).
 3. Eject the Kobo, open the NickelMenu entry "InoInk". The computer only copies the package
    (`.adds/inoink/INSTALL.TGZ` and its checksum); InoInk unpacks and activates it when it starts,
    because folders and long file names created from macOS get renamed to `FSCK0000.000` by the
@@ -119,9 +120,49 @@ inoink-cli authorize \
    `--karakeep-url https://...`), then the API key at the hidden prompt, or press Enter to skip.
    A Karakeep problem never undoes the sign-in.
 
+Why sign-in stays on the computer: the browser installer could only sign in if Inoreader's token
+endpoint (`https://www.inoreader.com/oauth2/token`) answered web pages, and it does not. It sends
+no `Access-Control-Allow-Origin` header, to preflight requests or to the token request itself
+(checked in November 2026), so a page cannot read the tokens. The only way around that is a proxy
+server, which would see the App key and tokens; InoInk has no server. If Inoreader adds CORS
+headers, the page could do the same as `authorize`: exchange the code in the browser and encrypt
+the credentials to `.adds/inoink/data/provision/device.pub` before writing them to the Kobo.
+
 Security note: the client secret has to live on the Kobo because Inoreader's documented token
 refresh needs it. The Kobo's storage is FAT with no file permissions, so anyone with the device
 can read it. Use a dedicated application registration you can revoke.
+
+## Browser installer
+
+The project page (`site/`, published by the Pages workflow) installs, updates and removes InoInk
+from Chrome or Edge, with the File System Access API: the user picks the KOBOeReader drive and the
+page reads and writes it directly. Nothing is uploaded. `site/kobo.js` does the work and
+`site/page.js` the page; there is no build step.
+
+- **Device check:** `.kobo/version` gives the firmware (third field) and the hardware id (last
+  field, whose last three digits name the model). The model's group (tested, expected,
+  experimental) comes from the list in `site/kobo.js`, which must match the README's Status
+  section (`tests/web-installer.test.mjs` checks it). Firmware older than 4.6 is refused; 5 and
+  later is flagged experimental. Unknown models may install, with a warning.
+- **Package:** the page reads the latest release from the GitHub API. GitHub serves release files
+  from a host without CORS headers, so the browser cannot download them; the page tries once and
+  then asks the user to download the package and choose it. Either way it compares the file's
+  SHA-256 with the asset digest GitHub publishes (for the release named by the package's
+  `VERSION`), then reads the archive like `install-inoink.sh` does: no absolute or `..` paths, a
+  plain version name, the launcher files present.
+- **Install** writes exactly what `install-inoink.sh` writes, in its order: `INSTALL.SUM`
+  removed, `INSTALL.TGZ` written and read back (its `cksum` must match), `current/inoink.sh`,
+  then `INSTALL.SUM` last, and with NickelMenu present the entry `.adds/nm/inoink`. All names are
+  8.3. The Kobo installs the package the next time InoInk starts.
+- **Remove** has three levels, the same as `remove-inoink.sh`: keep data (default), reset
+  settings (`--reset-settings`: also `data/Settings.toml` and `data/config.sh`) and delete
+  everything (`--purge-data`).
+
+Tests: `node --test tests/web-installer.test.mjs` runs the installer under Node against a real
+directory and compares the result with the scripts, file for file, then runs the Kobo's launcher
+in install-only mode on it. `node tests/web-installer-chrome.mjs <published package>` drives the
+page in headless Chrome with a fake Kobo in the browser's private file system (it needs Chrome
+and the network; not in CI).
 
 ## Quitting
 
@@ -145,10 +186,17 @@ the database file). The previous release stays installed for rollback: write its
 
 ## Remove
 
+Use **Remove InoInk** in the [browser installer](#browser-installer), or:
+
 ```sh
-scripts/remove-inoink.sh /path/to/KOBOeReader               # keeps your data
-scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data  # also deletes cache and credentials
+scripts/remove-inoink.sh /path/to/KOBOeReader                   # keeps your data
+scripts/remove-inoink.sh /path/to/KOBOeReader --reset-settings  # also deletes the settings
+scripts/remove-inoink.sh /path/to/KOBOeReader --purge-data      # deletes .adds/inoink completely
 ```
+
+Both remove the releases, the launcher, a package waiting to be installed and the NickelMenu
+entry. Highlights and notes made on the Kobo live only in its database: export them with
+`inoink-cli highlights` before deleting everything.
 
 ## Everyday use
 

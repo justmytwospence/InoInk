@@ -44,6 +44,10 @@ jobs:
       - run: cargo clippy --locked -p inoink -p inoink-cli --all-targets -- -D warnings
       - run: sh tests/package.sh
       - run: sh tests/preview-macos.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/web-installer.test.mjs
 
   core:
     name: core

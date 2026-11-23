@@ -30,6 +30,7 @@ document tests inside the build container, and the install/launcher tests).
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Inherited Plato unit tests | `crates/core` | PASS (38) |
+| Browser installer: writes the same files as `install-inoink.sh` (compared file for file) and the Kobo's launcher installs them; damaged copy discarded; no launcher entry without NickelMenu; removal at three levels matches `remove-inoink.sh`; `cksum` and SHA-256 match the system tools; tar formats (ustar, pax, GNU long names); unsafe, incomplete and foreign packages refused; `.kobo/version` parsing, firmware limits, device list agrees with the README; release lookup and verification; blocked download reported | `tests/web-installer.test.mjs` (11, Node) | PASS |
 
 ## Build and package (computer only)
 
@@ -41,6 +42,24 @@ document tests inside the build container, and the install/launcher tests).
 | `scripts/check-reproducibility.sh`: two clean builds on this computer give byte-identical artifacts | PASS on one machine; not checked on another host or architecture |
 | Package contents: licenses and notices present, no credentials, no unsafe paths, root-owned entries | PASS (`tests/package.sh <package>`) |
 | Binary actually runs on the Kobo and loads its libraries | NOT RUN (device) |
+
+## Browser installer (computer only)
+
+`node tests/web-installer-chrome.mjs inoink-0.11.0-kobo.tar.gz` drove the project page in headless
+Chrome 158 on macOS 27.2 on 2026-11-23, with a fake Libra Colour (`.kobo/version`, NickelMenu
+folder) in the browser's private file system: Chrome's real File System Access, decompression and
+hashing, and the live GitHub API. The native folder picker cannot be automated, so a real USB
+drive was not used.
+
+| Check | Result |
+|---|---|
+| The page recognises the model and firmware, refuses a folder that is not a Kobo, and names the latest release | PASS |
+| Downloading the release from GitHub is blocked by CORS (`release-assets.githubusercontent.com` sends no `Access-Control-Allow-Origin`), and the page asks for the downloaded file instead | PASS (Chrome's console names the CORS block) |
+| Installing from the chosen 0.11.0 package: `INSTALL.TGZ` byte-identical, `INSTALL.SUM` equal to `cksum`, launcher and NickelMenu entry written, no swap files left; about 2 s | PASS |
+| A modified package is refused | PASS |
+| Remove, keeping data, then everything | PASS |
+| Inoreader's token endpoint and API send no CORS headers (`curl` with an `Origin` header, preflight and POST), so sign-in stays in `inoink-cli` | PASS (checked 2026-11-23) |
+| Install and remove on a real KOBOeReader drive from Chrome or Edge (folder picker, permission prompt, FAT writes) | NOT RUN |
 
 ## Emulator
 
@@ -212,6 +231,9 @@ that was merged.
 | A math-heavy article caches in reasonable time (`math:` line in inoink.log) | NOT RUN |
 | SVG images show in articles | NOT RUN |
 | `inoink-cli highlights --data` on the USB-mounted data directory lists the highlights | NOT RUN |
+| Browser installer, Chrome on macOS: the page shows the model, firmware, installed version and NickelMenu; Install writes `.adds/inoink/INSTALL.TGZ`, `INSTALL.SUM`, `current/inoink.sh` and `.adds/nm/inoink`; after ejecting, InoInk starts from NickelMenu and `inoink.log` says "installed release"; no `FSCK0000.000` or `.crswap` files appear after the Kobo's disk check | NOT RUN |
+| Browser installer update over an installed release keeps data and sign-in, and the previous release stays for rollback | NOT RUN |
+| Browser installer removal: keep data, reset settings and delete everything each leave the Kobo as described, and the NickelMenu entry goes | NOT RUN |
 | Live API contract (`inoink-cli acceptance --live`, read-only, run from the computer) | PASS 2026-11-11: all 7 read endpoints; real limits 2000 per zone (zone 1 usage 154 before the run) |
 
 ## Known gaps
