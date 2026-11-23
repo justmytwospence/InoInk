@@ -80,13 +80,18 @@ Do not delete the auth directory while a refresh is in progress.
    HEAD instead. To go back, install a release the same way, or write the previous release's name
    into `.adds/inoink/active-release`.
 3. Note in the pull request what you checked, on which device and firmware, and with which build.
-   Cases in `doc/INOINK-ACCEPTANCE.md` move from NOT RUN to PASS only with device evidence.
-4. CI must pass (`test`, `core`, `kobo`); the `kobo` job also uploads the package it built.
+   Cases in `doc/INOINK-ACCEPTANCE.md` move from NOT RUN to PASS only with device evidence. For a
+   change to the interface, a [screen review](INOINK-SCREEN-REVIEW.md) round shows every screen of
+   the tour before and after; for one that may change speed or memory, the
+   [device benchmark](INOINK-BENCHMARKS.md) times it on the Kobo.
+4. CI must pass (`test`, `core`, `kobo`); the `kobo` job also uploads the package it built and the
+   device benchmark (`kobo-bench`).
 5. Squash-merge. Merging is releasing: once CI passes on `main`, the Release workflow tags and
    publishes the next version to everyone, with the Kobo package, the installer and `inoink-cli`.
    The version comes from the titles merged since the last release: `feat:` bumps the minor
    version, `type!:` or `BREAKING CHANGE:` the major, anything else the patch; changes that only
-   touch docs, CI or tests release nothing. `scripts/version.sh next` shows what merging now would
+   touch docs, CI, tests or development tools (the desktop preview, screen review, the device
+   benchmark) release nothing. `scripts/version.sh next` shows what merging now would
    publish. Versions are never bumped or tagged by hand.
 
 ## Install

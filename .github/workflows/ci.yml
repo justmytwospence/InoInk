@@ -48,6 +48,12 @@ jobs:
         with:
           node-version: 22
       - run: node --test tests/web-installer.test.mjs
+      # Development tools: the device benchmark (its own workspace) and screen review.
+      - run: cargo fmt --manifest-path crates/inoink-bench/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path crates/inoink-bench/Cargo.toml
+      - run: cargo clippy --locked --manifest-path crates/inoink-bench/Cargo.toml --all-targets -- -D warnings
+      - run: sh tests/kobo-bench.sh
+      - run: node --test scripts/review/review.test.mjs
 
   core:
     name: core
@@ -78,4 +84,11 @@ jobs:
         with:
           name: kobo-package
           path: dist/
+          retention-days: 7
+      # The device benchmark, for scripts/kobo-bench.sh install without Docker.
+      - run: scripts/kobo-bench.sh build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kobo-bench
+          path: target/kobo-bench/arm-unknown-linux-gnueabihf/release/inoink-bench
           retention-days: 7
