@@ -39,7 +39,9 @@ public API and does not try to match the Inoreader website feature for feature; 
   bottom, split into one segment per page while they fit across the screen.
 - Reading built for e-ink: Plato's typesetting with hyphenation and justification, and a
   Kobo-style **Aa** panel for font, size, line spacing, margins and alignment, which applies
-  to every article. Besides Libertinus Serif (the default) it offers fonts tuned for e-ink,
+  to every article. Dragging a slider reflows the page as you go, the font list shows each
+  font in its own face, and text presets save a font, size, line spacing and alignment to
+  switch between with one tap. Besides Libertinus Serif (the default) it offers fonts tuned for e-ink,
   Libron, NV Bitter, NV Jost and NV Literata from Nico Verbruggen's
   [eBook Fonts](https://github.com/nicoverbruggen/ebook-fonts), as bundled by
   [Kobalt](https://kobalt.nicoverbruggen.be), and any fonts you copy to the Kobo's `fonts` folder.
@@ -385,6 +387,6 @@ available under the [MIT License](LICENSE-MIT), so you can reuse them in other p
 either license. Bundled fonts and libraries keep their own licenses; see
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES) and [doc/LICENSES.md](doc/LICENSES.md).
 
-Plato is copyright Bastien Dejean and contributors. Return after a jump, the image viewer and
-highlight styles follow ideas from [Kobalt](https://github.com/nicoverbruggen/kobalt) (MIT); no
-Kobalt code is included.
+Plato is copyright Bastien Dejean and contributors. Return after a jump, the image viewer,
+highlight styles and the Aa panel's live reflow and text presets follow ideas from
+[Kobalt](https://github.com/nicoverbruggen/kobalt) (MIT); no Kobalt code is included.

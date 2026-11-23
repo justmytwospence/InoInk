@@ -321,10 +321,22 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
 - In an article, tap the left or right third of the page to turn pages and the middle for the bar:
   the arrow and the article's title at the left (tap either to go back to the list), then Aa, Star,
   Archive and More (link posts also get a comments icon before Aa), with a line below showing progress, time left and your place in the
-  list. Aa opens the text panel (font, size, line spacing, margins, alignment); its settings apply
-  to every article. The font menu lists Libertinus Serif (the default), the bundled e-ink fonts
-  Libron, NV Bitter, NV Jost and NV Literata, and the fonts in the Kobo's `fonts` folder (if one
-  of those has the name of a bundled font, the bundled one is used). More holds Mark read/unread, Tags, Send to Karakeep, Show
+  list. Aa opens the text panel (text presets, font, size, line spacing, margins, alignment); its
+  settings apply to every article. While you drag the size, line spacing or margin slider the page
+  above the panel follows (a quick, rougher e-ink update), and letting go redraws the screen
+  cleanly; the word that began the page stays on it. The font menu lists Libertinus Serif (the
+  default), the bundled e-ink fonts Libron, NV Bitter, NV Jost and NV Literata, and the fonts in
+  the Kobo's `fonts` folder (if one of those has the name of a bundled font, the bundled one is
+  used), each in its own face.
+- Text presets are the row of cards at the top of the Aa panel: each shows "Aa" in its font and
+  its name, and tapping one applies its font, size, line spacing and alignment (margins stay as
+  they are). InoInk comes with Default (the out-of-the-box text), Bookish (NV Literata,
+  justified), Modern (NV Jost) and Sturdy (NV Bitter). Once you change the text, the card in force
+  gets an asterisk (`Bookish*`): **Update** saves the change into it, **Save as new** asks for a
+  name (it suggests one like "NV Jost 11") and puts the new preset first. Hold a card to delete
+  it. With more than four presets the last cell shows the page (`1/2 ›`); tap it for the next
+  cards. Presets live in `Settings.toml` (`[[reader.text-presets]]`).
+- The bar's More holds Mark read/unread, Tags, Send to Karakeep, Show
   QR code, Export highlights, Contents (when the article has headings: tap one to go there), Details (including summaries, your highlights and annotations returned by Inoreader) and Load original
   page (the article switches to the full page in place, from the top, when it arrives).
 - Return: after a jump (a footnote or a link to another part of the article, a heading chosen from

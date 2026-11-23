@@ -31,6 +31,7 @@ document tests inside the build container, and the install/launcher tests).
 | Comments button: count labels incl. 0 and 999+, toggle in both directions, article icon without count on the comments, layout in portrait/landscape/narrow, star index kept | `crates/core/tests/inoink_views.rs`, `article_bar.rs` unit test, in the container | PASS 2026-11-15 |
 | Sleep screens: setting default and TOML round trip, Settings > Sleep screen entries and choice, card counts, last sync (this session and after a restart), battery and pending lines, status card and dark power-off drawn, current page left alone with its label, PNG over the page (opaque, transparent, hidden and broken files skipped), Logo keeps Plato's screens, picture scaling with alpha | `crates/core/tests/sleep_screen.rs` (7), `crates/core/src/view/inoink/sleep.rs` (6), in the container | PASS |
 | Reading fonts: the bundled families match `fonts/reading`, each loads with Regular, Italic, Bold and Bold Italic, families resolve to the right directory, the Aa font menu lists the default, bundled and user fonts (a user copy of a bundled family once), choosing a bundled family changes the layout and the default restores it | `crates/core/tests/reading_fonts.rs` (5), in the container | PASS 2026-11-23 |
+| Aa panel: a slider drag reflows live (one reflow per burst, the next after a 250 ms gap, nothing saved until release, a late tick ignored), text changes keep the page's first word (size, line spacing and margin round trips return to the same page; a page turn starts afresh), the font picker and cards load each family's face, presets (the default text is Default, apply, asterisk, Update, Save as new first with a unique name, delete, pager past four, applying the preset in force changes nothing, changing the default text marks Default), preset matching and names, Settings.toml round trip (older settings get the bundled presets) | `crates/core/tests/inoink_text_panel.rs` (6), `settings/text_preset.rs` unit tests (5), in the container | PASS 2026-11-23 |
 | Device detection: Kobo and Tolino codenames map to their models, unknown codenames fall back to a current 300 dpi model, no-frontlight models, experimental (old kernel) models | `crates/core/src/device.rs` (`codenames_and_aliases`), in the container | PASS |
 | Install, update, rollback, removal, launcher (Nickel restored once on exit, failure, SIGTERM; double launch; reboot intent; MediaTek reboot unless the Wi-Fi stayed off, stale markers ignored), package safety, the `device:` line in the log | `tests/package.sh` | PASS |
 | Start-up self-check, install side: release manifest, checksums verified at install (mismatched unpack not installed), missing or resized file or a loader failure (`LOADFAIL`) falls back to the previous release with a notice, nothing usable leaves Nickel running, `--check`/`--why` for the NickelMenu entry (message within NickelMenu's 500 characters), installer refreshes an existing entry | `tests/package.sh` (also under BusyBox 1.31 in Docker) | PASS 2026-11-23 |
@@ -75,13 +76,13 @@ drive was not used.
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
 the Newsfeed with its end-of-list card; saving by tap; a headline's menu; the Newsfeed's folder list and a folder; Read later and its Sort menu (`05b-sort-menu`); an
-article with the bar, the next article's title and the page indicator; the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
+article with the bar, the next article's title and the page indicator; the Aa panel with its preset cards (`08-aa-panel`), the page reflowed to the dragged size while the finger is still down (`08b-aa-dragging`) and after release (`08c-aa-released`), the Bookish preset changed (`Bookish*`, Update and Save as new enabled, `08d-aa-preset-modified`) and the font picker with each family in its face (`08e-font-picker`); the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
 panel; the main menu; the Newsfeed after saving; a Hacker News link post as the article (`14-linked-article-tabs`) and its comments with thread lines (`15-linked-comments-tabs`). Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
 highlight made on the Kobo shaded in paragraph 1; `06b-details` shows the Details page (the Inoreader section is on its later pages, which the
 tour does not turn to); `06c-selection-menu` and `06d-highlight` hold a word and highlight it,
 and the highlight is then in the database (`inoink-cli highlights --data target/inoink-emulator-data`). Each run works on a fresh copy of the fixtures.
-Result: PASS (19 screenshots inspected on 2026-11-16). Not covered by the tour (tested headlessly
+Result: PASS (19 screenshots inspected on 2026-11-16; the five Aa panel screens, 25 in all, on 2026-11-23 in the native preview's capture). Not covered by the tour (tested headlessly
 instead): Done/Undo, search, prompts, the enlargement view, link reading views, Karakeep. The SDL dummy driver renders the framebuffer in software:
 this says nothing about e-ink refresh, colour accuracy or touch hardware.
 
@@ -209,6 +210,8 @@ that was merged.
 | Left-edge slide changes brightness without turning pages | NOT RUN |
 | Text panel: size, line spacing, margins, font and justification apply to all articles and survive a restart | NOT RUN |
 | Bundled reading fonts: Libron, NV Bitter, NV Jost and NV Literata appear in Aa > Font, set body text with italic and bold, and survive a restart; side-by-side with Libertinus Serif for the default | NOT RUN |
+| Aa panel live drag: dragging size, line spacing and margins reflows the page above the panel without lag building up; ghosting during the drag is acceptable and gone after the release refresh; the first word of the page stays on it | NOT RUN |
+| Aa panel font picker shows every family in its own face; text preset cards show Aa in each font, apply with one tap, mark changes with an asterisk, Update and Save as new (keyboard) work and survive a restart | NOT RUN |
 | Wi-Fi icon in the top bar follows the connection (no popup) | NOT RUN |
 | Group and sort per view, kept across restarts; paging is stable while syncing | NOT RUN |
 | Hacker News and Lobsters link posts: full article, comments switch, offline | NOT RUN |

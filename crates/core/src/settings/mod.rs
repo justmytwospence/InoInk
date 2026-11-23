@@ -1,4 +1,5 @@
 mod preset;
+mod text_preset;
 
 use std::env;
 use std::ops::Index;
@@ -14,6 +15,7 @@ use crate::device::CURRENT_DEVICE;
 use crate::unit::mm_to_px;
 
 pub use self::preset::{LightPreset, guess_frontlight};
+pub use self::text_preset::{TextPreset, bundled_text_presets, find_preset, preset_in_force, suggest_preset_name};
 
 pub const SETTINGS_PATH: &str = "Settings.toml";
 
@@ -345,8 +347,13 @@ pub struct ReaderSettings {
     pub continuous_fit_to_width: bool,
     pub ignore_document_css: bool,
     pub dithered_kinds: FxHashSet<String>,
+    /// The text preset last applied, saved or updated (by name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_preset: Option<String>,
     pub paragraph_breaker: ParagraphBreakerSettings,
     pub refresh_rate: RefreshRateSettings,
+    /// The Aa panel's text presets, in their order.
+    pub text_presets: Vec<TextPreset>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -460,8 +467,10 @@ impl Default for ReaderSettings {
             continuous_fit_to_width: true,
             ignore_document_css: false,
             dithered_kinds: ["cbz", "png", "jpg", "jpeg"].iter().map(|k| k.to_string()).collect(),
+            text_preset: None,
             paragraph_breaker: ParagraphBreakerSettings::default(),
             refresh_rate: RefreshRateSettings::default(),
+            text_presets: bundled_text_presets(),
         }
     }
 }

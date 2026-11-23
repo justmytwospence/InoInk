@@ -336,6 +336,10 @@ pub enum Event {
     Define(String),
     Submit(ViewId, String),
     Slider(SliderId, f32, FingerStatus),
+    /// Time to reflow the page for the Aa panel slider being dragged (throttled).
+    LiveTextTick,
+    /// A text preset card or button of the Aa panel.
+    TextPreset(crate::view::inoink::text_panel::PresetAction),
     ToggleNear(ViewId, Rectangle),
     ToggleInputHistoryMenu(ViewId, Rectangle),
     ToggleBookMenu(Rectangle, usize),
@@ -462,6 +466,10 @@ pub enum ViewId {
     SubMenu(u8),
     ArticleMenu,
     TextPanel,
+    /// Holding a text preset card.
+    TextPresetMenu,
+    TextPresetName,
+    TextPresetNameInput,
     ManageMenu,
     PromptDialog,
     PromptInput,
@@ -603,6 +611,8 @@ pub enum EntryId {
     SearchDirection(LinearDir),
     SetButtonScheme(ButtonScheme),
     SetFontFamily(String),
+    /// Delete the Aa panel's text preset at this index.
+    DeleteTextPreset(usize),
     SetFontSize(i32),
     SetTextAlign(TextAlign),
     SetMarginWidth(i32),

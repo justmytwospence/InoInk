@@ -46,6 +46,7 @@ use plato_core::lightsensor::LightSensor;
 use plato_core::font::Fonts;
 use plato_core::context::Context;
 use plato_core::pt;
+use plato_core::rect;
 
 pub const APP_NAME: &str = "InoInk";
 const DEFAULT_ROTATION: i8 = 1;
@@ -841,6 +842,40 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Wait(500));
     t.push_back(TourStep::Shot("07-article-bar-footer"));
     let h = rect.height() as i32;
+    // The Aa panel: drag the size slider (the page follows), then a preset and the font picker.
+    {
+        use plato_core::view::inoink::text_panel::{control_rows, panel_height, PresetAction};
+        let panel = rect![0, h - panel_height(CURRENT_DEVICE.dpi), w, h];
+        let (rows, ctl_x) = control_rows(panel);
+        let size = rows[1];
+        let track = |f: f32| pt!(ctl_x + size.height() as i32 + (f * (w - ctl_x - 2 * size.height() as i32) as f32) as i32, size.center().y);
+        let finger = |status, f| TourStep::Send(Event::Device(DeviceEvent::Finger { id: 0, time: 0.0, status, position: track(f) }));
+        t.push_back(TourStep::Send(Event::Toggle(ViewId::TextPanel)));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Shot("08-aa-panel"));
+        t.push_back(finger(FingerStatus::Down, 0.5));
+        t.push_back(finger(FingerStatus::Motion, 0.7));
+        t.push_back(finger(FingerStatus::Motion, 0.85));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Shot("08b-aa-dragging"));
+        t.push_back(finger(FingerStatus::Up, 0.85));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Shot("08c-aa-released"));
+        t.push_back(TourStep::Send(Event::TextPreset(PresetAction::Apply(1))));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Send(Event::Slider(SliderId::LineHeight, 1.6, FingerStatus::Up)));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Shot("08d-aa-preset-modified"));
+        let family = rect![ctl_x, rows[0].min.y, w, rows[0].max.y];
+        t.push_back(TourStep::Send(Event::ToggleNear(ViewId::FontFamilyMenu, family)));
+        t.push_back(TourStep::Wait(600));
+        t.push_back(TourStep::Shot("08e-font-picker"));
+        t.push_back(TourStep::Send(Event::ToggleNear(ViewId::FontFamilyMenu, family)));
+        // Back to the default text for the rest of the tour.
+        t.push_back(TourStep::Send(Event::TextPreset(PresetAction::Apply(0))));
+        t.push_back(TourStep::Send(Event::Close(ViewId::TextPanel)));
+        t.push_back(TourStep::Wait(600));
+    }
     t.push_back(TourStep::Send(Event::Gesture(GestureEvent::Swipe { dir: Dir::North, start: pt!(w / 2, 3 * h / 4), end: pt!(w / 2, h / 4) })));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("09-next-article"));
