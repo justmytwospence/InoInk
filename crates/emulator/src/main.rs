@@ -799,15 +799,22 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Wait(600));
     t.push_back(TourStep::Shot("02b-row-menu"));
     t.push_back(select(InoInkEntry::CancelSelection));
-    t.push_back(select(InoInkEntry::Tab(Tab::Categories)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Feeds)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("03-categories"));
     t.push_back(select(InoInkEntry::OpenCategory(Collection::Folder("Reading".into()))));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("04-folder"));
-    t.push_back(select(InoInkEntry::Tab(Tab::ReadLater)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Saved)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("05-read-later"));
+    // The footer's Sort label (the third of its three menus).
+    let (sort_x, footer_y) = (w * 2 / 3, rect.height() as i32 - bar / 2);
+    t.push_back(TourStep::Tap(sort_x, footer_y));
+    t.push_back(TourStep::Wait(600));
+    t.push_back(TourStep::Shot("05b-sort-menu"));
+    t.push_back(TourStep::Tap(sort_x, footer_y));
+    t.push_back(TourStep::Wait(600));
     t.push_back(TourStep::Tap(w / 2, row_y(0)));
     t.push_back(TourStep::Wait(1500));
     t.push_back(TourStep::Shot("06-article"));
@@ -862,7 +869,7 @@ fn scripted_tour(rect: Rectangle) -> VecDeque<TourStep> {
     t.push_back(TourStep::Shot("12-main-menu"));
     t.push_back(TourStep::Tap(w - bar / 2, bar / 2));
     t.push_back(TourStep::Wait(400));
-    t.push_back(select(InoInkEntry::Tab(Tab::Newsfeed)));
+    t.push_back(select(InoInkEntry::Tab(Tab::Feeds)));
     t.push_back(TourStep::Wait(800));
     t.push_back(TourStep::Shot("13-end-of-unread"));
     t.push_back(TourStep::Send(Event::OpenArticle(ArticleId(1005))));

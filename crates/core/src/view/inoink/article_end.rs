@@ -1,5 +1,5 @@
 //! The end-of-article popup: what to do with the finished article (Mark read by default, Archive
-//! on a saved article when it was chosen last time), the
+//! (move to Inoreader's Archive) on a saved article when it was chosen last time), the
 //! next article of the list, and Back to list / Next article. Swiping on (or the forward button)
 //! also opens the next article; swiping back, the back button or a tap outside closes the popup. Opened by paging past
 //! the last page.

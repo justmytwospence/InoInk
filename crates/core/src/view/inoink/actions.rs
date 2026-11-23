@@ -11,14 +11,14 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ArticleAction {
     ToggleStar,
-    /// Archive: mark read and remove the star. Undoable.
-    Done,
+    /// Move to Inoreader's Archive (out of Read later); read state untouched. Undoable.
+    Archive,
+    /// Take out of the Archive (Inoreader forgets its progress). Undoable until sent.
+    RemoveFromArchive,
     /// Mark read (or unread) without touching the star.
     ToggleRead,
     /// Mark read, leaving the star alone.
     MarkRead,
-    ToggleLike,
-    ToggleBroadcast,
     AddTag(String),
     RemoveTag(String),
     LoadOriginal,
@@ -35,8 +35,9 @@ pub enum DocKind {
 /// Menu choices of the list and management screens.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum InoInkEntry {
+    /// A tab was tapped: switch section, or open or close the active section's picker.
     Tab(Tab),
-    /// Open a category (folder, feed, tag...) from the Categories tab.
+    /// Open a view chosen in a picker (folder, feed, tag, Archive...).
     OpenCategory(Collection),
     /// Enter selection mode (if needed) with this selection.
     Select(SelectPreset),
@@ -64,6 +65,10 @@ pub enum InoInkEntry {
     SyncNow,
     Article(ArticleAction),
     UndoDone,
+    /// Ask before taking an article out of the Archive.
+    RemoveFromArchive(ArticleId),
+    /// Confirmed: take it out of the Archive now.
+    ConfirmRemoveFromArchive(ArticleId),
     PromptNewTag,
     /// Ask for the address of a feed to follow.
     Subscribe,
@@ -114,7 +119,7 @@ pub enum InoInkEntry {
 pub enum EndState {
     /// Mark read, keeping any star.
     MarkRead,
-    /// Mark read and remove the star (undoable).
+    /// Move to the Archive (out of Read later; undoable).
     Archive,
     /// Change nothing.
     Leave,
@@ -171,8 +176,6 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             context.inoink.changed();
             Ok(ActionOutcome::default())
         }
-        ArticleAction::ToggleLike => flag_action(context, id, Membership::Like),
-        ArticleAction::ToggleBroadcast => flag_action(context, id, Membership::Broadcast),
         ArticleAction::AddTag(name) | ArticleAction::RemoveTag(name) => {
             let name = name.trim();
             if name.is_empty() || name.starts_with("user/") || name.chars().any(|c| c.is_control()) {
@@ -184,12 +187,19 @@ pub fn apply_article_action(context: &mut Context, id: ArticleId, action: &Artic
             context.inoink.changed();
             Ok(ActionOutcome::default())
         }
-        ArticleAction::Done => {
+        ArticleAction::Archive => {
             let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
-            let undo = store.done(id).map_err(|_| SAVE_FAILED)?;
-            context.inoink.last_undo = Some(Undo::Done(undo));
+            let undo = store.archive(id).map_err(|_| SAVE_FAILED)?;
+            context.inoink.last_undo = Some(Undo::Archive(undo));
             context.inoink.changed();
             Ok(ActionOutcome { message: None, close: true })
+        }
+        ArticleAction::RemoveFromArchive => {
+            let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
+            let undo = store.unarchive(id).map_err(|_| SAVE_FAILED)?;
+            context.inoink.last_undo = Some(Undo::Archive(undo));
+            context.inoink.changed();
+            Ok(ActionOutcome::default())
         }
         ArticleAction::LoadOriginal => {
             if context.inoink.handle.is_none() {
@@ -227,14 +237,14 @@ pub fn apply_bulk_action(context: &mut Context, ids: &[ArticleId], action: BulkA
     Ok(n)
 }
 
-/// Reverts the most recent Done or bulk action.
+/// Reverts the most recent Archive or bulk action.
 pub fn undo_done(context: &mut Context) -> Result<ActionOutcome, String> {
     let Some(undo) = context.inoink.last_undo else {
         return Ok(ActionOutcome::default());
     };
     let store = context.inoink.store_mut().ok_or(SAVE_FAILED)?;
     match undo {
-        Undo::Done(u) => store.undo(u),
+        Undo::Archive(u) => store.undo(u),
         Undo::Bulk(s) => store.undo_bulk(s),
     }
     .map_err(|_| SAVE_FAILED)?;

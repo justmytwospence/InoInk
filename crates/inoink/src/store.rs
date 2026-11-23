@@ -23,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009.sql"),
     include_str!("../migrations/0010.sql"),
     include_str!("../migrations/0011.sql"),
+    include_str!("../migrations/0012.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -41,7 +42,9 @@ pub enum ListSpan {
     From(ArticleId),
 }
 
-const FLAG_KEYS: [&str; 4] = ["read", "starred", "like", "broadcast"];
+/// Memberships an article object reports by their absence too. `archived` is not one: article
+/// objects never list it, so it is only ever learned from the Archive stream.
+const FLAG_KEYS: [&str; 2] = ["read", "starred"];
 
 /// An article as received from the API, ready to be stored.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -259,6 +262,13 @@ fn progress_exprs() -> (String, String) {
 const SAVED_AT_EXPR: &str = "COALESCE((SELECT saved_at FROM saved_items si WHERE si.account=a.account AND si.article=a.id),0)";
 
 fn set_intent_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Membership, desired: bool) -> Result<CommitReceipt> {
+    // Read later and the Archive exclude each other, as on the server.
+    if desired && *m == Membership::Archived && effective_tx(tx, account, article, &Membership::Starred)? {
+        set_intent_tx(tx, account, article, &Membership::Starred, false)?;
+    }
+    if desired && *m == Membership::Starred && effective_tx(tx, account, article, &Membership::Archived)? {
+        set_intent_tx(tx, account, article, &Membership::Archived, false)?;
+    }
     if *m == Membership::Starred && desired {
         // Saved here: the date until the server reports its own.
         tx.execute("INSERT OR IGNORE INTO saved_items(account,article) VALUES(?1,?2)", params![account, article.to_db()])?;
@@ -272,6 +282,8 @@ fn set_intent_tx(tx: &Transaction, account: &str, article: ArticleId, m: &Member
     let known: Option<i64> = tx
         .query_row("SELECT present FROM remote_state WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key], |r| r.get(0))
         .optional()?;
+    // Article objects never list the Archive, so an article not known to be in it is not in it.
+    let known = if m == &Membership::Archived { known.or(Some(0)) } else { known };
     let existing: Option<Option<i64>> = tx
         .query_row("SELECT sent_generation FROM intents WHERE account=?1 AND article=?2 AND key=?3", params![account, a, key], |r| {
             r.get::<_, Option<i64>>(0)
@@ -316,6 +328,19 @@ fn observe_tx(tx: &Transaction, account: &str, article: ArticleId, key: &str, pr
         "DELETE FROM intents WHERE account=?1 AND article=?2 AND key=?3 AND sent_generation IS NULL AND desired=?4",
         params![account, a, key, present as i64],
     )?;
+    // Read later and the Archive exclude each other.
+    if present && key == "archived" {
+        observe_tx(tx, account, article, "starred", false, start_seq)?;
+    } else if present && key == "starred" {
+        let archived: Option<i64> = tx
+            .query_row("SELECT present FROM remote_state WHERE account=?1 AND article=?2 AND key='archived'", params![account, a], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if archived == Some(1) {
+            observe_tx(tx, account, article, "archived", false, start_seq)?;
+        }
+    }
     Ok(true)
 }
 
@@ -413,6 +438,26 @@ impl Store {
         }
         if upgraded_from > 0 && upgraded_from < 7 {
             self.backfill_titles()?;
+        }
+        if upgraded_from == 11 {
+            self.repair_highlight_style()?;
+        }
+        Ok(())
+    }
+
+    /// A development build numbered the Archive migration (now 0012) as 0011, so a database it
+    /// upgraded is at version 11 without 0011's highlight style and colour. Adds them if missing,
+    /// with 0011's defaults.
+    fn repair_highlight_style(&mut self) -> Result<()> {
+        let has = |conn: &Connection, column: &str| -> Result<bool> {
+            let n: i64 = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('highlights') WHERE name = ?1", [column], |r| r.get(0))?;
+            Ok(n > 0)
+        };
+        if !has(&self.conn, "style")? {
+            self.conn.execute_batch("ALTER TABLE highlights ADD COLUMN style TEXT NOT NULL DEFAULT 'shaded'")?;
+        }
+        if !has(&self.conn, "color")? {
+            self.conn.execute_batch("ALTER TABLE highlights ADD COLUMN color TEXT NOT NULL DEFAULT 'gray'")?;
         }
         Ok(())
     }
@@ -885,8 +930,7 @@ impl Store {
             None | Some(Collection::All) => {}
             Some(Collection::Starred) => push(&mut sql, &format!("{}=1", flag_expr("starred")), vec![]),
             Some(Collection::Unread) => push(&mut sql, &format!("{}=0", flag_expr("read")), vec![]),
-            Some(Collection::Liked) => push(&mut sql, &format!("{}=1", flag_expr("like")), vec![]),
-            Some(Collection::Broadcast) => push(&mut sql, &format!("{}=1", flag_expr("broadcast")), vec![]),
+            Some(Collection::Archived) => push(&mut sql, &format!("{}=1", flag_expr("archived")), vec![]),
             Some(Collection::Feed(s)) => push(&mut sql, "a.origin_stream=?", vec![s.0.clone().into()]),
             Some(Collection::Folder(n)) => push(
                 &mut sql,
@@ -916,7 +960,7 @@ impl Store {
         if q.unread_only && !matches!(q.collection, Some(Collection::Unread)) {
             push(&mut sql, &format!("{}=0", flag_expr("read")), vec![]);
         }
-        if matches!(q.collection, Some(Collection::Starred)) {
+        if matches!(q.collection, Some(Collection::Starred | Collection::Archived)) {
             let (progress, finished) = progress_exprs();
             match q.progress {
                 ProgressFilter::All => {}
@@ -1158,11 +1202,12 @@ impl Store {
             q.visit_start_usec
         );
         let (progress_expr, finished_expr) = progress_exprs();
+        let archived_expr = flag_expr("archived");
         sql.push_str(&format!(
             " AS is_starred, a.words, {new_expr} AS is_new, {progress_expr}, {finished_expr}, \
              (SELECT kind FROM saved_items si WHERE si.account=a.account AND si.article=a.id), \
              COALESCE((SELECT length_secs FROM saved_items si WHERE si.account=a.account AND si.article=a.id),0), \
-             {SAVED_AT_EXPR} FROM articles a WHERE a.account=?1"
+             {SAVED_AT_EXPR}, {archived_expr} FROM articles a WHERE a.account=?1"
         ));
         let mut args: Vec<rusqlite::types::Value> = vec![self.account.clone().into()];
         let Some((cond, cond_args)) = self.filter_sql(q) else { return Ok(ArticlePage { items: vec![], next: None }) };
@@ -1255,6 +1300,7 @@ impl Store {
                 download: DownloadState::parse(&r.get::<_, String>(5)?),
                 read: r.get::<_, i64>(6)? != 0,
                 starred: r.get::<_, i64>(7)? != 0,
+                archived: r.get::<_, i64>(15)? != 0,
                 words: r.get::<_, i64>(8)?.max(0) as u32,
                 new: r.get::<_, i64>(9)? != 0,
                 progress: r.get::<_, i64>(10)?.clamp(0, 100) as u8,
@@ -1297,39 +1343,53 @@ impl Store {
         Ok(r)
     }
 
-    /// Done: mark read and remove the star in one transaction, recording an undo entry.
-    pub fn done(&mut self, article: ArticleId) -> Result<UndoId> {
+    /// Archive: moves the article to Inoreader's Archive (out of Read later); read state is
+    /// untouched. Records an undo entry.
+    pub fn archive(&mut self, article: ArticleId) -> Result<UndoId> {
+        self.move_to_archive(article, true)
+    }
+
+    /// Takes the article out of the Archive (Inoreader then forgets its reading progress).
+    /// Records an undo entry.
+    pub fn unarchive(&mut self, article: ArticleId) -> Result<UndoId> {
+        self.move_to_archive(article, false)
+    }
+
+    fn move_to_archive(&mut self, article: ArticleId, archived: bool) -> Result<UndoId> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
         let prev_read = effective_tx(&tx, &account, article, &Membership::Read)?;
         let prev_starred = effective_tx(&tx, &account, article, &Membership::Starred)?;
-        set_intent_tx(&tx, &account, article, &Membership::Read, true)?;
-        set_intent_tx(&tx, &account, article, &Membership::Starred, false)?;
+        let prev_archived = effective_tx(&tx, &account, article, &Membership::Archived)?;
+        set_intent_tx(&tx, &account, article, &Membership::Archived, archived)?;
         tx.execute(
-            "INSERT INTO undos(account,article,prev_read,prev_starred,created) VALUES(?1,?2,?3,?4,?5)",
-            params![account, article.to_db(), prev_read as i64, prev_starred as i64, now_secs()],
+            "INSERT INTO undos(account,article,prev_read,prev_starred,prev_archived,created) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![account, article.to_db(), prev_read as i64, prev_starred as i64, prev_archived as i64, now_secs()],
         )?;
         let id = tx.last_insert_rowid();
         tx.commit()?;
         Ok(UndoId(id))
     }
 
-    /// Undo a Done by durably restoring the previous read and starred values.
+    /// Undo an Archive or Remove from Archive by durably restoring the previous Read later and
+    /// Archive membership.
     pub fn undo(&mut self, id: UndoId) -> Result<()> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
         let row: Option<(i64, i64, i64, i64)> = tx
-            .query_row("SELECT article,prev_read,prev_starred,used FROM undos WHERE id=?1 AND account=?2", params![id.0, account], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })
+            .query_row(
+                "SELECT article,prev_starred,prev_archived,used FROM undos WHERE id=?1 AND account=?2",
+                params![id.0, account],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
             .optional()?;
-        let (article, prev_read, prev_starred, used) = row.ok_or_else(|| Error::InvalidRequest("unknown undo".into()))?;
+        let (article, prev_starred, prev_archived, used) = row.ok_or_else(|| Error::InvalidRequest("unknown undo".into()))?;
         if used != 0 {
             return Err(Error::InvalidRequest("already undone".into()));
         }
         let article = ArticleId::from_db(article);
-        set_intent_tx(&tx, &account, article, &Membership::Read, prev_read != 0)?;
         set_intent_tx(&tx, &account, article, &Membership::Starred, prev_starred != 0)?;
+        set_intent_tx(&tx, &account, article, &Membership::Archived, prev_archived != 0)?;
         tx.execute("UPDATE undos SET used=1 WHERE id=?1", params![id.0])?;
         tx.commit()?;
         Ok(())
@@ -1552,11 +1612,16 @@ impl Store {
 
     /// After a complete listing of the saved articles: forgets Inoreader's progress for every
     /// article that was not in it (unsaved elsewhere, where Inoreader drops the progress too).
+    /// Archived articles keep theirs: Inoreader keeps it in the Archive.
     pub fn reset_saved_progress_except(&mut self, listed: &BTreeSet<ArticleId>) -> Result<usize> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
         let stale: Vec<i64> = {
-            let mut stmt = tx.prepare("SELECT article FROM saved_items WHERE account=?1 AND kind IS NOT NULL")?;
+            let mut stmt = tx.prepare(
+                "SELECT article FROM saved_items WHERE account=?1 AND kind IS NOT NULL \
+                 AND COALESCE((SELECT desired FROM intents i WHERE i.account=saved_items.account AND i.article=saved_items.article AND i.key='archived'), \
+                              (SELECT present FROM remote_state r WHERE r.account=saved_items.account AND r.article=saved_items.article AND r.key='archived'), 0)=0",
+            )?;
             let rows = stmt.query_map([&account], |r| r.get::<_, i64>(0))?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter(|a| !listed.contains(&ArticleId::from_db(*a))).collect()
         };
@@ -1594,7 +1659,7 @@ impl Store {
 impl Store {
     /// Marks the oldest unsent intents as in flight and groups them into edit-tag batches of at
     /// most `max_articles` articles. An article's changes are paired (one add with one remove)
-    /// so that a Done is a single request.
+    /// so that an Archive or a Restore is a single request.
     pub fn begin_send(&mut self, max_articles: usize) -> Result<Vec<OutboxBatch>> {
         let account = self.account.clone();
         let tx = self.conn.transaction()?;
@@ -1619,8 +1684,19 @@ impl Store {
         }
         type Key = (Option<Membership>, Option<Membership>);
         let mut groups: BTreeMap<Key, Vec<(ArticleId, Membership, bool, i64)>> = BTreeMap::new();
-        for (a, (adds, removes)) in per_article {
+        for (a, (mut adds, mut removes)) in per_article {
             let article = ArticleId::from_db(a);
+            // Moving between Read later and the Archive is always one request: removing the star
+            // alone would make Inoreader drop the article's reading progress.
+            for (x, y) in [(Membership::Archived, Membership::Starred), (Membership::Starred, Membership::Archived)] {
+                if let (Some(ai), Some(ri)) = (adds.iter().position(|c| c.0 == x), removes.iter().position(|c| c.0 == y)) {
+                    let (am, ag) = adds.remove(ai);
+                    let (rm, rg) = removes.remove(ri);
+                    let g = groups.entry((Some(am.clone()), Some(rm.clone()))).or_default();
+                    g.push((article, am, true, ag));
+                    g.push((article, rm, false, rg));
+                }
+            }
             let n = adds.len().max(removes.len());
             for i in 0..n {
                 let add = adds.get(i).cloned();
@@ -1690,6 +1766,30 @@ impl Store {
                     tx.execute(
                         "UPDATE intents SET sent_generation=NULL, sent_desired=NULL WHERE account=?1 AND article=?2 AND key=?3",
                         params![account, a.to_db(), key],
+                    )?;
+                }
+            }
+            // The server keeps Read later and the Archive exclusive; so does what we know of it.
+            let other = match (m, *desired) {
+                (Membership::Archived, true) => Some(("starred", true)),
+                (Membership::Starred, true) => Some(("archived", false)),
+                _ => None,
+            };
+            if let Some((other_key, always)) = other {
+                let exists: bool = tx
+                    .query_row(
+                        "SELECT 1 FROM remote_state WHERE account=?1 AND article=?2 AND key=?3",
+                        params![account, a.to_db(), other_key],
+                        |_| Ok(true),
+                    )
+                    .optional()?
+                    .unwrap_or(false);
+                if always || exists {
+                    let seq = next_seq(&tx)?;
+                    tx.execute(
+                        "INSERT INTO remote_state(account,article,key,present,seq) VALUES(?1,?2,?3,0,?4) \
+                         ON CONFLICT(account,article,key) DO UPDATE SET present=0, seq=excluded.seq",
+                        params![account, a.to_db(), other_key, seq],
                     )?;
                 }
             }

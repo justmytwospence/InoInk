@@ -74,7 +74,7 @@ drive was not used.
 
 `scripts/build-inoink.sh --run-emulator --data target/inoink-fixtures` (Libra Colour geometry,
 1264x1680) replays a scripted tour and writes screenshots to `target/inoink-emulator-shots`:
-the Newsfeed with its end-of-list card; saving by tap; a headline's menu; Categories and a folder; Read later; an
+the Newsfeed with its end-of-list card; saving by tap; a headline's menu; the Newsfeed's folder list and a folder; Read later and its Sort menu (`05b-sort-menu`); an
 article with the bar, the next article's title and the page indicator; the next article (swipe up); its end-of-article popup (`09b-article-end`); a QR code; the light
 panel; the main menu; the Newsfeed after saving; a Hacker News link post as the article (`14-linked-article-tabs`) and its comments with thread lines (`15-linked-comments-tabs`). Screenshot `06-article` shows an Inoreader annotation
 underlined in paragraph 2 (placed by context, the sentence repeats in every paragraph) and a
@@ -187,7 +187,7 @@ that was merged.
 | Ten suspend/wake cycles; no sync starts while suspended | NOT RUN |
 | USB share and unshare; the database opens afterwards | NOT RUN |
 | Read downloaded articles and images with Wi-Fi off | NOT RUN |
-| Archive offline, restart, reconnect: read and unstarred on inoreader.com | NOT RUN |
+| Archive offline, restart, reconnect: in the Archive and out of Read later on inoreader.com, reading progress kept, read state unchanged | NOT RUN |
 | Mark read keeps the star | NOT RUN |
 | Rapid toggles of read/star/tags end in the final state | NOT RUN |
 | Star an old article elsewhere: it arrives and is cached | NOT RUN |
@@ -196,13 +196,14 @@ that was merged.
 | Expired token and quota exhaustion (watch Main menu > Status) | NOT RUN |
 | Sync icon shows its syncing form (dot) during a sync, without ghosting, and returns to the plain icon | NOT RUN |
 | Top bar title is bold, centred and not cut short | NOT RUN |
-| List pages: the line above the footer is the page indicator; group headers read as grey section bands | NOT RUN |
+| List pages: the page indicator sits in its own band between the headlines and the footer, menus open above it; group headers read as grey section bands | NOT RUN |
 | Settings > Inoreader API budget matches Inoreader's headers; a sync with nothing new uses 1-2 requests | NOT RUN |
 | A change made on inoreader.com (read, star, new feed) arrives at the next sync despite skipped listings | NOT RUN |
 | List footer "N / M" matches the pages you can turn to; the bar fills as you page | NOT RUN |
+| List footer: Show, Group and Sort labels each open their own menu with no "More" entry; the labels fit in portrait; the list still shows eight headlines on the Libra Colour | NOT RUN |
 | Page bar: segments in portrait vs landscape follow the width (e.g. 15 pages: line in portrait, segments in landscape) | NOT RUN |
 | Article bar: short articles show one segment per page, long ones the line; it follows font size changes | NOT RUN |
-| Categories sort (Inoreader order, name, most unread) applies and is kept across restarts | NOT RUN |
+| Folder sort (Inoreader order, name, most unread) applies and is kept across restarts | NOT RUN |
 | Storage pressure behaviour | NOT RUN |
 | Brightness and warmth match Nickel's at launch | NOT RUN |
 | Left-edge slide changes brightness without turning pages | NOT RUN |
@@ -218,7 +219,10 @@ that was merged.
 | Wi-Fi state inherited at launch, both on and off | NOT RUN |
 | Wi-Fi icon shows off, connecting and online; tapping it toggles Wi-Fi | NOT RUN |
 | Light panel: on/off, brightness and warmth steppers and sliders; the edge slide still works | NOT RUN |
-| Tabs and counts (Newsfeed, Categories, Read later) agree with the lists | NOT RUN |
+| Tabs (Newsfeed, Read later): the active tab names the view with its count; tapping it opens and closes its list; the other tab opens Newsfeed or Read later | NOT RUN |
+| Archive (Read later > Archive) lists the same articles as Saved > Archive on inoreader.com, with reading progress | NOT RUN |
+| Restore to Read later (menu, ribbon) moves an archived article back, progress kept; Remove from Archive asks first | NOT RUN |
+| Read later's list shows Read later, Archive, Web pages, Annotations and your tags; the Newsfeed's shows Newsfeed, folders and monitoring feeds | NOT RUN |
 | Tap opens a headline; tapping the ribbon at the right saves or unsaves it; hold opens the menu; the outlined ribbon reads clearly without ghosting | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | End of unread list: "Mark N read" marks only what was seen and not saved, at once, with Undo | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
 | Mark-read button in the top bar asks, then marks the whole list read except saved articles; Undo restores | PASS 2026-11-13 (Libra Colour 4.46.23852, 0.6.0-dev.4.36eee1d) |
@@ -236,8 +240,8 @@ that was merged.
 | Selection survives paging and a sync refresh; switching tabs cancels it | NOT RUN |
 | Article tap zones (left, middle, right thirds) with no Plato corner gestures firing | NOT RUN |
 | Swipe up and holding forward open the next article; swipe down and holding back the previous one, where it was left; the release never turns a page in the new article | NOT RUN |
-| End-of-article popup: paging past the last page opens it; Mark read is preselected (Leave as is for a read article), Archive unstars (Undo in the main menu), Keep unread leaves it; Archive is remembered for saved articles (preselected next time until another choice is made); Up next names the next article (End of list after the last); swiping on or forward applies the choice and opens it, but not in the first moment after the popup opens; Back to list applies it and returns, Next article beside it applies it and opens the next; swiping back, the back button and a tap outside close it; layout reads well | NOT RUN |
-| Archive (bar) in Read later archives it on inoreader.com; changing articles marks nothing read | NOT RUN |
+| End-of-article popup: paging past the last page opens it; Mark read is preselected (Leave as is for a read article), Archive moves it to the Archive, leaving read state alone (Undo in the main menu), Keep unread leaves it; Archive is remembered for saved articles (preselected next time until another choice is made); Up next names the next article (End of list after the last); swiping on or forward applies the choice and opens it, but not in the first moment after the popup opens; Back to list applies it and returns, Next article beside it applies it and opens the next; swiping back, the back button and a tap outside close it; layout reads well | NOT RUN |
+| Archive (bar) in Read later archives it on inoreader.com, progress kept; changing articles marks nothing read | NOT RUN |
 | Short or slanted vertical swipes do nothing; a double swipe opens one article; paging back from page 1 opens the previous article's last page | NOT RUN |
 | Switching articles shows no blank page before the new article | NOT RUN |
 | Read later rows show Finished or "N% · M min left" matching inoreader.com; videos and podcasts show their duration | NOT RUN |

@@ -1,4 +1,5 @@
-//! The Categories tab: folders in Inoreader's order, then tags and the other streams.
+//! The pickers of the two sections: the Newsfeed, folders and monitoring feeds; Read later, the
+//! Archive, Web pages, Annotations and tags.
 
 use crate::color::{BLACK, GRAY03, TEXT_INVERTED_HARD, TEXT_NORMAL};
 use crate::context::Context;
@@ -8,6 +9,7 @@ use crate::framebuffer::{Framebuffer, UpdateMode};
 use crate::geom::{Point, Rectangle};
 use crate::gesture::GestureEvent;
 use crate::view::inoink::actions::InoInkEntry;
+use crate::view::inoink::state::Tab;
 use crate::view::{Bus, EntryId, Event, Hub, Id, RenderData, RenderQueue, View, ID_FEEDER};
 use inoink::model::*;
 
@@ -18,45 +20,66 @@ pub enum CategoryItem {
     Entry { label: String, count: usize, target: Collection },
 }
 
-/// Everything the Categories tab lists, in the chosen order. Sections with nothing in them
-/// are left out; the fixed "More" section is never reordered.
-pub fn category_items(context: &Context) -> Vec<CategoryItem> {
+/// Everything a section's picker lists, its default view first. Feeds: the Newsfeed, the folders
+/// in the chosen order, then the monitoring feeds. Saved: Read later, the Archive, Web pages and
+/// Annotations, then the tags A-Z. Sections with nothing in them are left out.
+pub fn category_items(context: &Context, tab: Tab) -> Vec<CategoryItem> {
     let mut items = Vec::new();
     let Some(store) = context.inoink.store() else { return items };
-    let sort = context.inoink.category_sort();
-    let counts = store.unread_by_folder().unwrap_or_default();
-    let mut folders: Vec<(String, usize)> = store.folders_in_order().unwrap_or_default().into_iter().map(|f| {
-        let n = counts.get(&f).copied().unwrap_or(0);
-        (f, n)
-    }).collect();
-    match sort {
-        CategorySort::Inoreader => {}
-        CategorySort::Name => folders.sort_by_key(|(f, _)| f.to_lowercase()),
-        // Stable: ties keep Inoreader's order.
-        CategorySort::MostUnread => folders.sort_by(|a, b| b.1.cmp(&a.1)),
-    }
-    if !folders.is_empty() {
-        items.push(CategoryItem::Header("Folders".into()));
-        for (f, count) in folders {
-            items.push(CategoryItem::Entry { label: f.clone(), count, target: Collection::Folder(f) });
-        }
-    }
     let tags = store.tags().unwrap_or_default();
-    let mut user_tags: Vec<String> = tags.iter().filter(|t| t.kind == "tag").filter_map(|t| t.id.strip_prefix("user/-/label/").map(String::from)).collect();
-    user_tags.sort_by_key(|t| t.to_lowercase());
-    if !user_tags.is_empty() {
-        items.push(CategoryItem::Header("Tags".into()));
-        for t in user_tags {
-            items.push(CategoryItem::Entry { label: t.clone(), count: 0, target: Collection::Tag(t) });
+    let count = |c: Collection, unread: bool| {
+        store.count_articles(&ArticleQuery { collection: Some(c), unread_only: unread, ..Default::default() }).unwrap_or(0)
+    };
+    match tab {
+        Tab::Feeds => {
+            items.push(CategoryItem::Entry { label: "Newsfeed".into(), count: count(Collection::All, true), target: Collection::All });
+            let sort = context.inoink.category_sort();
+            let counts = store.unread_by_folder().unwrap_or_default();
+            let mut folders: Vec<(String, usize)> = store
+                .folders_in_order()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|f| {
+                    let n = counts.get(&f).copied().unwrap_or(0);
+                    (f, n)
+                })
+                .collect();
+            match sort {
+                CategorySort::Inoreader => {}
+                CategorySort::Name => folders.sort_by_key(|(f, _)| f.to_lowercase()),
+                // Stable: ties keep Inoreader's order.
+                CategorySort::MostUnread => folders.sort_by(|a, b| b.1.cmp(&a.1)),
+            }
+            if !folders.is_empty() {
+                items.push(CategoryItem::Header("Folders".into()));
+                for (f, count) in folders {
+                    items.push(CategoryItem::Entry { label: f.clone(), count, target: Collection::Folder(f) });
+                }
+            }
+            let monitoring: Vec<&inoink::store::TagInfo> = tags.iter().filter(|t| t.kind == "active_search").collect();
+            if !monitoring.is_empty() {
+                items.push(CategoryItem::Header("Monitoring feeds".into()));
+                for t in monitoring {
+                    let name = t.id.rsplit('/').next().unwrap_or("Search").to_string();
+                    items.push(CategoryItem::Entry { label: name, count: 0, target: Collection::Monitoring(StreamId::new(&t.id)) });
+                }
+            }
         }
-    }
-    items.push(CategoryItem::Header("More".into()));
-    for (label, c) in [("Saved pages", Collection::SavedPages), ("Annotated", Collection::Annotated), ("Liked", Collection::Liked), ("Broadcast", Collection::Broadcast)] {
-        items.push(CategoryItem::Entry { label: label.into(), count: 0, target: c });
-    }
-    for t in tags.iter().filter(|t| t.kind == "active_search") {
-        let name = t.id.rsplit('/').next().unwrap_or("Search").to_string();
-        items.push(CategoryItem::Entry { label: name, count: 0, target: Collection::Monitoring(StreamId::new(&t.id)) });
+        Tab::Saved => {
+            items.push(CategoryItem::Entry { label: "Read later".into(), count: count(Collection::Starred, false), target: Collection::Starred });
+            items.push(CategoryItem::Entry { label: "Archive".into(), count: 0, target: Collection::Archived });
+            items.push(CategoryItem::Entry { label: "Web pages".into(), count: 0, target: Collection::SavedPages });
+            items.push(CategoryItem::Entry { label: "Annotations".into(), count: 0, target: Collection::Annotated });
+            let mut user_tags: Vec<String> =
+                tags.iter().filter(|t| t.kind == "tag").filter_map(|t| t.id.strip_prefix("user/-/label/").map(String::from)).collect();
+            user_tags.sort_by_key(|t| t.to_lowercase());
+            if !user_tags.is_empty() {
+                items.push(CategoryItem::Header("Tags".into()));
+                for t in user_tags {
+                    items.push(CategoryItem::Entry { label: t.clone(), count: 0, target: Collection::Tag(t) });
+                }
+            }
+        }
     }
     items
 }

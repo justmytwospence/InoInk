@@ -38,6 +38,10 @@ pub struct SyncConfig {
     /// A membership whose unread count shows no change is not listed again, but never for
     /// longer than this.
     pub reconcile_max_age_secs: i64,
+    /// Pages of 100 articles fetched from the Archive when its listing finds unknown ones.
+    pub archived_fetch_pages: usize,
+    /// Automatic cycles list the Archive no more often than this (unread-count does not report it).
+    pub archive_interval_secs: i64,
 }
 
 impl Default for SyncConfig {
@@ -56,6 +60,8 @@ impl Default for SyncConfig {
             org_interval_secs: 21600,
             org_interval_explicit_secs: 3600,
             reconcile_max_age_secs: 21600,
+            archived_fetch_pages: 5,
+            archive_interval_secs: 21600,
         }
     }
 }
@@ -113,6 +119,12 @@ pub struct CycleReport {
     /// Links sent (or refused) to other services during this pass.
     pub shares: Vec<ShareResult>,
     pub error: Option<SyncError>,
+}
+
+/// What belonging to `stream` implies about an article object that does not say so itself:
+/// Inoreader never lists the Archive among an article's categories.
+fn implied_membership(stream: &StreamId) -> Option<Membership> {
+    (stream.as_str() == STATE_ARCHIVED).then_some(Membership::Archived)
 }
 
 /// The outcome of sending one queued link.
@@ -672,7 +684,7 @@ impl SyncEngine {
                     continuation: cont.clone(),
                     annotations: true,
                     summaries: true,
-                    progress: stream.as_str() == STATE_STARRED,
+                    progress: stream.as_str() == STATE_STARRED || stream.as_str() == STATE_ARCHIVED,
                     ..Default::default()
                 },
             )?;
@@ -680,6 +692,9 @@ impl SyncEngine {
                 self.strip_folder_labels(&mut rec)?;
                 remaining.remove(&ArticleId(rec.id));
                 self.store.upsert_article(&rec, start_seq)?;
+                if let Some(m) = implied_membership(stream) {
+                    self.store.observe(ArticleId(rec.id), &m, true, start_seq)?;
+                }
                 rep.fetched += 1;
             }
             match page.continuation {
@@ -738,32 +753,46 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Re-reads the newest saved articles with Inoreader's reading progress (undocumented
-    /// `progress=1` on the starred stream). Progress dropped elsewhere (the article was unsaved)
-    /// is forgotten only after the listing was read to its end.
-    fn refresh_progress(&mut self, reason: Reason, prio: Priority, counts: &crate::api::UnreadCounts, rep: &mut CycleReport) -> Result<()> {
+    /// Lists Inoreader's Archive (undocumented `user/-/state/com.google/archived`). Membership is
+    /// never in an article's categories and unread-count does not report the stream, so it is
+    /// listed on a sync you start, whenever the starred listing ran this cycle (archiving
+    /// elsewhere changes Read later), and otherwise at most every `archive_interval_secs`.
+    fn refresh_archive(&mut self, reason: Reason, prio: Priority, starred_listed: bool, rep: &mut CycleReport) -> Result<()> {
         let now = self.clock.now();
-        if reason != Reason::Explicit {
-            let last = self.store.get_meta("progress_refreshed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
-            if now - last < self.cfg.progress_interval_secs {
+        if reason != Reason::Explicit && !starred_listed {
+            let last = self.store.get_meta("archive_listed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+            if now - last < self.cfg.archive_interval_secs {
                 return Ok(());
             }
         }
-        if counts.counts.iter().find(|(s, ..)| s == STATE_STARRED).is_some_and(|c| c.1 == 0) {
-            return Ok(());
+        let stream = StreamId::new(STATE_ARCHIVED);
+        let (unknown, complete) = self.reconcile_membership(prio, &Membership::Archived, true, IdsParams::new(stream.clone()))?;
+        rep.reconciled.push("archive");
+        if !complete {
+            rep.incomplete.push("archive");
         }
+        if !unknown.is_empty() {
+            let pages = self.cfg.archived_fetch_pages;
+            rep.missing += self.fetch_wanted(prio, &stream, false, &unknown, pages, rep)?;
+        }
+        self.store.set_meta("archive_listed", &now.to_string())?;
+        Ok(())
+    }
+
+    /// Reads up to `progress_pages` pages of `stream` with Inoreader's reading progress and
+    /// stores them. Returns the articles seen and whether the listing was read to its end.
+    fn read_progress(&mut self, prio: Priority, stream: &StreamId, rep: &mut CycleReport) -> Result<(BTreeSet<ArticleId>, bool)> {
         let api = self.api.with_priority(prio);
-        let stream = StreamId::new(STATE_STARRED);
         let mut cont: Option<String> = None;
         let mut listed: BTreeSet<ArticleId> = BTreeSet::new();
         let mut complete = false;
         for _ in 0..self.cfg.progress_pages {
             if self.cancelled() {
-                return Ok(());
+                return Ok((listed, false));
             }
             let start_seq = self.store.seq()?;
             let page = api.contents(
-                &stream,
+                stream,
                 &ContentsParams {
                     count: 100,
                     continuation: cont.clone(),
@@ -777,6 +806,9 @@ impl SyncEngine {
                 self.strip_folder_labels(&mut rec)?;
                 listed.insert(ArticleId(rec.id));
                 self.store.upsert_article(&rec, start_seq)?;
+                if let Some(m) = implied_membership(stream) {
+                    self.store.observe(ArticleId(rec.id), &m, true, start_seq)?;
+                }
                 rep.fetched += 1;
             }
             match page.continuation {
@@ -787,10 +819,39 @@ impl SyncEngine {
                 }
             }
         }
-        if complete {
-            self.store.reset_saved_progress_except(&listed)?;
-        } else {
-            rep.incomplete.push("progress");
+        Ok((listed, complete))
+    }
+
+    /// Re-reads the newest saved articles with Inoreader's reading progress (undocumented
+    /// `progress=1` on the starred stream). Progress dropped elsewhere (the article was unsaved)
+    /// is forgotten only after the listing was read to its end.
+    fn refresh_progress(&mut self, reason: Reason, prio: Priority, counts: &crate::api::UnreadCounts, rep: &mut CycleReport) -> Result<()> {
+        let now = self.clock.now();
+        if reason != Reason::Explicit {
+            let last = self.store.get_meta("progress_refreshed")?.and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+            if now - last < self.cfg.progress_interval_secs {
+                return Ok(());
+            }
+        }
+        let no_starred = counts.counts.iter().find(|(s, ..)| s == STATE_STARRED).is_some_and(|c| c.1 == 0);
+        let any_archived = !self.store.articles_with(&Membership::Archived, true)?.is_empty();
+        if no_starred && !any_archived {
+            return Ok(());
+        }
+        if !no_starred {
+            let (listed, complete) = self.read_progress(prio, &StreamId::new(STATE_STARRED), rep)?;
+            if complete {
+                self.store.reset_saved_progress_except(&listed)?;
+            } else {
+                rep.incomplete.push("progress");
+            }
+        }
+        // Archived articles keep their progress too; the same read, when there are any.
+        if any_archived {
+            let (_, complete) = self.read_progress(prio, &StreamId::new(STATE_ARCHIVED), rep)?;
+            if !complete && !rep.incomplete.contains(&"progress") {
+                rep.incomplete.push("progress");
+            }
         }
         self.store.set_meta("progress_refreshed", &now.to_string())?;
         rep.reconciled.push("progress");
@@ -818,17 +879,20 @@ impl SyncEngine {
             &ContentsParams {
                 count: 100,
                 exclude_read: matches!(collection, Collection::Unread),
-                only_liked: false,
                 continuation,
                 annotations: true,
                 summaries: true,
-                progress: matches!(collection, Collection::Starred),
+                progress: matches!(collection, Collection::Starred | Collection::Archived),
                 ..Default::default()
             },
         )?;
+        let stream = collection.stream_id();
         for mut rec in page.items {
             self.strip_folder_labels(&mut rec)?;
             self.store.upsert_article(&rec, start_seq)?;
+            if let Some(m) = implied_membership(&stream) {
+                self.store.observe(ArticleId(rec.id), &m, true, start_seq)?;
+            }
         }
         self.save_quota();
         Ok(page.continuation)
@@ -966,9 +1030,11 @@ impl SyncEngine {
         let pages = self.cfg.unread_fetch_pages;
         self.sync_membership(prio, "unread", &Membership::Read, false, unread, true, pages, &counts, rep)?;
         // A failed annotation refresh must not stop downloads; its error is still reported.
+        let starred_listed = rep.reconciled.contains(&"starred");
+        let archived = self.refresh_archive(reason, prio, starred_listed, rep);
         let refreshed = self.refresh_annotations(reason, prio, rep);
         let progressed = self.refresh_progress(reason, prio, &counts, rep);
         self.cache_pending(rep)?;
-        refreshed.and(progressed)
+        refreshed.and(progressed).and(archived)
     }
 }

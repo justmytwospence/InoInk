@@ -152,8 +152,8 @@ fn edit_tag_form_repeats_i_uses_short_ids_and_checks_ok() {
 fn all_system_tags_map_to_documented_ids() {
     assert_eq!(Membership::Read.tag_id(), "user/-/state/com.google/read");
     assert_eq!(Membership::Starred.tag_id(), "user/-/state/com.google/starred");
-    assert_eq!(Membership::Like.tag_id(), "user/-/state/com.google/like");
-    assert_eq!(Membership::Broadcast.tag_id(), "user/-/state/com.google/broadcast");
+    assert_eq!(Membership::Archived.tag_id(), "user/-/state/com.google/archived");
+    assert_eq!(Membership::from_tag_id("user/1/state/com.google/archived"), Some(Membership::Archived));
 }
 
 #[test]

@@ -111,7 +111,7 @@ fn first_sync_fetches_unread_and_downloads_old_starred_articles() {
     seed(&r);
     let rep = r.full();
     assert_eq!(rep.error, None);
-    assert_eq!(rep.reconciled, vec!["starred", "unread", "annotated", "progress"]);
+    assert_eq!(rep.reconciled, vec!["starred", "unread", "archive", "annotated", "progress"]);
     for id in [1, 2, 3, 10] {
         assert!(r.engine.store.has_article(ArticleId(id)).unwrap(), "{id}");
         assert!(r.engine.store.download_state(ArticleId(id)).unwrap().readable_offline(), "{id} cached");
@@ -162,11 +162,11 @@ fn finishing_offline_survives_restart_and_syncs_on_reconnect() {
     seed(&r);
     r.full();
     r.fake.fail("", Kind::Offline, 1000);
-    r.engine.store.done(ArticleId(1)).unwrap();
+    r.engine.store.archive(ArticleId(1)).unwrap();
     let rep = r.engine.run_cycle(Reason::Local);
     assert_eq!(rep.error, Some(SyncError::Offline));
     assert_eq!(r.engine.store.pending_count().unwrap(), 2);
-    assert!(r.eff(1, Membership::Read) && !r.eff(1, Membership::Starred), "UI shows Done immediately");
+    assert!(r.eff(1, Membership::Archived) && !r.eff(1, Membership::Starred), "UI shows the Archive immediately");
     r.restart();
     assert_eq!(r.engine.store.pending_count().unwrap(), 2, "survives restart");
     r.fake.with(|s| s.faults.clear());
@@ -174,10 +174,14 @@ fn finishing_offline_survives_restart_and_syncs_on_reconnect() {
     let rep = r.engine.run_cycle(Reason::Wake);
     assert_eq!(rep.error, None);
     let a = r.fake.a(1);
-    assert!(a.read && !a.starred);
+    assert!(a.archived && !a.starred && !a.read);
     assert_eq!(r.engine.store.pending_count().unwrap(), 0);
-    assert_eq!(r.fake.count("edit-tag"), 1, "Done is a single request");
-    assert!(r.fake.log().iter().any(|l| l.contains("a=user/-/state/com.google/read") && l.contains("r=user/-/state/com.google/starred")));
+    assert_eq!(r.fake.count("edit-tag"), 1, "Archive is a single request");
+    assert!(r
+        .fake
+        .log()
+        .iter()
+        .any(|l| l.contains("a=user/-/state/com.google/archived") && l.contains("r=user/-/state/com.google/starred")));
 }
 
 #[test]
@@ -857,4 +861,68 @@ fn no_progress_request_without_saved_articles() {
     let rep = r.full();
     assert!(!rep.reconciled.contains(&"progress"), "{rep:?}");
     assert_eq!(r.fake.count("progress=1"), 0);
+}
+
+fn archived_ids(r: &Rig) -> Vec<u64> {
+    let q = ArticleQuery { collection: Some(Collection::Archived), limit: 100, visit_start_usec: 1, ..Default::default() };
+    let mut ids: Vec<u64> = r.engine.store.query_articles(&q).unwrap().items.into_iter().map(|a| a.id.0).collect();
+    ids.sort();
+    ids
+}
+
+#[test]
+fn archive_listing_marks_and_fetches_archived() {
+    let mut r = rig();
+    seed(&r);
+    r.fake.art(7, usec(7), FEED);
+    r.fake.art(8, usec(8), FEED);
+    r.fake.with(|s| {
+        s.arts.get_mut(&7).unwrap().archived = true;
+        let a = s.arts.get_mut(&8).unwrap();
+        a.archived = true;
+        a.progress = Some(serde_json::json!({"kind": "article", "length": 720, "progress": 60, "finished": false}));
+    });
+    let rep = r.full();
+    assert_eq!(rep.error, None);
+    assert!(rep.reconciled.contains(&"archive"), "{rep:?}");
+    assert_eq!(archived_ids(&r), vec![7, 8]);
+    assert!(r.eff(7, Membership::Archived) && !r.eff(7, Membership::Starred));
+    assert_eq!(r.engine.store.saved_progress(ArticleId(8)).unwrap().map(|p| p.percent), Some(60));
+}
+
+#[test]
+fn archive_listing_is_throttled_without_a_starred_change() {
+    let mut r = rig();
+    seed(&r);
+    r.fake.art(7, usec(7), FEED);
+    r.fake.with(|s| s.arts.get_mut(&7).unwrap().archived = true);
+    r.full();
+    let archive_requests = |r: &Rig| r.fake.log().iter().filter(|l| l.contains("items/ids") && l.contains("archived")).count();
+    r.fake.clear_log();
+    r.clock.advance(901);
+    let rep = r.engine.run_cycle(Reason::Wake);
+    assert!(!rep.reconciled.contains(&"archive"), "{rep:?}");
+    assert_eq!(archive_requests(&r), 0);
+    r.clock.advance(21_600);
+    let rep = r.engine.run_cycle(Reason::Wake);
+    assert!(rep.reconciled.contains(&"archive"), "{rep:?}");
+    assert!(archive_requests(&r) >= 1);
+}
+
+#[test]
+fn archived_elsewhere_moves_out_of_read_later_in_one_cycle() {
+    let mut r = rig();
+    seed(&r);
+    r.full();
+    assert!(r.eff(1, Membership::Starred));
+    r.fake.with(|s| {
+        let a = s.arts.get_mut(&1).unwrap();
+        a.starred = false;
+        a.archived = true;
+    });
+    r.clock.advance(901);
+    let rep = r.engine.run_cycle(Reason::Wake);
+    assert_eq!(rep.error, None);
+    assert!(!r.eff(1, Membership::Starred) && r.eff(1, Membership::Archived), "{rep:?}");
+    assert!(archived_ids(&r).contains(&1));
 }

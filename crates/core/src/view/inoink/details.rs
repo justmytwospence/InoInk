@@ -42,7 +42,7 @@ pub fn details_html(store: &Store, id: ArticleId, rec: &ArticleRecord) -> String
     h.push_str(&row("Content", content_kind(store, id)));
     h.push_str(&row("Offline", state_text(store.download_state(id).unwrap_or(DownloadState::NotDownloaded))));
     let flag = |m: Membership| store.effective(id, &m).unwrap_or(false);
-    let states = [(flag(Membership::Read), "Read"), (flag(Membership::Starred), "Starred"), (flag(Membership::Like), "Liked"), (flag(Membership::Broadcast), "Broadcast")];
+    let states = [(flag(Membership::Read), "Read"), (flag(Membership::Starred), "In Read later"), (flag(Membership::Archived), "In the Archive")];
     let on: Vec<&str> = states.iter().filter(|(v, _)| *v).map(|(_, n)| *n).collect();
     let state = if on.is_empty() { "Unread".to_string() } else { on.join(", ") };
     h.push_str(&row("State", &state));

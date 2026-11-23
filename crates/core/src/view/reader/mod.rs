@@ -3240,15 +3240,13 @@ impl Reader {
             return;
         }
         let Some(id) = self.article.as_ref().map(|a| a.id) else { return };
-        let (read, like, broadcast, labels, known) = match context.inoink.store() {
+        let (read, labels, known) = match context.inoink.store() {
             Some(s) => (
                 s.effective(id, &inoink::model::Membership::Read).unwrap_or(false),
-                s.effective(id, &inoink::model::Membership::Like).unwrap_or(false),
-                s.effective(id, &inoink::model::Membership::Broadcast).unwrap_or(false),
                 s.effective_labels(id).unwrap_or_default(),
                 s.tags().unwrap_or_default().into_iter().filter(|t| t.kind == "tag").filter_map(|t| t.id.strip_prefix("user/-/label/").map(String::from)).collect::<Vec<_>>(),
             ),
-            None => (false, false, false, vec![], vec![]),
+            None => (false, vec![], vec![]),
         };
         let act = |a: ArticleAction| EntryId::InoInk(InoInkEntry::Article(a));
         let mut tag_entries: Vec<EntryKind> = labels.iter().map(|l| EntryKind::CheckBox(l.clone(), act(ArticleAction::RemoveTag(l.clone())), true)).collect();
@@ -3260,8 +3258,6 @@ impl Reader {
         let entries = vec![
             EntryKind::Command(if read { "Mark unread" } else { "Mark read" }.to_string(), act(ArticleAction::ToggleRead)),
             EntryKind::SubMenu("Tags".to_string(), tag_entries),
-            EntryKind::CheckBox("Like".to_string(), act(ArticleAction::ToggleLike), like),
-            EntryKind::CheckBox("Broadcast".to_string(), act(ArticleAction::ToggleBroadcast), broadcast),
             EntryKind::Separator,
             EntryKind::Command("Send to Karakeep".to_string(), EntryId::InoInk(InoInkEntry::ShareArticle)),
             EntryKind::Command("Show QR code".to_string(), EntryId::InoInk(InoInkEntry::QrArticle)),
@@ -3671,7 +3667,7 @@ impl Reader {
         }
         let action = match state {
             EndState::MarkRead => Some(ArticleAction::MarkRead),
-            EndState::Archive => Some(ArticleAction::Done),
+            EndState::Archive => Some(ArticleAction::Archive),
             EndState::Leave => None,
         };
         // Not run_article_action: Done would close the reader whatever the choice.
