@@ -1,15 +1,22 @@
 #!/bin/sh
 # Native, isolated preview for Apple Silicon Macs: offline fixtures, an offline snapshot of real
 # articles (--inoreader), or the live Inoreader account with real sync (--live).
+# --capture runs the scripted tour without a window instead and keeps its screens for screen review
+# (doc/INOINK-SCREEN-REVIEW.md).
 set -eu
 
-usage() { echo 'Usage: scripts/preview-macos.sh [--reset] [--inoreader [--refresh] | --live] [--scale NUMBER] [--build-only]'; }
+usage() {
+ echo 'Usage: scripts/preview-macos.sh [--reset] [--inoreader [--refresh] | --live] [--scale NUMBER] [--build-only]'
+ echo '       scripts/preview-macos.sh --capture [--inoreader [--refresh]] [--device CODENAME:MODEL]'
+}
 invalid() { echo "error: $*" >&2; usage >&2; exit 2; }
-reset=0 build_only=0 inoreader=0 refresh=0 live=0 scale=0.5
+reset=0 build_only=0 inoreader=0 refresh=0 live=0 scale=0.5 capture=0 device=
 while [ "$#" -gt 0 ]; do
  case $1 in
   --help) usage; exit 0 ;;
   --reset) reset=1 ;;
+  --capture) capture=1 ;;
+  --device) [ "$#" -ge 2 ] || invalid '--device requires CODENAME:MODEL'; device=$2; shift ;;
   --inoreader) inoreader=1 ;;
   --live) live=1 ;;
   --refresh) refresh=1 ;;
@@ -25,6 +32,14 @@ done
 [ "$reset" = 0 ] || [ "$inoreader" = 0 ] || invalid '--reset cannot be combined with --inoreader; use --refresh'
 [ "$live" = 0 ] || [ "$inoreader" = 0 ] || invalid '--live cannot be combined with --inoreader'
 [ "$live" = 0 ] || [ "$reset" = 0 ] || invalid '--reset cannot be combined with --live'
+[ "$capture" = 0 ] || [ "$live" = 0 ] || invalid '--capture cannot be combined with --live'
+[ "$capture" = 0 ] || [ "$build_only" = 0 ] || invalid '--capture cannot be combined with --build-only'
+[ "$capture" = 0 ] || [ "$reset" = 0 ] || invalid '--capture always starts from fresh sample data; drop --reset'
+[ -z "$device" ] || [ "$capture" = 1 ] || invalid '--device requires --capture'
+# The emulator takes the codename and model number from the environment, like a Kobo.
+product=${device:-monza:390}; model=${product#*:}; product=${product%:*}
+case $product in ''|[!A-Za-z]*|*[!A-Za-z0-9]*) invalid 'invalid device; expected CODENAME:MODEL, for example spaBW:391' ;; esac
+case $model in ''|*[!0-9]*) invalid 'invalid device; expected CODENAME:MODEL, for example spaBW:391' ;; esac
 # Restrict syntax before numeric comparison, including NaN/Inf and awk expressions.
 case $scale in ''|*[!0-9.eE+-]*) invalid 'invalid scale' ;; esac
 printf '%s\n' "$scale" | awk 'BEGIN { ok=0 } /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/ { if ($0+0 >= 0.1 && $0+0 <= 2.0) ok=1 } END { exit !ok }' || invalid 'scale must be finite and between 0.1 and 2.0'
@@ -55,8 +70,9 @@ if ! mkdir "$LOCK" 2>/dev/null; then
  exit 1
 fi
 echo "$$" > "$LOCK/pid"
-child= stage= publishing=0 had_data=0 interrupted=0
+child= stage= publishing=0 had_data=0 interrupted=0 work=
 cleanup() {
+ [ -z "$work" ] || rm -rf "$work"
  # A failed publication restores the old data before removing our staging area.
  if [ -n "$stage" ]; then
   if [ "$publishing" = 1 ]; then
@@ -241,7 +257,7 @@ elif [ "$inoreader" = 1 ]; then
   stage=
   check_cancelled
  fi
-else
+elif [ "$capture" = 0 ]; then
  check_cancelled
  [ "$reset" = 0 ] || rm -rf "$STATE"
  mkdir -p "$STATE"
@@ -252,6 +268,35 @@ else
  fi
 fi
 check_cancelled
+if [ "$capture" = 1 ]; then
+ # The tour works on a throwaway copy with default settings, so every capture starts from the
+ # same state and the preview's own data, settings and screenshots stay as they are.
+ mode=sample
+ [ "$inoreader" = 0 ] || mode=inoreader
+ umask 077
+ mkdir -p "$BASE/captures/$mode"
+ work=$(mktemp -d "$BASE/captures/.capture.XXXXXXXX")
+ if [ "$inoreader" = 1 ]; then
+  cp -R "$STATE/data" "$work/data"
+ else
+  "$bin/inoink-cli" fixtures --output "$work/data" || exit 1
+ fi
+ check_cancelled
+ echo "Capturing the scripted tour on $product ($mode data)."
+ capture_tour() {
+  unset INOINK_CLIENT_ID INOINK_CLIENT_SECRET INOINK_REDIRECT_URI
+  export SDL_VIDEODRIVER=dummy PRODUCT="$product" MODEL_NUMBER="$model" INOINK_SETTINGS="$work/Settings.toml"
+  exec "$bin/inoink-emulator" --data "$work/data" --scripted-tour --screenshots "$work/shots"
+ }
+ run_child capture_tour || exit $?
+ check_cancelled
+ count=$(find "$work/shots" -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+ [ "$count" -gt 0 ] || { echo 'error: the tour saved no screens' >&2; exit 1; }
+ rm -rf "$BASE/captures/$mode/$product"
+ mv "$work/shots" "$BASE/captures/$mode/$product"
+ echo "Captured $count screens in target/macos-preview/captures/$mode/$product."
+ exit 0
+fi
 mkdir -p "$STATE/screenshots"
 echo 'Controls: mouse click/hold/drag; B/F pages; [/] rotate; S screenshot; Escape quits.'
 emulate() {

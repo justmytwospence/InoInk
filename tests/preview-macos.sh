@@ -111,6 +111,14 @@ INNER
 cat > "$bin/inoink-emulator" <<'INNER'
 #!/bin/sh
 echo "emulator $* PRODUCT=$PRODUCT MODEL_NUMBER=$MODEL_NUMBER SETTINGS=$INOINK_SETTINGS SDL=${SDL_VIDEODRIVER-unset} SECRETS=${INOINK_CLIENT_ID-unset}/${INOINK_CLIENT_SECRET-unset}/${INOINK_REDIRECT_URI-unset}" >> "$TEST_LOG"
+case " $* " in *" --scripted-tour "*)
+ # A tour changes its data and saves screens; the capture must use copies.
+ data= shots=
+ while [ "$#" -gt 0 ]; do case $1 in --data) data=$2; shift ;; --screenshots) shots=$2; shift ;; esac; shift; done
+ echo touched > "$data/db"
+ [ "${CAPTURE_EMPTY:-0}" = 1 ] || { mkdir -p "$shots"; echo a > "$shots/01-a.png"; echo b > "$shots/02-b.png"; }
+ exit "${CHILD_EXIT:-0}" ;;
+esac
 lock="$TEST_REPO/target/macos-preview/run.lock"
 if [ "${CHECK_STDIN:-0}" = 1 ]; then
  [ -t 0 ] || exit 81
@@ -151,7 +159,8 @@ FAKE_OS=Linux run --build-only && fail 'unsupported OS' || :
 unset FAKE_OS
 FAKE_ARCH=x86_64 run --build-only && fail 'unsupported architecture' || :
 unset FAKE_ARCH
-for args in '--scale' '--scale nan' '--scale 0' '--scale 2.1' '--wat' '--reset --build-only' '--refresh' '--inoreader --refresh --build-only' '--inoreader --reset' '--live --inoreader' '--live --reset'; do
+for args in '--scale' '--scale nan' '--scale 0' '--scale 2.1' '--wat' '--reset --build-only' '--refresh' '--inoreader --refresh --build-only' '--inoreader --reset' '--live --inoreader' '--live --reset' \
+ '--capture --live' '--capture --build-only' '--capture --reset' '--device monza:390' '--capture --device' '--capture --device monza' '--capture --device 1x:2' '--capture --device a:b' '--capture --device a:1:2'; do
  # Intentional split of fixed test cases.
  # shellcheck disable=SC2086
  status=0; run $args || status=$?; [ "$status" = 2 ] || fail "invalid arguments: $args"
@@ -185,6 +194,29 @@ echo keep > "$state/Settings.toml"; echo cache > "$repo/target/macos-preview/nat
 [ "$(cat "$state/Settings.toml")" = keep ] || fail 'lost settings'
 run --reset || fail reset
 [ ! -e "$state/Settings.toml" ] && [ -f "$repo/target/macos-preview/native/keep" ] || fail 'reset scope'
+# Capture: the tour runs without a window on fresh sample data and replaces only its own screens.
+echo keep > "$state/Settings.toml"; echo mine > "$state/data/db"
+: > "$log"; run --capture --device spaBW:391 || fail capture
+cap="$repo/target/macos-preview/captures/sample/spaBW"
+[ -f "$cap/01-a.png" ] && [ -f "$cap/02-b.png" ] || fail 'capture output'
+grep -q '^fixtures ' "$log" || fail 'capture fixtures'
+grep '^emulator ' "$log" | grep -q -- '--scripted-tour' || fail 'capture tour'
+grep '^emulator ' "$log" | grep -q 'PRODUCT=spaBW MODEL_NUMBER=391 .*SDL=dummy SECRETS=unset/unset/unset' || fail 'capture environment'
+! grep '^emulator ' "$log" | grep -Fq -- "$state" || fail 'capture used preview state'
+[ "$(cat "$state/Settings.toml")" = keep ] && [ "$(cat "$state/data/db")" = mine ] || fail 'capture changed preview state'
+[ -z "$(find "$repo/target/macos-preview/captures" -name '.capture.*')" ] || fail 'capture left its work folder'
+echo old > "$cap/99-stale.png"
+CAPTURE_EMPTY=1 run --capture --device spaBW:391 && fail 'empty capture accepted' || :
+unset CAPTURE_EMPTY
+CHILD_EXIT=3 run --capture --device spaBW:391 && fail 'failed tour accepted' || :
+unset CHILD_EXIT
+[ -f "$cap/99-stale.png" ] || fail 'failed capture replaced screens'
+[ -z "$(find "$repo/target/macos-preview/captures" -name '.capture.*')" ] || fail 'failed capture left its work folder'
+run --capture --device spaBW:391 || fail recapture
+[ ! -e "$cap/99-stale.png" ] && [ -f "$cap/01-a.png" ] || fail 'recapture kept stale screens'
+run --capture || fail 'default capture'
+[ -f "$repo/target/macos-preview/captures/sample/monza/01-a.png" ] && [ -f "$cap/01-a.png" ] || fail 'captures of devices are separate'
+[ ! -e "$repo/target/macos-preview/run.lock" ] || fail 'capture lock cleanup'
 rm -rf "$state/data"
 FIXTURE_FAIL=1 run && fail 'fixture failure' || :
 unset FIXTURE_FAIL
@@ -310,6 +342,11 @@ rm "$real/state/data/preview-sandbox.json"
 touch "$real/state/data/preview-sandbox.json"
 run --reset || fail 'sample reset with real data'
 [ "$(cat "$real/state/data/db")" = local ] && [ -f "$real/auth/credentials.json" ] || fail 'sample reset removed real data'
+# A capture of the snapshot works on a copy and never downloads.
+: > "$log"; run --inoreader --capture || fail 'snapshot capture'
+[ -f "$repo/target/macos-preview/captures/inoreader/monza/01-a.png" ] || fail 'snapshot capture output'
+! grep -q '^snapshot\|^fixtures' "$log" || fail 'snapshot capture downloaded or used samples'
+[ "$(cat "$real/state/data/db")" = local ] || fail 'snapshot capture changed the snapshot'
 
 # Interrupt the downloader and verify the lock and old snapshot survive until reaped.
 mkfifo "$WORK/events2" "$WORK/commands2"
