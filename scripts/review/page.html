@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InoInk screen review</title>
+<style>
+:root { --ink: #1d1d1b; --grey: #6b6b66; --line: #d8d6cf; --paper: #f6f5f1; --accent: #1f5fbf; --warn: #b3261e; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: var(--paper);
+  display: grid; grid-template-rows: auto auto 1fr; }
+header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: #fff; flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0 8px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+header .spacer { flex: 1; }
+button, select { font: inherit; padding: 3px 9px; border: 1px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+#banner { grid-row: 2; display: none; padding: 6px 12px; background: #fff4d6; border-bottom: 1px solid #e6cf8a; }
+#banner.show { display: flex; gap: 10px; align-items: center; }
+main { grid-row: 3; display: grid; grid-template-columns: 240px 1fr 340px; min-height: 0; }
+#list { overflow-y: auto; border-right: 1px solid var(--line); background: #fff; padding: 4px 0; }
+#list .group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--grey); padding: 8px 10px 2px; }
+#list a { display: flex; gap: 6px; align-items: center; padding: 3px 10px; color: inherit; text-decoration: none; cursor: pointer; }
+#list a.current { background: #e8eefb; }
+#list a .mark { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--grey); flex: none; }
+#list a.seen .mark { background: var(--grey); }
+#list a.needs .mark { background: var(--accent); border-color: var(--accent); }
+#list a .tags { margin-left: auto; color: var(--grey); font-size: 12px; }
+#center { display: grid; grid-template-rows: 1fr auto; min-width: 0; min-height: 0; }
+#stage { overflow: auto; display: flex; gap: 16px; justify-content: center; align-items: flex-start; padding: 12px; }
+figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+figcaption { font-size: 12px; color: var(--grey); }
+.frame { position: relative; display: inline-block; background: #fff; box-shadow: 0 0 0 1px var(--line); line-height: 0; }
+.frame.holding { box-shadow: 0 0 0 3px var(--accent); }
+.frame img, .frame canvas { display: block; image-rendering: auto; }
+.frame canvas.diff { position: absolute; left: 0; top: 0; pointer-events: none; }
+.frame.pinnable { cursor: crosshair; }
+.pin { position: absolute; transform: translate(-50%, -50%); width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff;
+  font: 600 12px/22px sans-serif; text-align: center; box-shadow: 0 0 0 2px #fff; pointer-events: none; }
+.pin.old { background: #9a9a94; }
+.missing { padding: 40px; color: var(--grey); line-height: 1.4; }
+#statusbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-top: 1px solid var(--line); background: #fff; flex-wrap: wrap; }
+#notes { overflow-y: auto; border-left: 1px solid var(--line); background: #fff; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+#notes h2 { font-size: 14px; margin: 0; word-break: break-all; }
+#notes .meta { color: var(--grey); font-size: 12px; }
+#notes textarea { width: 100%; min-height: 60px; font: inherit; padding: 6px; border: 1px solid var(--line); border-radius: 4px; resize: vertical; }
+#notes .box { border: 1px solid var(--line); border-radius: 4px; padding: 8px; }
+#notes .question { background: #eef3fc; border-color: #c4d4f2; }
+#notes .old { color: var(--grey); font-size: 12px; }
+#notes .pinrow { display: grid; grid-template-columns: 24px 1fr; gap: 6px; align-items: start; }
+#notes .pinrow .pin { position: static; transform: none; display: inline-block; }
+#notes .pinrow button { grid-column: 2; justify-self: start; font-size: 12px; padding: 1px 6px; }
+#counts { color: var(--grey); font-size: 12px; }
+#save { color: var(--grey); font-size: 12px; min-width: 60px; }
+dialog { border: 1px solid var(--line); border-radius: 6px; }
+dialog table { border-collapse: collapse; }
+dialog td { padding: 2px 10px 2px 0; }
+kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--paper); }
+@media (max-width: 1100px) { main { grid-template-columns: 200px 1fr; } #notes { grid-column: 1 / 3; border-left: none; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">InoInk screen review</h1>
+  <span id="position" class="meta"></span>
+  <button id="prev" title="Previous screen (Left arrow)">Previous</button>
+  <button id="next" title="Next screen (Right arrow)">Next</button>
+  <select id="filter" title="Which screens to show">
+    <option value="all">All screens</option>
+    <option value="unseen">Unseen</option>
+    <option value="seen">Seen</option>
+    <option value="needs">Needs changes</option>
+    <option value="changed">New or changed</option>
+    <option value="queued">Queued for you</option>
+    <option value="differs">Differs from comparison</option>
+  </select>
+  <select id="device" title="Device"></select>
+  <span class="spacer"></span>
+  <span id="counts"></span>
+  <select id="roundSel" title="Round"></select>
+  <span id="save"></span>
+  <button id="finish" class="primary">Finish review</button>
+</header>
+<div id="banner"><span id="bannerText"></span><button id="bannerOpen">Open</button></div>
+<main>
+  <nav id="list"></nav>
+  <section id="center">
+    <div id="stage"></div>
+    <div id="statusbar">
+      <label>Compare with
+        <select id="compare">
+          <option value="none">None</option>
+          <option value="before">Before (base)</option>
+          <option value="previous">Previous round</option>
+        </select>
+      </label>
+      <button id="hold" title="Hold to show the comparison (or hold C)">Hold to compare</button>
+      <button id="side" title="Side by side (S)">Side by side</button>
+      <button id="diff" title="Tint what differs (D)">Differences</button>
+      <span class="spacer" style="flex:1"></span>
+      <button id="zoom" title="Fit or 100% (Z)">Fit</button>
+      <a href="#" id="keys">Shortcuts</a>
+    </div>
+  </section>
+  <aside id="notes"></aside>
+</main>
+<dialog id="help">
+  <table>
+    <tr><td><kbd>Left</kbd> <kbd>Right</kbd></td><td>Previous and next screen (marks this one seen)</td></tr>
+    <tr><td><kbd>Space</kbd></td><td>Mark seen and go to the next screen</td></tr>
+    <tr><td><kbd>R</kbd></td><td>Write the note for this screen</td></tr>
+    <tr><td><kbd>C</kbd> (hold)</td><td>Show the comparison instead of the latest image</td></tr>
+    <tr><td><kbd>S</kbd></td><td>Comparison side by side</td></tr>
+    <tr><td><kbd>D</kbd></td><td>Tint what differs from the comparison</td></tr>
+    <tr><td><kbd>Z</kbd></td><td>Fit or 100%</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Leave the note box</td></tr>
+    <tr><td><kbd>?</kbd></td><td>This list</td></tr>
+  </table>
+  <p>Click the latest image to pin a note to that place. A note or a pin marks the screen Needs changes.</p>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const S = {
+  n: 0, latest: 0, rounds: [], data: null, id: null, readOnly: false,
+  filter: 'all', device: 'all', compare: localStorage.getItem('review.compare') || 'none',
+  side: localStorage.getItem('review.side') === '1', diff: false, zoom: 'fit', holding: false,
+  timer: null, dirty: new Set(),
+};
+const diffCache = new Map();
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.error || res.statusText), { status: res.status });
+  return body;
+}
+const screens = () => S.data ? S.data.round.screens : [];
+const screen = () => screens().find((s) => s.id === S.id);
+const entry = (id) => (S.data.feedback.screens[id] ||= { seen: false, note: '', pins: [] });
+const hasNotes = (e) => !!e && ((e.note || '').trim() !== '' || (e.pins || []).length > 0);
+const queued = (id) => Object.prototype.hasOwnProperty.call(S.data.queue, id);
+const imgUrl = (sha) => `/images/${sha}.png`;
+
+function comparison(s) {
+  if (S.compare === 'before' && S.data.baseline) {
+    const sha = S.data.baseline.images[s.id];
+    const commit = S.data.baseline.commit ? ` ${S.data.baseline.commit.slice(0, 7)}` : '';
+    return sha ? { image: sha, label: `Before${commit}`, pins: [] } : { image: null, label: 'Before' };
+  }
+  if (S.compare === 'previous') {
+    const p = s.previous;
+    return p ? { image: p.image, label: `Round ${p.round}`, pins: p.pins || [] } : { image: null, label: 'Previous round' };
+  }
+  return null;
+}
+function differs(s) {
+  const c = comparison(s);
+  return !!c && c.image !== s.image;
+}
+function visible() {
+  return screens().filter((s) => {
+    if (S.device !== 'all' && s.device !== S.device) return false;
+    const e = S.data.feedback.screens[s.id];
+    switch (S.filter) {
+      case 'unseen': return !(e && e.seen);
+      case 'seen': return !!(e && e.seen);
+      case 'needs': return hasNotes(e);
+      case 'changed': return s.status === 'new' || s.status === 'changed';
+      case 'queued': return queued(s.id);
+      case 'differs': return differs(s);
+      default: return true;
+    }
+  });
+}
+
+async function loadRound(n, keepId) {
+  S.data = await api(`/api/rounds/${n}`);
+  S.n = n; S.latest = S.data.latest; S.readOnly = n !== S.latest;
+  diffCache.clear();
+  const ids = screens().map((s) => s.id);
+  const wanted = keepId || decodeURIComponent(location.hash.slice(1));
+  S.id = ids.includes(wanted) ? wanted : ids[0];
+  // The first time a round with a queue opens, show the queue; a round without one shows all.
+  if (S.filter === 'queued' && !Object.keys(S.data.queue).length) S.filter = 'all';
+  const key = `review.queueShown.${n}`;
+  if (Object.keys(S.data.queue).length && !localStorage.getItem(key) && !S.readOnly) {
+    localStorage.setItem(key, '1');
+    S.filter = 'queued';
+    const first = visible()[0];
+    if (first) S.id = first.id;
+  }
+  const devices = [...new Set(screens().map((s) => s.device))];
+  $('device').innerHTML = `<option value="all">All devices</option>` + devices.map((d) => `<option>${esc(d)}</option>`).join('');
+  $('device').style.display = devices.length > 1 ? '' : 'none';
+  if (!devices.includes(S.device)) S.device = 'all';
+  $('banner').classList.remove('show');
+  render();
+}
+
+function esc(t) { return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function render() {
+  if (!S.data) return;
+  const s = screen();
+  $('filter').value = S.filter; $('device').value = S.device; $('compare').value = S.compare;
+  $('roundSel').innerHTML = S.rounds.map((r) => `<option value="${r}"${r === S.n ? ' selected' : ''}>Round ${r}${r === S.latest ? '' : ' (read only)'}</option>`).join('');
+  $('side').classList.toggle('on', S.side); $('diff').classList.toggle('on', S.diff);
+  $('zoom').textContent = S.zoom === 'fit' ? 'Fit' : '100%';
+  $('hold').disabled = S.side || !s || !comparison(s);
+  const all = screens();
+  const seen = all.filter((x) => (S.data.feedback.screens[x.id] || {}).seen).length;
+  const needs = all.filter((x) => hasNotes(S.data.feedback.screens[x.id])).length;
+  $('counts').textContent = `${seen} seen · ${needs} need changes · ${all.length - seen} unseen`;
+  $('finish').disabled = S.readOnly;
+  $('finish').textContent = S.data.feedback.finished ? 'Finished' : 'Finish review';
+  const list = visible();
+  const i = list.findIndex((x) => x.id === S.id);
+  $('position').textContent = s ? (i >= 0 ? `${i + 1} of ${list.length}` : `not in filter (${list.length})`) : '';
+  $('title').textContent = s ? s.id : 'No screens';
+  if (s) history.replaceState(null, '', `#${encodeURIComponent(s.id)}`);
+  renderList(list);
+  renderStage(s);
+  renderNotes(s);
+}
+
+function renderList(list) {
+  let html = '', group = null;
+  for (const s of list) {
+    if (s.device !== group) { group = s.device; html += `<div class="group">${esc(group)}</div>`; }
+    const e = S.data.feedback.screens[s.id];
+    const cls = [s.id === S.id ? 'current' : '', e && e.seen ? 'seen' : '', hasNotes(e) ? 'needs' : ''].join(' ');
+    const tags = [queued(s.id) ? 'Q' : '', s.status === 'new' ? 'new' : s.status === 'changed' ? 'chg' : '', differs(s) ? '≠' : ''].filter(Boolean).join(' ');
+    html += `<a class="${cls}" data-id="${esc(s.id)}"><span class="mark"></span><span>${esc(s.name)}</span><span class="tags">${tags}</span></a>`;
+  }
+  $('list').innerHTML = html || '<div class="missing">No screens match.</div>';
+  const cur = $('list').querySelector('.current');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+
+function scaleFor(widths, height) {
+  if (S.zoom !== 'fit') return 1;
+  const st = $('stage');
+  const w = st.clientWidth - 24 - 16 * (widths.length - 1);
+  const h = st.clientHeight - 24 - 22;
+  return Math.max(0.05, Math.min(1, h / height, w / widths.reduce((a, b) => a + b, 0)));
+}
+
+function frame(image, w, h, scale, opts = {}) {
+  const fig = document.createElement('figure');
+  const box = document.createElement('div');
+  box.className = 'frame' + (opts.pinnable ? ' pinnable' : '') + (opts.holding ? ' holding' : '');
+  if (image) {
+    const img = document.createElement('img');
+    img.src = imgUrl(image); img.width = Math.round(w * scale); img.height = Math.round(h * scale); img.alt = opts.label;
+    img.draggable = false;
+    box.appendChild(img);
+  } else {
+    box.innerHTML = `<div class="missing" style="width:${Math.round(w * scale)}px">No ${esc(opts.label)} image for this screen.</div>`;
+  }
+  (opts.pins || []).forEach((p, k) => {
+    const pin = document.createElement('div');
+    pin.className = 'pin' + (opts.oldPins ? ' old' : '');
+    pin.style.left = `${p.x * 100}%`; pin.style.top = `${p.y * 100}%`; pin.textContent = k + 1;
+    box.appendChild(pin);
+  });
+  const cap = document.createElement('figcaption');
+  cap.textContent = opts.label;
+  fig.append(box, cap);
+  return { fig, box };
+}
+
+function renderStage(s) {
+  const st = $('stage');
+  st.innerHTML = '';
+  if (!s) return;
+  const e = entry(s.id);
+  const c = comparison(s);
+  if (S.side && c) {
+    const scale = scaleFor([s.width, s.width], s.height);
+    st.appendChild(frame(c.image, s.width, s.height, scale, { label: c.label, pins: c.pins, oldPins: true }).fig);
+    const latest = frame(s.image, s.width, s.height, scale, { label: 'Latest', pins: e.pins, pinnable: !S.readOnly });
+    st.appendChild(latest.fig); hook(latest.box, s); tint(latest.box, s, c, scale);
+    return;
+  }
+  const scale = scaleFor([s.width], s.height);
+  if (S.holding && c) {
+    st.appendChild(frame(c.image, s.width, s.height, scale, { label: c.label, pins: c.pins, oldPins: true, holding: true }).fig);
+    return;
+  }
+  const latest = frame(s.image, s.width, s.height, scale, { label: `Latest · ${s.status}`, pins: e.pins, pinnable: !S.readOnly });
+  st.appendChild(latest.fig); hook(latest.box, s);
+  if (c) tint(latest.box, s, c, scale);
+}
+
+function hook(box, s) {
+  if (S.readOnly) return;
+  box.addEventListener('click', (ev) => {
+    const r = box.getBoundingClientRect();
+    const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+    entry(s.id).pins.push({ x: +x.toFixed(4), y: +y.toFixed(4), note: '' });
+    changed(s.id);
+    render();
+    const areas = document.querySelectorAll('#notes textarea.pinnote');
+    if (areas.length) areas[areas.length - 1].focus();
+  });
+}
+
+// Red where the latest pixels differ from the comparison (same size only).
+async function tint(box, s, c, scale) {
+  if (!S.diff || !c.image || c.image === s.image) return;
+  const key = `${s.image}:${c.image}`;
+  let url = diffCache.get(key);
+  if (url === undefined) {
+    const load = (sha) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = imgUrl(sha); });
+    const [a, b] = await Promise.all([load(s.image), load(c.image)]);
+    if (a.naturalWidth !== b.naturalWidth || a.naturalHeight !== b.naturalHeight) { diffCache.set(key, null); return; }
+    const w = a.naturalWidth, h = a.naturalHeight;
+    const px = (img) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d'); g.drawImage(img, 0, 0); return g.getImageData(0, 0, w, h); };
+    const da = px(a).data, db = px(b).data;
+    const out = new ImageData(w, h);
+    for (let k = 0; k < da.length; k += 4) {
+      if (da[k] !== db[k] || da[k + 1] !== db[k + 1] || da[k + 2] !== db[k + 2]) { out.data[k] = 230; out.data[k + 3] = 140; }
+    }
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; cv.getContext('2d').putImageData(out, 0, 0);
+    url = cv.toDataURL(); diffCache.set(key, url);
+  }
+  if (!url || !box.isConnected) return;
+  const img = new Image(); img.src = url; img.className = 'diff';
+  img.style.position = 'absolute'; img.style.left = 0; img.style.top = 0; img.style.pointerEvents = 'none';
+  img.width = Math.round(s.width * scale); img.height = Math.round(s.height * scale);
+  box.appendChild(img);
+}
+
+function renderNotes(s) {
+  const pane = $('notes');
+  const focused = document.activeElement && pane.contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  if (!s) { pane.innerHTML = ''; return; }
+  const e = entry(s.id);
+  const ro = S.readOnly ? ' disabled' : '';
+  let html = `<h2>${esc(s.id)}</h2><div class="meta">${s.width}x${s.height} · ${esc(s.status)}${e.from ? ` · notes from round ${e.from}` : ''}${S.readOnly ? ' · read only' : ''}</div>`;
+  if (queued(s.id)) html += `<div class="box question"><strong>Queued for you</strong>${S.data.queue[s.id] ? `<div>${esc(S.data.queue[s.id])}</div>` : ''}</div>`;
+  if (s.answered) {
+    html += `<div class="box"><div class="old">Your notes in round ${s.answered.round}:</div>`;
+    if (s.answered.note) html += `<div class="old">${esc(s.answered.note)}</div>`;
+    s.answered.pins.forEach((p, k) => { html += `<div class="old">${k + 1}. ${esc(p.note)}</div>`; });
+    html += `<div><strong>Answered:</strong> ${esc(s.answered.reply)}</div></div>`;
+  }
+  e.pins.forEach((p, k) => {
+    html += `<div class="pinrow"><span class="pin">${k + 1}</span><textarea class="pinnote" data-key="pin${k}" data-pin="${k}" placeholder="Note for pin ${k + 1}"${ro}>${esc(p.note)}</textarea>`;
+    if (!S.readOnly) html += `<button data-remove="${k}">Remove pin ${k + 1}</button>`;
+    html += `</div>`;
+  });
+  html += `<label class="meta" for="note">Note for this screen</label><textarea id="note" data-key="note" placeholder="Anything about this screen (R)"${ro}>${esc(e.note)}</textarea>`;
+  const p = s.previous;
+  if (p && p.verdict && (s.status === 'changed' || s.status === 'unchanged') && !e.from) {
+    html += `<details class="old"${p.verdict === 'needs changes' ? ' open' : ''}><summary>Round ${p.round} · ${esc(p.verdict)}</summary>`;
+    if (p.note) html += `<div>${esc(p.note)}</div>`;
+    (p.pins || []).forEach((q, k) => { html += `<div>${k + 1}. ${esc(q.note)}</div>`; });
+    html += `</details>`;
+  }
+  pane.innerHTML = html;
+  pane.querySelectorAll('textarea').forEach((t) => t.addEventListener('input', () => {
+    if (t.dataset.pin !== undefined) e.pins[+t.dataset.pin].note = t.value; else e.note = t.value;
+    changed(s.id, true);
+  }));
+  pane.querySelectorAll('button[data-remove]').forEach((b) => b.addEventListener('click', () => {
+    e.pins.splice(+b.dataset.remove, 1); changed(s.id); render();
+  }));
+  if (focused) { const t = pane.querySelector(`[data-key="${focused}"]`); if (t) t.focus(); }
+}
+
+// Every change saves on its own; typing saves after a short pause.
+function changed(id, typing) {
+  if (S.readOnly) return;
+  const e = entry(id);
+  delete e.from;
+  S.dirty.add(id);
+  clearTimeout(S.timer);
+  $('save').textContent = 'Editing…';
+  S.timer = setTimeout(flush, typing ? 600 : 0);
+  if (typing) renderListOnly();
+}
+function renderListOnly() { renderList(visible()); }
+async function flush() {
+  clearTimeout(S.timer);
+  const ids = [...S.dirty]; S.dirty.clear();
+  for (const id of ids) {
+    const e = entry(id);
+    try {
+      await api(`/api/rounds/${S.n}/screens/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen: e.seen, note: e.note, pins: e.pins }) });
+      S.data.feedback.finished = null;
+      $('save').textContent = 'Saved';
+    } catch (err) {
+      $('save').textContent = 'Not saved';
+      if (err.status === 409) { S.readOnly = true; await poll(); render(); }
+      else alert(`Could not save: ${err.message}`);
+    }
+  }
+}
+
+function markSeen() {
+  const s = screen();
+  if (!s || S.readOnly) return;
+  const e = entry(s.id);
+  if (!e.seen) { e.seen = true; changed(s.id); }
+}
+function go(delta) {
+  const list = visible();
+  if (!list.length) return;
+  markSeen();
+  let i = list.findIndex((x) => x.id === S.id);
+  if (i < 0) {
+    // The current screen left the filter: move to the next one that matches, in screen order.
+    const all = screens(); const at = all.findIndex((x) => x.id === S.id);
+    const after = all.slice(at + 1).find((x) => list.includes(x)) || list[0];
+    i = list.indexOf(after) - (delta > 0 ? 1 : 0);
+  }
+  const j = Math.min(list.length - 1, Math.max(0, i + delta));
+  S.id = list[j].id; S.holding = false;
+  render();
+}
+
+async function poll() {
+  if (document.hidden) return;
+  try {
+    const st = await api('/api/state');
+    S.rounds = st.rounds;
+    if (st.latest > S.latest) {
+      S.latest = st.latest;
+      S.readOnly = true;
+      $('bannerText').textContent = `Round ${st.latest} is ready. This round is now read only.`;
+      $('banner').classList.add('show');
+      render();
+    }
+  } catch { /* the server is restarting */ }
+}
+
+function typing(ev) { const t = ev.target; return t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && t.type === 'text') || t.tagName === 'SELECT'); }
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') { document.activeElement && document.activeElement.blur(); return; }
+  if (typing(ev) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  const k = ev.key;
+  if (k === 'ArrowRight') { go(1); ev.preventDefault(); }
+  else if (k === 'ArrowLeft') { go(-1); ev.preventDefault(); }
+  else if (k === ' ') { go(1); ev.preventDefault(); }
+  else if (k === 'r' || k === 'R') { const t = $('note'); if (t) { t.focus(); ev.preventDefault(); } }
+  else if ((k === 'c' || k === 'C') && !ev.repeat && !S.side) { S.holding = true; renderStage(screen()); }
+  else if (k === 's' || k === 'S') { toggleSide(); }
+  else if (k === 'd' || k === 'D') { S.diff = !S.diff; render(); }
+  else if (k === 'z' || k === 'Z') { S.zoom = S.zoom === 'fit' ? '100' : 'fit'; render(); }
+  else if (k === '?') { $('help').showModal(); }
+});
+document.addEventListener('keyup', (ev) => { if ((ev.key === 'c' || ev.key === 'C') && S.holding) { S.holding = false; renderStage(screen()); } });
+function toggleSide() { S.side = !S.side; S.holding = false; localStorage.setItem('review.side', S.side ? '1' : '0'); render(); }
+
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('filter').onchange = (ev) => { S.filter = ev.target.value; ev.target.blur(); render(); };
+$('device').onchange = (ev) => { S.device = ev.target.value; ev.target.blur(); render(); };
+$('compare').onchange = (ev) => { S.compare = ev.target.value; localStorage.setItem('review.compare', S.compare); ev.target.blur(); render(); };
+$('roundSel').onchange = (ev) => { flush(); loadRound(Number(ev.target.value), S.id); ev.target.blur(); };
+$('side').onclick = toggleSide;
+$('diff').onclick = () => { S.diff = !S.diff; render(); };
+$('zoom').onclick = () => { S.zoom = S.zoom === 'fit' ? '100' : 'fit'; render(); };
+$('keys').onclick = (ev) => { ev.preventDefault(); $('help').showModal(); };
+const hold = $('hold');
+hold.onpointerdown = () => { S.holding = true; renderStage(screen()); };
+for (const evt of ['pointerup', 'pointerleave', 'pointercancel']) hold.addEventListener(evt, () => { if (S.holding) { S.holding = false; renderStage(screen()); } });
+$('list').onclick = (ev) => { const a = ev.target.closest('a[data-id]'); if (!a) return; markSeen(); S.id = a.dataset.id; render(); };
+$('bannerOpen').onclick = async () => { await flush(); loadRound(S.latest, S.id); };
+$('finish').onclick = async () => {
+  await flush();
+  const unseen = screens().filter((x) => !(S.data.feedback.screens[x.id] || {}).seen).length;
+  if (unseen && !confirm(`${unseen} screens are still unseen. Finish anyway?`)) return;
+  try {
+    const r = await api(`/api/rounds/${S.n}/finish`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    S.data.feedback.finished = r.feedback.finished; render();
+  } catch (err) { alert(`Could not finish: ${err.message}`); }
+};
+window.addEventListener('resize', () => renderStage(screen()));
+window.addEventListener('beforeunload', () => { if (S.dirty.size) flush(); });
+setInterval(poll, 5000);
+document.addEventListener('visibilitychange', poll);
+
+(async () => {
+  try {
+    const st = await api('/api/state');
+    S.rounds = st.rounds; S.latest = st.latest;
+    if (!st.latest) { $('stage').innerHTML = '<div class="missing">No round yet. Run <code>node scripts/review/review.mjs round</code>.</div>'; return; }
+    await loadRound(st.latest);
+  } catch (err) { $('stage').innerHTML = `<div class="missing">Could not load the review: ${esc(err.message)}</div>`; }
+})();
+</script>
+</body>
+</html>
