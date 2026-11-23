@@ -125,6 +125,9 @@ pub struct InoInk {
     pub provision_error: Option<String>,
     /// How each enlarged image was last shown, for as long as the app runs.
     pub image_zoom: std::collections::HashMap<PathBuf, crate::view::inoink::image_view::ImageZoom>,
+    /// The document an article was just switched from (article or comments): the one opened
+    /// next shows Return to it.
+    pub doc_return: Option<(ArticleId, crate::view::inoink::actions::DocKind)>,
 }
 
 fn cache_config(s: &InoInkSettings) -> CacheConfig {
@@ -194,6 +197,7 @@ impl InoInk {
             settings: settings.clone(),
             provision_error,
             image_zoom: std::collections::HashMap::new(),
+            doc_return: None,
         };
         me.load_ui_state();
         if let (true, Some(creds)) = (online, creds) {

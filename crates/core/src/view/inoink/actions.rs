@@ -97,6 +97,8 @@ pub enum InoInkEntry {
     SubscribeUrl(String),
     /// Show the open article's address as a QR code.
     QrArticle,
+    /// The open article's headings, to jump to one.
+    Contents,
     /// Send a link (address, title) to Karakeep.
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
