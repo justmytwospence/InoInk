@@ -24,6 +24,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010.sql"),
     include_str!("../migrations/0011.sql"),
     include_str!("../migrations/0012.sql"),
+    include_str!("../migrations/0013.sql"),
 ];
 
 /// Highest schema version this build understands.
@@ -110,6 +111,38 @@ impl FullText {
             "always" => FullText::Always,
             "never" => FullText::Never,
             _ => FullText::Auto,
+        }
+    }
+}
+
+/// What fetching one article's full text from its original page gave.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArticleFullText {
+    Undecided,
+    Done,
+    Skipped,
+    Failed,
+    Retry,
+}
+
+impl ArticleFullText {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ArticleFullText::Undecided => "",
+            ArticleFullText::Done => "done",
+            ArticleFullText::Skipped => "skip",
+            ArticleFullText::Failed => "failed",
+            ArticleFullText::Retry => "retry",
+        }
+    }
+
+    pub fn parse(s: &str) -> ArticleFullText {
+        match s {
+            "done" => ArticleFullText::Done,
+            "skip" => ArticleFullText::Skipped,
+            "failed" => ArticleFullText::Failed,
+            "retry" => ArticleFullText::Retry,
+            _ => ArticleFullText::Undecided,
         }
     }
 }
@@ -1164,11 +1197,72 @@ impl Store {
     }
 
     pub fn set_full_text_mode(&self, feed: &str, mode: FullText) -> Result<()> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
             "INSERT INTO feed_fulltext(account,feed,mode) VALUES(?1,?2,?3) ON CONFLICT(account,feed) DO UPDATE SET mode=excluded.mode",
             params![self.account, feed, mode.as_str()],
         )?;
+        tx.execute(
+            "DELETE FROM article_fulltext WHERE account=?1 AND state='skip' AND article IN \
+             (SELECT id FROM articles WHERE account=?1 AND origin_stream=?2)",
+            params![self.account, feed],
+        )?;
+        tx.commit()?;
         Ok(())
+    }
+
+    /// What fetching this article's page gave, and the temporary failures counted so far.
+    pub fn article_full_text(&self, id: ArticleId) -> Result<(ArticleFullText, i64)> {
+        let row: Option<(String, i64)> = self
+            .conn
+            .query_row(
+                "SELECT state, tries FROM article_fulltext WHERE account=?1 AND article=?2",
+                params![self.account, id.to_db()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(row.map(|(s, t)| (ArticleFullText::parse(&s), t)).unwrap_or((ArticleFullText::Undecided, 0)))
+    }
+
+    pub fn set_article_full_text(&self, id: ArticleId, state: ArticleFullText) -> Result<()> {
+        if state == ArticleFullText::Undecided {
+            self.conn.execute("DELETE FROM article_fulltext WHERE account=?1 AND article=?2", params![self.account, id.to_db()])?;
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT INTO article_fulltext(account,article,state) VALUES(?1,?2,?3) \
+             ON CONFLICT(account,article) DO UPDATE SET state=excluded.state",
+            params![self.account, id.to_db(), state.as_str()],
+        )?;
+        Ok(())
+    }
+
+    /// Marks a temporary failure (counted or not) and returns the failures counted so far.
+    pub fn note_full_text_retry(&self, id: ArticleId, counted: bool) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO article_fulltext(account,article,state,tries) VALUES(?1,?2,'retry',?3) \
+             ON CONFLICT(account,article) DO UPDATE SET state='retry', tries=tries+excluded.tries",
+            params![self.account, id.to_db(), counted as i64],
+        )?;
+        Ok(self.article_full_text(id)?.1)
+    }
+
+    /// Downloaded saved articles whose full text was not decided yet (or is waiting for a retry).
+    pub fn saved_full_text_candidates(&self, limit: usize) -> Result<Vec<ArticleId>> {
+        let sql = format!(
+            "SELECT a.id FROM articles a WHERE a.account=?1 AND a.download_state<>'not_downloaded' \
+             AND {}=1 \
+             AND NOT EXISTS (SELECT 1 FROM article_fulltext f WHERE f.account=a.account AND f.article=a.id AND f.state<>'retry') \
+             ORDER BY {SAVED_AT_EXPR} DESC, a.timestamp_usec DESC, a.id DESC LIMIT ?2",
+            flag_expr("starred")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![self.account, limit as i64], |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(ArticleId::from_db(r?));
+        }
+        Ok(out)
     }
 
     /// Counts one attempt to get a feed's article from its page, and whether it paid off.
@@ -2370,6 +2464,7 @@ impl Store {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM content_versions WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM assets WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
+        tx.execute("DELETE FROM article_fulltext WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute("DELETE FROM article_fts WHERE account=?1 AND article=?2", params![account, article.to_db()])?;
         tx.execute(
             "UPDATE discussions SET fetched=0, comments_bytes=0 WHERE account=?1 AND article=?2",

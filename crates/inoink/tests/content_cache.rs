@@ -997,3 +997,94 @@ fn a_page_without_more_text_counts_as_no_gain() {
     let ff = store.feed_full_text("feed/https://blog.example/rss").unwrap();
     assert_eq!((ff.tries, ff.gains), (1, 0));
 }
+
+const TEASER_FEED: &str = "feed/https://blog.example/rss";
+const TEASER_PAGE: &str = "https://blog.example/posts/1/";
+
+fn gain_nothing_three_times(store: &Store) {
+    for _ in 0..3 {
+        store.record_full_text_try(TEASER_FEED, false).unwrap();
+    }
+}
+
+fn page_fetches(f: &MockFetcher) -> usize {
+    f.calls().iter().filter(|c| c.contains("posts/1")).count()
+}
+
+#[test]
+fn a_saved_teaser_ignores_a_feed_that_never_gained() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(None);
+    gain_nothing_three_times(&store);
+    fetcher.ok_typed(TEASER_PAGE, "text/html", &article_page());
+    store.upsert_article(&rec(2, 11, "<p>Short teaser\u{2026} Read more</p>"), 0).unwrap();
+    cache.cache_article(&mut store, &fetcher, ArticleId(2), &ctl()).unwrap();
+    assert_eq!(page_fetches(&fetcher), 0, "an unsaved article of a feed that never gained is not fetched");
+    store.apply_intent(ArticleId(1), &Membership::Starred, true).unwrap();
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("genuine article content"));
+    assert_eq!(store.article_full_text(ArticleId(1)).unwrap(), (ArticleFullText::Done, 0));
+}
+
+#[test]
+fn a_downloaded_teaser_is_completed_once_saved() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(None);
+    gain_nothing_three_times(&store);
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    let teaser_words = store.words(ArticleId(1)).unwrap();
+    assert!(latest_html(&cache, &store, 1).contains("Short teaser"));
+    assert!(store.saved_full_text_candidates(10).unwrap().is_empty());
+    store.apply_intent(ArticleId(1), &Membership::Starred, true).unwrap();
+    assert_eq!(store.saved_full_text_candidates(10).unwrap(), vec![ArticleId(1)]);
+    fetcher.ok_typed(TEASER_PAGE, "text/html", &article_page());
+    assert_eq!(cache.complete_saved(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap(), SavedFullText::Gained);
+    assert!(latest_html(&cache, &store, 1).contains("genuine article content"));
+    assert!(store.words(ArticleId(1)).unwrap() > teaser_words);
+    assert!(store.saved_full_text_candidates(10).unwrap().is_empty());
+    assert_eq!(cache.complete_saved(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap(), SavedFullText::NotTried);
+    assert_eq!(page_fetches(&fetcher), 1);
+}
+
+#[test]
+fn saved_teasers_respect_never() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(Some(FullText::Never));
+    fetcher.ok_typed(TEASER_PAGE, "text/html", &article_page());
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    store.apply_intent(ArticleId(1), &Membership::Starred, true).unwrap();
+    assert_eq!(cache.complete_saved(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap(), SavedFullText::NotTried);
+    assert_eq!(store.article_full_text(ArticleId(1)).unwrap().0, ArticleFullText::Skipped);
+    assert_eq!(page_fetches(&fetcher), 0);
+    assert!(store.saved_full_text_candidates(10).unwrap().is_empty());
+    store.set_full_text_mode(TEASER_FEED, FullText::Auto).unwrap();
+    assert_eq!(store.saved_full_text_candidates(10).unwrap(), vec![ArticleId(1)]);
+}
+
+#[test]
+fn temporary_failures_are_retried_then_given_up() {
+    let (_dir, mut store, cache, fetcher) = teaser_setup(None);
+    store.apply_intent(ArticleId(1), &Membership::Starred, true).unwrap();
+    fetcher.routes.lock().unwrap().insert(TEASER_PAGE.into(), Err(Error::Offline));
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    assert_eq!(store.article_full_text(ArticleId(1)).unwrap(), (ArticleFullText::Retry, 0));
+    fetcher.routes.lock().unwrap().insert(TEASER_PAGE.into(), Err(Error::Retryable("status 503".into())));
+    for (state, tries) in [(ArticleFullText::Retry, 1), (ArticleFullText::Retry, 2), (ArticleFullText::Failed, 3)] {
+        assert_eq!(cache.complete_saved(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap(), SavedFullText::NoGain);
+        assert_eq!(store.article_full_text(ArticleId(1)).unwrap(), (state, tries));
+    }
+    assert!(store.saved_full_text_candidates(10).unwrap().is_empty());
+}
+
+#[test]
+fn extracted_versions_count_as_done_after_upgrade() {
+    let (dir, mut store, cache, fetcher) = teaser_setup(None);
+    fetcher.ok_typed(TEASER_PAGE, "text/html", &article_page());
+    cache.cache_article(&mut store, &fetcher, ArticleId(1), &ctl()).unwrap();
+    drop(store);
+    let path = dir.path().join("db.sqlite");
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch("DROP TABLE article_fulltext").unwrap();
+        c.pragma_update(None, "user_version", 12).unwrap();
+    }
+    let store = Store::open(&path, "acct").unwrap();
+    assert_eq!(store.article_full_text(ArticleId(1)).unwrap().0, ArticleFullText::Done);
+}

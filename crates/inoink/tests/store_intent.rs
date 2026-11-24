@@ -1021,7 +1021,7 @@ fn migration_drops_like_and_broadcast_rows_and_adds_undo_column() {
              INSERT INTO remote_state(account,article,key,present,seq) VALUES('acct',1,'broadcast',1,1);",
         )
         .unwrap();
-        c.pragma_update(None, "user_version", SCHEMA_VERSION - 1).unwrap();
+        c.pragma_update(None, "user_version", 11).unwrap();
     }
     let mut s = Store::open(&path, "acct").unwrap();
     assert_eq!(s.pending_count().unwrap(), 0);
