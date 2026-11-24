@@ -926,3 +926,18 @@ fn archived_elsewhere_moves_out_of_read_later_in_one_cycle() {
     assert!(!r.eff(1, Membership::Starred) && r.eff(1, Membership::Archived), "{rep:?}");
     assert!(archived_ids(&r).contains(&1));
 }
+
+#[test]
+fn saving_downloads_the_article_on_the_local_sync() {
+    let mut r = rig();
+    seed(&r);
+    r.fake.art(11, OLD_TS, FEED);
+    r.full();
+    assert!(r.engine.store.has_article(ArticleId(11)).unwrap());
+    assert!(!r.engine.store.download_state(ArticleId(11)).unwrap().readable_offline());
+    r.engine.store.apply_intent(ArticleId(11), &Membership::Starred, true).unwrap();
+    let rep = r.engine.run_cycle(Reason::Local);
+    assert_eq!(rep.error, None);
+    assert!(rep.cached >= 1);
+    assert!(r.engine.store.download_state(ArticleId(11)).unwrap().readable_offline());
+}

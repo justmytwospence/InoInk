@@ -7,6 +7,9 @@ pub const STUB_CHARS: usize = 900;
 /// Tries after which a feed's record decides on its own.
 pub const LEARN_AFTER: i64 = 3;
 
+/// Counted temporary failures after which a saved article keeps its feed text.
+pub const MAX_RETRIES: i64 = 3;
+
 /// The item's own signals: short text, or a trailing "read more"-style marker.
 pub fn looks_like_stub(feed_text: &str) -> bool {
     let t = feed_text.trim();
@@ -32,6 +35,12 @@ pub fn should_extract(mode: FullText, tries: i64, gains: i64, stub: bool) -> boo
     }
 }
 
+/// The same for a saved article: being saved overrides what the feed's record learned,
+/// but not a feed set to Never.
+pub fn should_extract_saved(mode: FullText, tries: i64, gains: i64, stub: bool) -> bool {
+    mode != FullText::Never && (stub || should_extract(mode, tries, gains, stub))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +62,13 @@ mod tests {
         assert!(!should_extract(FullText::Auto, 3, 0, true));
         assert!(should_extract(FullText::Auto, 4, 2, false));
         assert!(!should_extract(FullText::Auto, 2, 0, false));
+    }
+
+    #[test]
+    fn saved_articles_override_learning_but_not_never() {
+        assert!(should_extract_saved(FullText::Auto, 3, 0, true));
+        assert!(!should_extract_saved(FullText::Never, 0, 0, true));
+        assert!(!should_extract_saved(FullText::Auto, 3, 0, false));
+        assert!(should_extract_saved(FullText::Always, 0, 0, false));
     }
 }

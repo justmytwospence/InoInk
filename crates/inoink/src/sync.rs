@@ -3,7 +3,7 @@
 //! step is bounded by the quota and can be cancelled between requests.
 
 use crate::api::{ApiClient, Clock, ContentsParams, IdsParams, Priority, SubAction, SubscriptionEdit};
-use crate::cache::{Cache, Control};
+use crate::cache::{Cache, Control, SavedFullText};
 use crate::content::images::Fetcher;
 use crate::error::{Error, Result};
 use crate::model::*;
@@ -11,6 +11,9 @@ use crate::store::{OrgOp, OutboxBatch, Store};
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+/// Saved articles looked at per pass for a missing full text (most are decided without a fetch).
+const SAVED_SCAN: usize = 200;
 
 #[derive(Clone, Debug)]
 pub struct SyncConfig {
@@ -22,6 +25,8 @@ pub struct SyncConfig {
     /// Automatic cycles do not refresh or reconcile more often than this.
     pub min_interval_secs: i64,
     pub cache_per_cycle: usize,
+    /// Saved teasers per pass whose original page is fetched.
+    pub saved_full_text_per_cycle: usize,
     /// Pages of 100 articles read from the Annotated stream per refresh.
     pub annotated_pages: usize,
     /// Automatic cycles refresh annotations no more often than this.
@@ -53,6 +58,7 @@ impl Default for SyncConfig {
             unread_fetch_pages: 3,
             min_interval_secs: 900,
             cache_per_cycle: 20,
+            saved_full_text_per_cycle: 10,
             annotated_pages: 2,
             annotations_interval_secs: 21600,
             progress_pages: 2,
@@ -902,8 +908,15 @@ impl SyncEngine {
     pub fn cache_pending(&mut self, rep: &mut CycleReport) -> Result<()> {
         let plan = self.cache.plan_downloads(&mut self.store, self.clock.now())?;
         rep.storage_paused = plan.paused.is_some();
+        self.download(plan.ids, rep);
+        self.complete_saved(rep)?;
+        self.cache.evict_to_budget(&mut self.store)?;
+        Ok(())
+    }
+
+    fn download(&mut self, ids: Vec<ArticleId>, rep: &mut CycleReport) {
         let ctl = self.control();
-        for id in plan.ids.into_iter().take(self.cfg.cache_per_cycle) {
+        for id in ids.into_iter().take(self.cfg.cache_per_cycle) {
             if self.cancelled() {
                 break;
             }
@@ -916,7 +929,44 @@ impl SyncEngine {
                 Err(_) => {}
             }
         }
-        self.cache.evict_to_budget(&mut self.store)?;
+    }
+
+    /// Fetches the original page of saved articles that were downloaded as teasers.
+    fn complete_saved(&mut self, rep: &mut CycleReport) -> Result<()> {
+        if rep.storage_paused {
+            return Ok(());
+        }
+        let ctl = self.control();
+        let mut fetched = 0;
+        for id in self.store.saved_full_text_candidates(SAVED_SCAN)? {
+            if self.cancelled() || fetched >= self.cfg.saved_full_text_per_cycle {
+                break;
+            }
+            match self.cache.complete_saved(&mut self.store, self.fetcher.as_ref(), id, &ctl) {
+                Ok(SavedFullText::Gained) => {
+                    rep.cached += 1;
+                    fetched += 1;
+                }
+                Ok(SavedFullText::NoGain) => fetched += 1,
+                Ok(SavedFullText::NotTried) => {}
+                Err(Error::Storage(_)) => {
+                    rep.storage_paused = true;
+                    break;
+                }
+                Err(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// The pass after a local change: saved articles are downloaded now, not at the next sync.
+    fn cache_saved(&mut self, rep: &mut CycleReport) -> Result<()> {
+        let plan = self.cache.plan_saved_downloads(&mut self.store)?;
+        rep.storage_paused = plan.paused.is_some();
+        if !rep.storage_paused {
+            self.download(plan.ids, rep);
+            self.complete_saved(rep)?;
+        }
         Ok(())
     }
 
@@ -1004,7 +1054,7 @@ impl SyncEngine {
         self.flush_org(prio, rep)?;
         self.flush_outbox(prio, rep)?;
         if reason == Reason::Local {
-            return Ok(());
+            return self.cache_saved(rep);
         }
         if reason != Reason::Explicit && !self.due() {
             rep.skipped_interval = true;

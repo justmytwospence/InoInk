@@ -9,10 +9,11 @@ use crate::content::extract::{extract_main, extract_original, page_title, Extrac
 use crate::content::images::{download_image, fetch_following, DownloadError, Fetcher, ImageLimits};
 use crate::content::math;
 use crate::content::sanitize::{document, sanitize_fragment};
+use crate::content::stub::{looks_like_stub, should_extract, should_extract_saved, MAX_RETRIES};
 use crate::content::{asset_name, prepare_article, ArticleMeta, AssetMap, AssetState};
 use crate::error::{Error, Result};
 use crate::model::*;
-use crate::store::{CandidateKind, Store};
+use crate::store::{ArticleFullText, CandidateKind, Store};
 use crate::util::{now_secs, sha256_hex};
 use std::collections::{HashSet, VecDeque};
 use std::fs::{self, File};
@@ -75,6 +76,14 @@ pub struct DownloadPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PauseReason {
     StorageLimit,
+}
+
+/// What completing a saved article's text did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SavedFullText {
+    NotTried,
+    Gained,
+    NoGain,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -289,8 +298,11 @@ impl Cache {
             return self.cache_link_post(store, fetcher, id, &rec, &d, ctl);
         }
         if self.cfg.extract_stubs && rec.canonical_url.starts_with("https://") {
-            if let Some(state) = self.try_full_text(store, fetcher, id, &rec, ctl)? {
-                return Ok(state);
+            let saved = store.effective(id, &Membership::Starred)?;
+            if let Some(chars) = self.full_text_wanted(store, &rec, saved)? {
+                if let Some(state) = self.fetch_full_text(store, fetcher, id, &rec, chars, ctl)? {
+                    return Ok(state);
+                }
             }
         }
         let base = if rec.canonical_url.is_empty() { None } else { Some(rec.canonical_url.clone()) };
@@ -298,37 +310,85 @@ impl Cache {
         self.process(store, fetcher, id, &rec, &rec.summary_html, base.as_deref(), &raw_hash, ctl)
     }
 
-    /// For a teaser item (or a feed known to send teasers): the original page's text in place of
-    /// the feed's. `None` when the feed text stays, because the page was not tried, could not be
-    /// fetched, or had no more text. What each try showed is kept per feed.
-    fn try_full_text(
+    /// Whether the original page should be tried for this item: `Some(feed text length)` if so.
+    /// A saved article overrides what its feed's record learned, but not a feed set to Never.
+    fn full_text_wanted(&self, store: &Store, rec: &crate::store::ArticleRecord, saved: bool) -> Result<Option<usize>> {
+        let feed_text = prepare_article(&rec.summary_html, None, &ArticleMeta::default(), &AssetMap::new()).text;
+        let ff = store.feed_full_text(&rec.origin_stream)?;
+        let stub = looks_like_stub(&feed_text);
+        let wanted =
+            if saved { should_extract_saved(ff.mode, ff.tries, ff.gains, stub) } else { should_extract(ff.mode, ff.tries, ff.gains, stub) };
+        Ok(wanted.then(|| feed_text.chars().count()))
+    }
+
+    /// The original page's text in place of the feed's. `None` when the feed text stays, because
+    /// the page could not be fetched or had no more text. What each try showed is kept per feed
+    /// and per article.
+    fn fetch_full_text(
         &self,
         store: &mut Store,
         fetcher: &dyn Fetcher,
         id: ArticleId,
         rec: &crate::store::ArticleRecord,
+        feed_chars: usize,
         ctl: &Control,
     ) -> Result<Option<DownloadState>> {
-        use crate::content::stub::{looks_like_stub, should_extract};
-        let feed_text = prepare_article(&rec.summary_html, None, &ArticleMeta::default(), &AssetMap::new()).text;
-        let ff = store.feed_full_text(&rec.origin_stream)?;
-        if !should_extract(ff.mode, ff.tries, ff.gains, looks_like_stub(&feed_text)) {
-            return Ok(None);
-        }
-        match extract_original(fetcher, &rec.canonical_url, feed_text.chars().count(), &self.cfg.limits, &ctl.cancel) {
+        match extract_original(fetcher, &rec.canonical_url, feed_chars, &self.cfg.limits, &ctl.cancel) {
             Ok(Extraction::Extracted { html, .. }) => {
                 store.record_full_text_try(&rec.origin_stream, true)?;
                 let raw_hash = format!("extract:{}", sha256_hex(html.as_bytes()));
-                self.process(store, fetcher, id, rec, &html, Some(&rec.canonical_url), &raw_hash, ctl).map(Some)
+                let state = self.process(store, fetcher, id, rec, &html, Some(&rec.canonical_url), &raw_hash, ctl)?;
+                store.set_article_full_text(id, ArticleFullText::Done)?;
+                Ok(Some(state))
             }
             Ok(Extraction::Failed(_)) => {
                 store.record_full_text_try(&rec.origin_stream, false)?;
+                store.set_article_full_text(id, ArticleFullText::Failed)?;
                 Ok(None)
             }
             Err(Error::Storage(m)) => Err(Error::Storage(m)),
-            // Offline or a transient failure: the feed text stands, and nothing is learned.
-            Err(_) => Ok(None),
+            // Offline or a transient failure: the feed text stands and the feed learns nothing;
+            // the article is tried again a few times.
+            Err(e) if e.is_transient() => {
+                let counted = !matches!(e, Error::Offline) && !ctl.cancel.load(Ordering::Relaxed);
+                if store.note_full_text_retry(id, counted)? >= MAX_RETRIES {
+                    store.set_article_full_text(id, ArticleFullText::Failed)?;
+                }
+                Ok(None)
+            }
+            Err(_) => {
+                store.set_article_full_text(id, ArticleFullText::Failed)?;
+                Ok(None)
+            }
         }
+    }
+
+    /// For a saved article already downloaded with only its feed text: fetches the original page
+    /// once when that text is a teaser. Records the outcome so it is not tried again.
+    pub fn complete_saved(&self, store: &mut Store, fetcher: &dyn Fetcher, id: ArticleId, ctl: &Control) -> Result<SavedFullText> {
+        if !self.cfg.extract_stubs {
+            return Ok(SavedFullText::NotTried);
+        }
+        self.check_space(ctl)?;
+        let Some(rec) = store.article_record(id)? else { return Ok(SavedFullText::NotTried) };
+        if discussion::detect(&rec.canonical_url, &rec.summary_html).is_some() || !rec.canonical_url.starts_with("https://") {
+            store.set_article_full_text(id, ArticleFullText::Skipped)?;
+            return Ok(SavedFullText::NotTried);
+        }
+        if let Some(v) = store.latest_version(id)? {
+            if v.raw_hash.starts_with("extract:") || v.raw_hash.starts_with("post:") {
+                store.set_article_full_text(id, ArticleFullText::Done)?;
+                return Ok(SavedFullText::NotTried);
+            }
+        }
+        let Some(chars) = self.full_text_wanted(store, &rec, true)? else {
+            store.set_article_full_text(id, ArticleFullText::Skipped)?;
+            return Ok(SavedFullText::NotTried);
+        };
+        Ok(match self.fetch_full_text(store, fetcher, id, &rec, chars, ctl)? {
+            Some(_) => SavedFullText::Gained,
+            None => SavedFullText::NoGain,
+        })
     }
 
     pub fn comments_path(&self, id: ArticleId) -> PathBuf {
@@ -677,7 +737,9 @@ impl Cache {
         self.check_space(ctl)?;
         let rec = store.article_record(id)?.ok_or_else(|| Error::InvalidRequest("unknown article".into()))?;
         let raw_hash = format!("extract:{}", sha256_hex(html.as_bytes()));
-        self.process(store, fetcher, id, &rec, html, Some(page_url), &raw_hash, ctl)
+        let state = self.process(store, fetcher, id, &rec, html, Some(page_url), &raw_hash, ctl)?;
+        store.set_article_full_text(id, ArticleFullText::Done)?;
+        Ok(state)
     }
 
     // ---- link pages -------------------------------------------------------------------------
@@ -746,6 +808,21 @@ impl Cache {
             .download_candidates(cutoff, self.cfg.max_candidates_per_cycle)?
             .into_iter()
             .map(|(id, _): (ArticleId, CandidateKind)| id)
+            .collect();
+        Ok(DownloadPlan { ids, paused: None })
+    }
+
+    /// Saved articles not downloaded yet, for the sync that follows saving.
+    pub fn plan_saved_downloads(&self, store: &mut Store) -> Result<DownloadPlan> {
+        let (_, protected_bytes) = self.usage(store)?;
+        if protected_bytes >= self.cfg.budget_bytes {
+            return Ok(DownloadPlan { ids: vec![], paused: Some(PauseReason::StorageLimit) });
+        }
+        let ids = store
+            .download_candidates(i64::MAX, self.cfg.max_candidates_per_cycle)?
+            .into_iter()
+            .filter(|(_, k)| *k == CandidateKind::Starred)
+            .map(|(id, _)| id)
             .collect();
         Ok(DownloadPlan { ids, paused: None })
     }

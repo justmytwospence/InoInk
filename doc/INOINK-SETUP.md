@@ -354,7 +354,9 @@ entry. Highlights and notes made on the Kobo live only in its database: export t
   the progress line on every page.
 - Articles whose feed gives only a teaser (short text or a "Read more" link) are replaced by the full
   page when they are downloaded. InoInk learns which feeds do this; Manage > a feed > Full text sets
-  Always or Never for one feed.
+  Always or Never for one feed. Saving an article to Read later fetches its full page too, even from a
+  feed InoInk has learned to leave alone (but not one set to Never), so its reading time and the
+  Shortest first order are right.
 - Highlights: hold a word in an article, drag to extend, then choose Highlight or Add Note. Hold
   a highlight to add, edit or remove its note, or to remove it, and to change its Style (shading,
   underline, dotted underline) or, on colour screens, its Colour (yellow, green, blue, pink, gray).
