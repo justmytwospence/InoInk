@@ -19,20 +19,22 @@ use crate::settings::{DEFAULT_FONT_SIZE, DEFAULT_MARGIN_WIDTH, DEFAULT_TEXT_ALIG
 use super::parse::{parse_display, parse_edge, parse_float, parse_text_align, parse_text_indent};
 use super::parse::{parse_width, parse_height, parse_inline_material, parse_font_kind, parse_font_style};
 use super::parse::{parse_font_weight, parse_font_size, parse_font_features, parse_font_variant};
-use super::parse::{parse_letter_spacing, parse_word_spacing};
+use super::parse::{parse_letter_spacing, parse_word_spacing, parse_text_decoration, parse_hanging_punctuation};
 use super::parse::{parse_line_height, parse_vertical_align, parse_color, parse_list_style_type, parse_length};
 use super::dom::{NodeRef, NodeData, ElementData, TextData, WRAPPER_TAG_NAME};
 use super::layout::{StyleData, InlineMaterial, TextMaterial, ImageMaterial};
 use super::layout::{GlueMaterial, PenaltyMaterial, ChildArtifact, SiblingStyle, LoopContext};
 use super::layout::{RootData, DrawState, DrawCommand, TextCommand, ImageCommand, RuleCommand, FontKind, Fonts};
 use super::layout::{TextAlign, ParagraphElement, TextElement, ImageElement, Display, Float};
-use super::layout::{WordSpacing, ListStyleType, LineStats};
+use super::layout::{WordSpacing, ListStyleType, LineStats, TextDecoration, skip_ink_segments};
 use super::layout::{hyph_lang, collapse_margins, DEFAULT_HYPH_LANG, HYPHENATION_PATTERNS};
 use super::layout::{EM_SPACE_RATIOS, WORD_SPACE_RATIOS, FONT_SPACES};
 use super::style::{StyleSheet, specified_values};
 use super::xml::XmlExt;
 
 const DEFAULT_DPI: u16 = 300;
+// Opening punctuation that hangs into the margin at the start of a line.
+const HANGING_PUNCTUATION: [char; 8] = ['\u{201c}', '\u{2018}', '\u{201e}', '\u{201a}', '\u{ab}', '\u{2039}', '"', '\''];
 const DEFAULT_WIDTH: u32 = 1404;
 const DEFAULT_HEIGHT: u32 = 1872;
 
@@ -233,6 +235,18 @@ impl Engine {
                                    .map(|value| parse_font_features(value))
                                    .or_else(|| parent_style.font_features.clone());
 
+        style.text_decoration = props.get("text-decoration-line").or_else(|| props.get("text-decoration"))
+                                     .and_then(|value| parse_text_decoration(value))
+                                     .unwrap_or(parent_style.text_decoration);
+
+        style.hanging_punctuation = props.get("hanging-punctuation")
+                                         .and_then(|value| parse_hanging_punctuation(value))
+                                         .unwrap_or(parent_style.hanging_punctuation);
+
+        if let Some(color) = props.get("text-decoration-color").and_then(|value| parse_color(value)) {
+            style.text_decoration.color = Some(color);
+        }
+
         if let Some(value) = props.get("list-style-type")
                                   .map(|value| parse_list_style_type(value)) {
             style.list_style_type = value;
@@ -240,9 +254,7 @@ impl Engine {
 
         if let Some(value) = props.get("font-variant") {
             let mut features = parse_font_variant(value);
-            if let Some(v) = style.font_features.as_mut() {
-                v.append(&mut features);
-            }
+            style.font_features.get_or_insert_with(Vec::new).append(&mut features);
         }
 
         if node.parent().is_some() {
@@ -669,11 +681,17 @@ impl Engine {
                                            .map(|value| parse_font_features(value))
                                            .or_else(|| parent_style.font_features.clone());
 
+                style.text_decoration = props.get("text-decoration-line").or_else(|| props.get("text-decoration"))
+                                             .and_then(|value| parse_text_decoration(value))
+                                             .unwrap_or(parent_style.text_decoration);
+
+                if let Some(color) = props.get("text-decoration-color").and_then(|value| parse_color(value)) {
+                    style.text_decoration.color = Some(color);
+                }
+
                 if let Some(value) = props.get("font-variant") {
                     let mut features = parse_font_variant(value);
-                    if let Some(v) = style.font_features.as_mut() {
-                        v.append(&mut features);
-                    }
+                    style.font_features.get_or_insert_with(Vec::new).append(&mut features);
                 }
 
                 if node.id().is_some() {
@@ -865,6 +883,7 @@ impl Engine {
                                             letter_spacing: style.letter_spacing,
                                             font_size,
                                             color: style.color,
+                                            decoration: style.text_decoration,
                                             uri: style.uri.clone(),
                                         }),
                                     });
@@ -1224,17 +1243,15 @@ impl Engine {
                     font_weight: style.font_weight,
                     font_size,
                     color: style.color,
+                    decoration: TextDecoration::default(),
+                    decoration_extend: 0,
                 }));
             }
         }
 
-        for (j, bp) in bps.into_iter().enumerate() {
-            let drift = if glue_drifts.is_empty() {
-                0.0
-            } else {
-                glue_drifts[j]
-            };
+        let has_prefix = draw_state.prefix.is_some();
 
+        for (j, bp) in bps.into_iter().enumerate() {
             let (start_x, end_x) = para_shape[j.min(para_shape.len() - 1)];
 
             let Breakpoint { index, width, mut ratio } = bp;
@@ -1253,6 +1270,37 @@ impl Engine {
             while last_index < index && !items[last_index].is_box()  {
                 last_index += 1;
             }
+
+            // Hanging punctuation: an opening quote at the start of a line sits in the margin.
+            let hang = if style.hanging_punctuation && !style.retain_whitespace &&
+                          matches!(style.text_align, TextAlign::Left | TextAlign::Justify) &&
+                          !(is_first_line && has_prefix) {
+                match items.get(last_index) {
+                    Some(ParagraphItem::Box { data: ParagraphElement::Text(element), .. })
+                        if element.text.starts_with(&HANGING_PUNCTUATION[..]) => element.plan.first_advance().unwrap_or(0),
+                    _ => 0,
+                }
+            } else {
+                0
+            };
+            position.x -= hang;
+
+            // On justified lines, give the hang back to the spaces so the right edge stays flush.
+            let hang_drift = if hang > 0 && style.text_align == TextAlign::Justify &&
+                                ratio.is_finite() && index < items.len() - 1 {
+                let glues = items[last_index..index].iter()
+                                                    .filter(|itm| matches!(itm, ParagraphItem::Glue { .. }))
+                                                    .count();
+                if glues > 0 { hang as f32 / glues as f32 } else { 0.0 }
+            } else {
+                0.0
+            };
+
+            let drift = if glue_drifts.is_empty() {
+                0.0
+            } else {
+                glue_drifts[j]
+            } + hang_drift;
 
             let start_command_index = page.len();
 
@@ -1276,6 +1324,16 @@ impl Engine {
                                         break;
                                     }
                                 }
+                                if !element.decoration.is_none() {
+                                    // Carry the previous word's decoration across the space to this one.
+                                    if let Some(DrawCommand::Text(prev)) = page.iter_mut().rev().find(|dc| !matches!(dc, DrawCommand::Marker(_))) {
+                                        let prev_end = prev.position.x + prev.plan.width;
+                                        if prev.decoration == element.decoration && prev.uri == element.uri &&
+                                           prev.color == element.color && prev.position.y == pt.y && pt.x > prev_end {
+                                            prev.decoration_extend = pt.x - prev_end;
+                                        }
+                                    }
+                                }
                                 page.push(DrawCommand::Text(TextCommand {
                                     offset: element.offset + root_data.start_offset,
                                     position: pt,
@@ -1288,6 +1346,8 @@ impl Engine {
                                     font_weight: element.font_weight,
                                     font_size: element.font_size,
                                     color: element.color,
+                                    decoration: element.decoration,
+                                    decoration_extend: 0,
                                 }));
                             },
                             ParagraphElement::Image(element) => {
@@ -1508,6 +1568,7 @@ impl Engine {
                 vertical_align: element.vertical_align,
                 letter_spacing: element.letter_spacing,
                 color: element.color,
+                decoration: element.decoration,
                 uri: element.uri.clone(),
             }),
         }
@@ -1700,10 +1761,10 @@ impl Engine {
 
         for dc in page {
             match dc {
-                DrawCommand::Text(TextCommand { position, plan, font_kind,
-                                                font_style, font_weight, font_size, color, .. }) |
-                DrawCommand::ExtraText(TextCommand { position, plan, font_kind, font_style,
-                                                     font_weight, font_size, color, .. }) => {
+                DrawCommand::Text(TextCommand { position, plan, font_kind, font_style, font_weight,
+                                                font_size, color, decoration, decoration_extend, .. }) |
+                DrawCommand::ExtraText(TextCommand { position, plan, font_kind, font_style, font_weight,
+                                                     font_size, color, decoration, decoration_extend, .. }) => {
                     let font = self.fonts.as_mut().unwrap()
                                    .get_mut(*font_kind, *font_style, *font_weight);
                     let font_size = (scale_factor * *font_size as f32) as u32;
@@ -1711,6 +1772,25 @@ impl Engine {
                     let plan = plan.scale(scale_factor);
                     font.set_size(font_size, self.dpi);
                     font.render(&mut fb, *color, &plan, position);
+                    if !decoration.is_none() {
+                        let (offset, thickness) = font.underline_metrics();
+                        let color = decoration.color.unwrap_or(*color);
+                        let x0 = position.x;
+                        let x1 = position.x + plan.width + (scale_factor * *decoration_extend as f32).round() as i32;
+                        if decoration.underline {
+                            // Skip-ink: the underline breaks where glyphs cross it.
+                            let top = position.y + offset - thickness / 2;
+                            let bottom = top + thickness;
+                            let ink = font.ink_spans(&plan, position, top - thickness, bottom + thickness);
+                            for (a, b) in skip_ink_segments(x0, x1, &ink, thickness, 2 * thickness) {
+                                fb.draw_rectangle(&rect![a, top, b, bottom], color);
+                            }
+                        }
+                        if decoration.line_through {
+                            let top = position.y - font.x_heights.0 as i32 / 2 - thickness / 2;
+                            fb.draw_rectangle(&rect![x0, top, x1, top + thickness], color);
+                        }
+                    }
                 },
                 DrawCommand::Image(ImageCommand { position, path, scale, .. }) => {
                     if let Ok(buf) = resource_fetcher.fetch(path) {

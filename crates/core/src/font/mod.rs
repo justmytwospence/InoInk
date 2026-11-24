@@ -28,6 +28,9 @@ use crate::device::CURRENT_DEVICE;
 // Font sizes in 1/64th of a point
 pub const FONT_SIZES: [u32; 3] = [349, 524, 629];
 
+// The coverage from which a glyph pixel counts as ink for skip-ink underlines.
+const INK_THRESHOLD: u8 = 48;
+
 pub const KEYBOARD_FONT_SIZES: [u32; 2] = [337, 843];
 
 pub const DISPLAY_FONT_SIZE: u32 = 2516;
@@ -1666,6 +1669,50 @@ impl Font {
 
     pub fn render(&mut self, fb: &mut dyn Framebuffer, color: Color, render_plan: &RenderPlan, origin: Point) {
         unsafe {
+            self.each_glyph_bitmap(render_plan, origin, |top_left, bitmap| {
+                for y in 0..bitmap.rows {
+                    for x in 0..bitmap.width {
+                        let blackness = *bitmap.buffer.offset((bitmap.pitch * y + x) as isize);
+                        let alpha = blackness as f32 / 255.0;
+                        let pt = top_left + pt!(x, y);
+                        fb.set_blended_pixel(pt.x as u32, pt.y as u32, color, alpha);
+                    }
+                }
+            });
+        }
+    }
+
+    /// The horizontal extent of each glyph's ink within the rows `[y_min, y_max)`, unsorted.
+    pub fn ink_spans(&mut self, render_plan: &RenderPlan, origin: Point, y_min: i32, y_max: i32) -> Vec<(i32, i32)> {
+        let mut spans = Vec::new();
+        unsafe {
+            self.each_glyph_bitmap(render_plan, origin, |top_left, bitmap| {
+                let mut extent: Option<(i32, i32)> = None;
+                for y in 0..bitmap.rows {
+                    let row = top_left.y + y;
+                    if row < y_min || row >= y_max {
+                        continue;
+                    }
+                    for x in 0..bitmap.width {
+                        let blackness = *bitmap.buffer.offset((bitmap.pitch * y + x) as isize);
+                        if blackness >= INK_THRESHOLD {
+                            extent = Some(match extent {
+                                Some((a, b)) => (a.min(x), b.max(x)),
+                                None => (x, x),
+                            });
+                        }
+                    }
+                }
+                if let Some((a, b)) = extent {
+                    spans.push((top_left.x + a, top_left.x + b + 1));
+                }
+            });
+        }
+        spans
+    }
+
+    unsafe fn each_glyph_bitmap<F: FnMut(Point, &FtBitmap)>(&mut self, render_plan: &RenderPlan, origin: Point, mut f: F) {
+        {
             let mut pos = origin;
             let mut fallback_faces = FxHashMap::default();
 
@@ -1689,14 +1736,7 @@ impl Font {
                 let top_left = pos + glyph.offset + pt!((*glyph_slot).bitmap_left, -(*glyph_slot).bitmap_top);
                 let bitmap = &(*glyph_slot).bitmap;
 
-                for y in 0..bitmap.rows {
-                    for x in 0..bitmap.width {
-                        let blackness = *bitmap.buffer.offset((bitmap.pitch * y + x) as isize);
-                        let alpha = blackness as f32 / 255.0;
-                        let pt = top_left + pt!(x, y);
-                        fb.set_blended_pixel(pt.x as u32, pt.y as u32, color, alpha);
-                    }
-                }
+                f(top_left, bitmap);
 
                 pos += glyph.advance;
             }
@@ -1724,6 +1764,23 @@ impl Font {
     pub fn ascender(&self) -> i32 {
         unsafe {
             (*(*self.face).size).metrics.ascender as i32 / 64
+        }
+    }
+
+    /// The underline's centre below the baseline and its thickness, in pixels.
+    pub fn underline_metrics(&self) -> (i32, i32) {
+        unsafe {
+            let y_ppem = (*(*self.face).size).metrics.y_ppem as f32;
+            let upem = (*self.face).units_per_em as f32;
+            let pos = (*self.face).underline_position as f32;
+            let th = (*self.face).underline_thickness as f32;
+            if upem > 0.0 && th > 0.0 {
+                ((-pos * y_ppem / upem).round().max(1.0) as i32,
+                 (th * y_ppem / upem).round().max(1.0) as i32)
+            } else {
+                ((y_ppem * 0.1).round().max(1.0) as i32,
+                 (y_ppem / 18.0).round().max(1.0) as i32)
+            }
         }
     }
 
@@ -1841,6 +1898,10 @@ impl RenderPlan {
 
     pub fn total_advance(&self, index: usize) -> i32 {
         self.glyphs.iter().take(index).map(|g| g.advance.x).sum()
+    }
+
+    pub fn first_advance(&self) -> Option<i32> {
+        self.glyphs.first().map(|g| g.advance.x)
     }
 
     #[inline]

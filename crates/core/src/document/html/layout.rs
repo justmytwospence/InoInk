@@ -67,11 +67,27 @@ pub struct StyleData {
     pub font_size: f32,
     pub font_features: Option<Vec<String>>,
     pub color: Color,
+    pub text_decoration: TextDecoration,
+    pub hanging_punctuation: bool,
     pub letter_spacing: i32,
     pub word_spacing: WordSpacing,
     pub vertical_align: i32,
     pub list_style_type: Option<ListStyleType>,
     pub uri: Option<String>,
+}
+
+/// The lines drawn with the text (`text-decoration`); `color` None draws them in the text colour.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+pub struct TextDecoration {
+    pub underline: bool,
+    pub line_through: bool,
+    pub color: Option<Color>,
+}
+
+impl TextDecoration {
+    pub fn is_none(&self) -> bool {
+        !self.underline && !self.line_through
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -193,6 +209,8 @@ impl Default for StyleData {
             font_size: 0.0,
             font_features: None,
             color: BLACK,
+            text_decoration: TextDecoration::default(),
+            hanging_punctuation: false,
             letter_spacing: 0,
             word_spacing: WordSpacing::Normal,
             vertical_align: 0,
@@ -340,6 +358,7 @@ pub struct TextElement {
     pub letter_spacing: i32,
     pub vertical_align: i32,
     pub color: Color,
+    pub decoration: TextDecoration,
     pub uri: Option<String>,
 }
 
@@ -378,6 +397,9 @@ pub struct TextCommand {
     pub font_weight: FontWeight,
     pub font_size: u32,
     pub color: Color,
+    pub decoration: TextDecoration,
+    /// The width past `plan.width` the decoration covers (the space before the link's next word).
+    pub decoration_extend: i32,
     pub uri: Option<String>,
     pub rect: Rectangle,
 }
@@ -439,9 +461,63 @@ pub fn collapse_margins(a: i32, b: i32) -> i32 {
     }
 }
 
+/// The parts of `[start, end)` an underline covers once the ink spans, widened by `pad`,
+/// are cut out (skip-ink); parts shorter than `min_len` are dropped.
+pub fn skip_ink_segments(start: i32, end: i32, ink: &[(i32, i32)], pad: i32, min_len: i32) -> Vec<(i32, i32)> {
+    let mut segments = Vec::new();
+    if start >= end {
+        return segments;
+    }
+    let mut spans = ink.to_vec();
+    spans.sort_unstable();
+    let mut x = start;
+    for (a, b) in spans {
+        let (a, b) = (a - pad, b + pad);
+        if a > x {
+            let e = a.min(end);
+            if e - x >= min_len {
+                segments.push((x, e));
+            }
+        }
+        x = x.max(b);
+        if x >= end {
+            return segments;
+        }
+    }
+    if end - x >= min_len {
+        segments.push((x, end));
+    }
+    segments
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skip_ink_no_ink() {
+        assert_eq!(skip_ink_segments(0, 100, &[], 2, 4), vec![(0, 100)]);
+    }
+
+    #[test]
+    fn skip_ink_one_descender() {
+        assert_eq!(skip_ink_segments(0, 100, &[(40, 50)], 2, 4), vec![(0, 38), (52, 100)]);
+    }
+
+    #[test]
+    fn skip_ink_overlapping_and_unsorted() {
+        assert_eq!(skip_ink_segments(0, 100, &[(60, 70), (40, 50), (48, 62)], 2, 4), vec![(0, 38), (72, 100)]);
+    }
+
+    #[test]
+    fn skip_ink_drops_slivers() {
+        assert_eq!(skip_ink_segments(0, 100, &[(10, 20), (25, 30)], 2, 4), vec![(0, 8), (32, 100)]);
+    }
+
+    #[test]
+    fn skip_ink_ink_past_ends() {
+        assert_eq!(skip_ink_segments(0, 100, &[(-5, 3), (98, 120)], 2, 4), vec![(5, 96)]);
+    }
 
     #[test]
     fn test_hyph_lang() {
