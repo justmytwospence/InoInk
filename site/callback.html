@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>InoInk sign-in</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="install" style="max-width:36rem;margin:2rem auto;padding:0 1rem">
+  <h1>InoInk sign-in</h1>
+  <p id="status">Looking at the sign-in...</p>
+  <p>If nothing happens, copy this address and paste it where you started signing in:</p>
+  <p><input id="addr" readonly style="width:100%"> <button type="button" id="copy" class="button ghost">Copy</button></p>
+  <p class="fine">This page only passes Inoreader's answer back to your computer or your Kobo. It stores and sends nothing else.</p>
+</main>
+<script type="module">
+import { relayTarget } from "./relay.js";
+const status = document.getElementById("status");
+const addr = document.getElementById("addr");
+addr.value = location.href;
+document.getElementById("copy").addEventListener("click", () => navigator.clipboard?.writeText(location.href));
+if (new URLSearchParams(location.search).has("error")) {
+  status.textContent = "Inoreader did not grant access. Start again where you began.";
+} else {
+  const target = relayTarget(location.search);
+  if (target) {
+    status.textContent = "Returning to InoInk...";
+    location.replace(target);
+  } else {
+    status.textContent = "This address has no sign-in for a device on your network.";
+  }
+}
+</script>
+</body>
+</html>

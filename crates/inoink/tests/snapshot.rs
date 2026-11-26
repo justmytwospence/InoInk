@@ -338,7 +338,8 @@ fn assert_artifacts_private_and_no_credentials(output: &Path) {
             let entry = entry.unwrap();
             let name = entry.file_name();
             let name = name.to_str().unwrap();
-            assert!(!["credentials.json", "share.json", "device.key", "provision.json", "provision.age", "share.age"].contains(&name));
+            assert!(!["credentials.json", "share.json", "device.key", "provision.json", "provision.age", "share.age", "accounts.json"]
+                .contains(&name));
             if entry.path().is_dir() {
                 walk(&entry.path());
             } else {

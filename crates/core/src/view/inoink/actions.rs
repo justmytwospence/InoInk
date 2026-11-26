@@ -110,6 +110,13 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
+    /// Settings > Accounts: sign out of a service (asks first).
+    SignOut(inoink::accounts::Service),
+    ConfirmSignOut(inoink::accounts::Service),
+    /// Check a service's sign-in now (Inoreader: a sync; Karakeep: a request).
+    TestAccount(inoink::accounts::Service),
+    /// Serve the setup page on the Wi-Fi and show its address as a QR code.
+    PhoneSetup,
     /// A choice in the end-of-article popup.
     ArticleEnd(EndChoice),
 }
@@ -415,7 +422,7 @@ pub fn export_highlights(context: &Context, format: inoink::highlight::ExportFor
 /// Queues a link for Karakeep. It is sent as soon as the network allows.
 pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String, String> {
     if context.inoink.share.karakeep.is_none() {
-        return Err("Karakeep is not set up. See the setup guide.".into());
+        return Err("Karakeep is not set up. Main menu > Settings > Accounts.".into());
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("Only web addresses can be shared".into());
@@ -426,8 +433,15 @@ pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String
     Ok("Sending to Karakeep".into())
 }
 
-/// What a sync pass reports about shares: the first refusal, if any. Successful sends are
-/// silent (the message would arrive later, over whatever happens to be on screen).
+/// What a sync pass reports about shares: the first refusal, else that the links were sent. It
+/// replaces the "Sending to Karakeep" message. A link still waiting (offline) reports nothing.
 pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
-    rep.shares.iter().find_map(|s| s.error.as_ref()).map(|e| format!("Karakeep: {e}"))
+    if let Some(e) = rep.shares.iter().find_map(|s| s.error.as_ref()) {
+        return Some(format!("Karakeep: {e}"));
+    }
+    match rep.shares.len() {
+        0 => None,
+        1 => Some("Sent to Karakeep".into()),
+        n => Some(format!("Sent {n} links to Karakeep")),
+    }
 }

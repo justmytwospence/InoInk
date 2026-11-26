@@ -15,7 +15,7 @@
   Settings > Inoreader API budget.
 - A registered Inoreader application. In Inoreader, open Preferences > Developer API
   (https://www.inoreader.com/preferences/other), click **New application**, and set Name
-  `InoInk`, Platform Other, Redirect URI `http://localhost:8080/callback` and OAuth scope
+  `InoInk`, Platform Other, Redirect URI `https://justmytwospence.github.io/InoInk/callback.html` and OAuth scope
   Read and write. Save; the App ID (client id) and App key (secret) it shows are yours: **no
   secret is shipped in InoInk**. If New application is greyed out, the account already has an
   application: use it (InoInk then shares its daily budget) and pass its redirect URI to
@@ -96,46 +96,80 @@ Do not delete the auth directory while a refresh is in progress.
 
 ## Install
 
-1. Connect the Kobo by USB and open its storage.
-2. Install: `scripts/install-inoink.sh dist/inoink-<version>-kobo.tar.gz /path/to/KOBOeReader --menu`
-   (`--menu` adds the NickelMenu entry when NickelMenu is installed), or use the
-   [browser installer](#browser-installer).
-3. Eject the Kobo, open the NickelMenu entry "InoInk". The computer only copies the package
+1. Connect the Kobo by USB and tap **Connect** on it.
+2. In a terminal on a Mac or Linux computer:
+
+   ```sh
+   curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh
+   ```
+
+   The script finds the Kobo drive (or take `--device /path/to/KOBOeReader`), downloads the
+   latest release's Kobo package, `install-inoink.sh` and `inoink-cli` (a binary fetched with
+   `curl` carries no macOS quarantine flag), checks each against the release's `SHA256SUMS`, and
+   refuses to go on when one differs. It installs the package like `install-inoink.sh ... --menu`
+   (below), runs `inoink-cli setup`, ejects the Kobo and deletes what it downloaded. Options after
+   `sh -s --`: `--device MOUNT`, `--version X.Y.Z`, `--accounts-only` (skip the install: sign in
+   again or change accounts) and `--service inoreader|karakeep` (repeatable). To read it first,
+   download `install.sh` from the project page and run `sh install.sh`.
+3. `inoink-cli setup` asks for your Inoreader App ID, redirect URI (the project's redirect page
+   unless you type another) and App key (hidden, or `INOINK_CLIENT_ID`, `INOINK_REDIRECT_URI` and
+   `INOINK_CLIENT_SECRET`), opens Inoreader for you to approve and learns your account. It then
+   offers [Karakeep](#karakeep) (address, then key at a hidden prompt or `INOINK_KARAKEEP_KEY`;
+   Enter skips it). Secrets are never accepted on the command line. The result is written to
+   `.adds/inoink/data/provision/accounts.json`.
+4. Eject the Kobo, open the NickelMenu entry "InoInk". The computer only copies the package
    (`.adds/inoink/INSTALL.TGZ` and its checksum); InoInk unpacks and activates it when it starts,
    because folders and long file names created from macOS get renamed to `FSCK0000.000` by the
-   Kobo's disk check. `data/inoink.log` says "installed release <version>". The first launch also
-   creates the device key.
-4. Quit InoInk (main menu, Quit), reconnect the Kobo, then sign in **on the computer**:
+   Kobo's disk check. `data/inoink.log` says "installed release <version>". InoInk imports and
+   deletes `accounts.json`, then syncs. Tokens refresh on the device; the Kobo's browser is never
+   needed.
 
-```sh
-# inoink-cli from the release, or: cargo build --release -p inoink-cli
-# macOS, for a downloaded binary: it is not signed by Apple, so clear the quarantine flag first
-xattr -d com.apple.quarantine inoink-cli-macos-arm64
-inoink-cli authorize \
-    --client-id YOUR_ID --redirect-uri http://localhost:8080/callback \
-    --device /path/to/KOBOeReader
-```
+Doing it by hand: `scripts/install-inoink.sh dist/inoink-<version>-kobo.tar.gz /path/to/KOBOeReader --menu`
+(`--menu` adds the NickelMenu entry when NickelMenu is installed), then
+`inoink-cli setup --device /path/to/KOBOeReader`; or install with the
+[browser installer](#browser-installer) and sign in on the Kobo ([Accounts](#accounts-on-the-kobo)).
+`inoink-cli authorize --device` and `inoink-cli karakeep` still work and run the same setup for one
+service.
 
-   Approve access in the browser. The helper exchanges the code, learns your account id and writes
-   the credentials **encrypted to the Kobo's own key** (age X25519) into
-   `.adds/inoink/data/provision/`. Eject and open InoInk: it imports and deletes the transfer
-   file, then syncs. Tokens refresh on the device; the Kobo's browser is never needed.
+**The redirect page.** Inoreader sends your browser to the registered redirect URI after you
+approve. The project's `callback.html` page reads the sign-in's `state` (a random value plus the
+address of the computer or Kobo that started it) and forwards the browser there, but only to a
+loopback or private-network address; it stores and sends nothing. If the forward does not work
+(some browsers restrict a public page opening a local address), copy the address the browser ends
+on and paste it into the terminal (or into the Kobo's setup page): this works for any redirect URI.
 
-   It then offers to set up [Karakeep](#karakeep) as well: paste its address (or pass
-   `--karakeep-url https://...`), then the API key at the hidden prompt, or press Enter to skip.
-   A Karakeep problem never undoes the sign-in.
-
-Why sign-in stays on the computer: the browser installer could only sign in if Inoreader's token
-endpoint (`https://www.inoreader.com/oauth2/token`) answered web pages, and it does not. It sends
-no `Access-Control-Allow-Origin` header, to preflight requests or to the token request itself
-(checked in November 2026), so a page cannot read the tokens. The only way around that is a proxy
-server, which would see the App key and tokens; InoInk has no server. If Inoreader adds CORS
-headers, the page could do the same as `authorize`: exchange the code in the browser and encrypt
-the credentials to `.adds/inoink/data/provision/device.pub` before writing them to the Kobo.
+**Why sign-in stays out of the browser installer.** The browser installer could only sign in if
+Inoreader's token endpoint (`https://www.inoreader.com/oauth2/token`) answered web pages, and it
+does not. It sends no `Access-Control-Allow-Origin` header, to preflight requests or to the token
+request itself (checked in November 2026), so a page cannot read the tokens. The only way around
+that is a proxy server, which would see the App key and tokens; InoInk has no server. If Inoreader
+adds CORS headers, the page could write `provision/accounts.json` itself.
 
 Security note: the client secret has to live on the Kobo because Inoreader's documented token
 refresh needs it. The Kobo's storage is FAT with no file permissions, so anyone with the device
-can read it. Use a dedicated application registration you can revoke.
+can read `credentials.json`, `share.json` and a waiting `accounts.json`. Earlier versions encrypted
+the transfer to a key kept on the same drive, which protected nothing; that is gone, and files left
+by an older `inoink-cli` (`*.age`) are deleted with a message. Use a dedicated application
+registration and Karakeep key you can revoke.
+
+## Accounts on the Kobo
+
+Main menu > Settings > Accounts lists Inoreader and Karakeep with their state ("Signed in as
+Ann", "Sends to keep.example.com"), and for each one that is set up:
+
+- **Test** runs a sync (Inoreader) or asks Karakeep who the key belongs to.
+- **Sign out** (Inoreader) or **Remove** (Karakeep) asks first. Signing out of Inoreader keeps the
+  articles on the Kobo and stops syncing until you sign in again; links waiting for Karakeep stay
+  queued. Signing in as a different Inoreader account opens that account's own database, as
+  always.
+
+**Set up from a phone** needs the Wi-Fi: it shows a QR code for an address such as
+`http://192.168.1.20:41233/3f9c...` served by the Kobo itself, for 15 minutes. Open it on a phone or
+computer on the same network to enter or change Karakeep, or to sign in to Inoreader (App ID, App
+key and redirect URI; "Open Inoreader" takes you to approve, and the redirect page brings the
+browser back to the Kobo, or you paste the address). The page is plain HTTP on your local network:
+use it only on a network you trust. The random part of the address is the only password; it
+changes every time the page is started.
 
 ## Browser installer
 
@@ -149,12 +183,18 @@ page reads and writes it directly. Nothing is uploaded. `site/kobo.js` does the 
   experimental) comes from the list in `site/kobo.js`, which must match the README's Status
   section (`tests/web-installer.test.mjs` checks it). Firmware older than 4.6 is refused; 5 and
   later is flagged experimental. Unknown models may install, with a warning.
-- **Package:** the page reads the latest release from the GitHub API. GitHub serves release files
-  from a host without CORS headers, so the browser cannot download them; the page tries once and
-  then asks the user to download the package and choose it. Either way it compares the file's
-  SHA-256 with the asset digest GitHub publishes (for the release named by the package's
-  `VERSION`), then reads the archive like `install-inoink.sh` does: no absolute or `..` paths, a
-  plain version name, the launcher files present.
+- **Package:** on every Pages deploy `scripts/pages-site.sh` copies the latest release's Kobo
+  package to `downloads/inoink-<version>-kobo-<sha256>.tar.gz` on the project site and writes
+  `release.json` (version, size, SHA-256); the Release workflow starts that deploy after
+  publishing. Served from the same site, the package downloads without CORS trouble. When
+  `release.json` is missing the page falls back to the GitHub API, whose release files send no CORS
+  headers, so it asks the user to download the package and choose it. Either way it compares the
+  file's SHA-256 with the published value (`release.json`, or the asset digest GitHub publishes for
+  the release named by the package's `VERSION`), then reads the archive like `install-inoink.sh`
+  does: no absolute or `..` paths, a plain version name, the launcher files present.
+- **Karakeep:** an optional form saves the address and key to
+  `.adds/inoink/data/provision/accounts.json` (keeping any other waiting entry). The page does not
+  check the key (Karakeep may not allow it from a web page); Accounts > Karakeep > Test does.
 - **Install** writes exactly what `install-inoink.sh` writes, in its order: `INSTALL.SUM`
   removed, `INSTALL.TGZ` written and read back (its `cksum` must match), `current/inoink.sh`,
   then `INSTALL.SUM` last, and with NickelMenu present the entry `.adds/nm/inoink`. All names are
@@ -440,16 +480,18 @@ from the page. The choice is saved in `Settings.toml` as
 ## Karakeep
 
 Links and articles can be sent to [Karakeep](https://karakeep.app) (More menu, or by holding a
-link). They wait in a local queue and are sent as soon as the network allows; Karakeep's address
-and API key are set up from the computer, while signing in with `authorize` or later on their own:
+link). They wait in a local queue and are sent as soon as the network allows: "Sending to
+Karakeep" turns into "Sent to Karakeep" (or the reason Karakeep refused) once it is. Set Karakeep up in
+any of three ways: while installing (`install.sh` offers it), later from the computer,
 
 ```sh
-inoink-cli karakeep --url https://karakeep.example.com --device /Volumes/KOBOeReader
+curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh -s -- --accounts-only --service karakeep
+# or, with inoink-cli: inoink-cli setup --device /Volumes/KOBOeReader --service karakeep
 ```
 
-The API key (create one in Karakeep under Settings > API Keys) is read from the
-`INOINK_KARAKEEP_KEY` environment variable or a hidden prompt, never from the command line. The
-helper checks it against your Karakeep, then writes it encrypted to the Kobo's own key; InoInk
-imports and deletes the transfer file at the next start. Like the Inoreader client secret, the key
-then lives on the Kobo's FAT storage, which has no file permissions: use a key you can revoke.
-Main menu > Status shows how many links are waiting or failed.
+in the [browser installer](#browser-installer), or on the Kobo with Settings > Accounts > Set up
+from a phone. The API key (create one in Karakeep under Settings > API Keys) is read from the
+`INOINK_KARAKEEP_KEY` environment variable or a hidden prompt, never from the command line; the
+computer checks it against your Karakeep before saving. Like the Inoreader client secret, the key
+lives on the Kobo's FAT storage, which has no file permissions: use a key you can revoke. Main
+menu > Status shows how many links are waiting or failed.

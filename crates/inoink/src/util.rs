@@ -10,6 +10,14 @@ pub fn sha256_hex(data: &[u8]) -> String {
     s
 }
 
+/// `bytes` random bytes from the system, as lowercase hex.
+pub fn random_hex(bytes: usize) -> crate::error::Result<String> {
+    use std::io::Read;
+    let mut buf = vec![0u8; bytes];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 pub fn now_secs() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }

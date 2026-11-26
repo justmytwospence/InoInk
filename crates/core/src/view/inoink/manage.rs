@@ -96,7 +96,7 @@ pub fn manage_entries(context: &Context) -> Vec<EntryKind> {
 pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
     let mut entries = Vec::new();
     if let Some(e) = context.inoink.provision_error.clone() {
-        entries.push(EntryKind::Message(format!("Provisioning failed: {e}"), None));
+        entries.push(EntryKind::Message(format!("Account setup failed: {e}"), None));
     }
     entries.push(EntryKind::Message(context.inoink.status_text(), None));
     if context.inoink.last_undo.is_some() {
@@ -116,10 +116,41 @@ pub fn main_menu_entries(context: &Context) -> Vec<EntryKind> {
     entries
 }
 
+/// Settings > Accounts: each service's state, with Test and Sign out.
+pub fn accounts_entries(context: &Context) -> Vec<EntryKind> {
+    use inoink::accounts::{self, Service};
+    let msg = |s: String| EntryKind::Message(s, None);
+    if context.inoink.sandbox {
+        return vec![msg("Accounts are not used in the preview sandbox".into())];
+    }
+    let dir = &context.inoink.data_dir;
+    let mut entries = Vec::new();
+    for s in Service::ALL {
+        let state = accounts::describe(dir, s);
+        let mut sub = vec![msg(state.clone().unwrap_or_else(|| "Not set up".into()))];
+        if state.is_some() {
+            match s {
+                Service::Inoreader => sub.push(msg(context.inoink.status_text())),
+                Service::Karakeep => {
+                    let (waiting, failed) = context.inoink.store().and_then(|st| st.share_counts().ok()).unwrap_or((0, 0));
+                    sub.push(msg(format!("{waiting} waiting, {failed} failed")));
+                }
+            }
+            sub.push(cmd("Test", InoInkEntry::TestAccount(s)));
+            sub.push(cmd(if s == Service::Inoreader { "Sign out" } else { "Remove" }, InoInkEntry::SignOut(s)));
+        }
+        entries.push(EntryKind::SubMenu(s.name().into(), sub));
+    }
+    entries.push(EntryKind::Separator);
+    entries.push(cmd("Set up from a phone...", InoInkEntry::PhoneSetup));
+    entries
+}
+
 fn settings_entries(context: &Context) -> Vec<EntryKind> {
     let s = &context.settings.inoink;
     let radio = |label: &str, e: InoInkEntry, on: bool| EntryKind::RadioButton(label.to_string(), EntryId::InoInk(e), on);
     let mut entries = vec![
+        EntryKind::SubMenu("Accounts".into(), accounts_entries(context)),
         EntryKind::SubMenu(
             "Previous and next titles".into(),
             vec![

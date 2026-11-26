@@ -411,3 +411,57 @@ test("release lookup and package verification", async () => {
   const got = await kobo.downloadPackage(latest.asset, { fetchFn: async () => ({ ok: true, body }) });
   assert.deepEqual(got, bytes);
 });
+
+test("the package published with the site is downloaded from the site", async () => {
+  const sha = "a".repeat(64);
+  const good = { version: "1.2.3", name: "inoink-1.2.3-kobo.tar.gz", file: `downloads/inoink-1.2.3-kobo-${sha}.tar.gz`, size: 5, sha256: sha };
+  const base = new URL("https://example.test/InoInk/");
+  const fetchWith = (j, ok = true) => async () => ({ ok, json: async () => j });
+  const r = await kobo.siteRelease(fetchWith(good), base);
+  assert.equal(r.version, "1.2.3");
+  assert.equal(r.asset.siteUrl, `https://example.test/InoInk/${good.file}`);
+  assert.equal(r.asset.sha256, sha);
+  for (const bad of [
+    { ...good, sha256: "zz" },
+    { ...good, name: "inoink-9.9.9-kobo.tar.gz" },
+    { ...good, file: "elsewhere/x.tar.gz" },
+    { ...good, file: "downloads/../x.tar.gz" },
+    { ...good, size: "5" },
+  ]) {
+    assert.equal(await kobo.siteRelease(fetchWith(bad), base), null);
+  }
+  assert.equal(await kobo.siteRelease(fetchWith(good, false), base), null);
+  assert.equal(await kobo.siteRelease(async () => { throw new TypeError("offline"); }, base), null);
+
+  const urls = [];
+  const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+  const got = await kobo.downloadPackage(r.asset, {
+    fetchFn: async (...args) => {
+      urls.push(args);
+      return { ok: true, body: new Blob([bytes]).stream() };
+    },
+  });
+  assert.deepEqual(got, bytes);
+  assert.deepEqual(urls, [[r.asset.siteUrl]], "no GitHub headers for the site's own file");
+});
+
+test("Karakeep settings are saved for the Kobo to import", async () => {
+  const k = makeKobo();
+  const root = new DirHandle(k);
+  const fixture = JSON.parse(fs.readFileSync(path.join(ROOT, "tests/fixtures/accounts.json"), "utf8"));
+  const file = path.join(k, ".adds/inoink/data/provision/accounts.json");
+  assert.equal((await kobo.inspect(root)).accountsPending, false);
+  await kobo.saveKarakeep(root, ` ${fixture.karakeep.url}/ `, ` ${fixture.karakeep.api_key} `);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).karakeep, fixture.karakeep);
+  assert.equal((await kobo.inspect(root)).accountsPending, true);
+  fs.writeFileSync(file, JSON.stringify({ inoreader: fixture.inoreader }));
+  await kobo.saveKarakeep(root, "http://k.example", "key");
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(saved.inoreader, fixture.inoreader);
+  assert.deepEqual(saved.karakeep, { url: "http://k.example", api_key: "key" });
+  await kobo.saveKarakeep(root, "keep.example.com", "key");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).karakeep.url, "https://keep.example.com");
+  await assert.rejects(kobo.saveKarakeep(root, "ftp://x", "key"), /must be a web address/);
+  await assert.rejects(kobo.saveKarakeep(root, "", "key"), /must be a web address/);
+  await assert.rejects(kobo.saveKarakeep(root, "https://k.example", "  "), /Enter the Karakeep API key/);
+});

@@ -67,7 +67,7 @@ export function supported(w = window) {
 }
 
 function release() {
-  state.releasePromise ??= kobo.latestRelease().then(
+  state.releasePromise ??= kobo.siteRelease().then((r) => r || kobo.latestRelease()).then(
     (r) => (state.release = r),
     (e) => {
       state.releasePromise = null; // try again next time
@@ -201,10 +201,11 @@ function startInstall() {
       // Offline or rate-limited: a downloaded file can still be checked against its release later.
     }
     if (r && !state.blocked) {
-      working(`Downloading InoInk ${r.version}`, `${mb(r.asset.size)} from GitHub.`);
+      const from = r.asset.siteUrl ? "this site" : "GitHub";
+      working(`Downloading InoInk ${r.version}`, `${mb(r.asset.size)} from ${from}.`);
       try {
         const bytes = await kobo.downloadPackage(r.asset, {
-          onProgress: (f) => working(`Downloading InoInk ${r.version}`, `${mb(r.asset.size)} from GitHub.`, f),
+          onProgress: (f) => working(`Downloading InoInk ${r.version}`, `${mb(r.asset.size)} from ${from}.`, f),
         });
         await kobo.verifyAsset(bytes, r.asset);
         return copy(bytes);
@@ -260,7 +261,11 @@ async function copy(bytes) {
   if (r.menu === "no-nickelmenu" || (!menu && !state.status.menuEntry)) {
     next.push("There is no NickelMenu entry, so start .adds/inoink/current/inoink.sh with your launcher.");
   }
-  next.push(wasSignedIn ? "Your sign-in and data are kept." : "Then quit it and sign in from your computer (step 3 above).");
+  next.push(
+    wasSignedIn
+      ? "Your sign-in and data are kept."
+      : "Then sign in: on the Kobo, open Main menu > Settings > Accounts > Set up from a phone; or connect it again and run in a Mac or Linux terminal: curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh -s -- --accounts-only",
+  );
   field("done-message").textContent = next.join(" ");
   step("done");
 }
@@ -301,6 +306,13 @@ function setup() {
   on("remove-confirm", confirmRemove);
   on("back", () => (state.root ? (renderDevice(), step("device")) : step("intro")));
   on("restart", restart);
+  on("karakeep-save", () =>
+    busy(async () => {
+      await kobo.saveKarakeep(state.root, field("karakeep-url").value, field("karakeep-key").value);
+      field("karakeep-key").value = "";
+      field("karakeep-status").textContent = "Saved. InoInk picks it up the next time it starts.";
+    }),
+  );
   field("file").addEventListener("change", (e) => fromFile(e.target.files[0]));
   window.addEventListener("beforeunload", (e) => {
     if (state.busy) e.preventDefault();

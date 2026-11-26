@@ -1,0 +1,2 @@
+{"inoreader":{"client_id":"1000001","client_secret":"fixture-secret","redirect_uri":"https://justmytwospence.github.io/InoInk/callback.html","access_token":"a","refresh_token":"r","expires_at":0,"scope":"read write","user_id":"1001","user_name":"Ann"},
+ "karakeep":{"url":"https://keep.example","api_key":"fixture-key"}}

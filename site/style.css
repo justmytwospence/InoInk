@@ -251,3 +251,7 @@ footer p { margin: .3rem 0; }
   .cols { grid-template-columns: 1fr; }
   .links a:not(:last-child) { display: none; }
 }
+
+.installer details.accounts { margin: .8rem 0; }
+.installer details.accounts label { display: block; margin: .5rem 0; }
+.installer details.accounts input { width: 100%; }

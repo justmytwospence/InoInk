@@ -113,12 +113,15 @@ fn sandbox_refuses_online_and_ignores_local_credentials_and_sharing() {
     std::fs::write(dir.join("preview-sandbox.json"), "not json").unwrap();
     std::fs::write(dir.join("credentials.json"), "invalid").unwrap();
     std::fs::write(dir.join("share.json"), "invalid").unwrap();
+    std::fs::create_dir_all(dir.join("provision")).unwrap();
+    std::fs::write(dir.join("provision/accounts.json"), r#"{"karakeep":{"url":"https://k","api_key":"k"}}"#).unwrap();
     let error = match InoInk::open(&e.context.settings.inoink, e.tx.clone(), true) {
         Err(error) => error,
         Ok(_) => panic!("sandbox must reject online startup"),
     };
     assert_eq!(error, "This preview sandbox is offline-only.");
-    assert!(!dir.join("device.key").exists());
+    assert!(dir.join("provision/accounts.json").exists(), "the sandbox never imports accounts");
+    assert_eq!(std::fs::read_to_string(dir.join("credentials.json")).unwrap(), "invalid");
     let offline = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
     assert!(offline.sandbox);
     assert_eq!(offline.account, "local");
@@ -1560,4 +1563,87 @@ fn footer_has_separate_show_group_and_sort_menus() {
     assert_eq!(rows(&home), vec![1, 2, 3, 4]);
     send(&mut home, &mut e, Event::ToggleNear(ViewId::FilterMenu, near));
     assert!(locate_by_id(&home, ViewId::FilterMenu).is_some());
+}
+
+fn settings_submenu(e: &Env, name: &str) -> Vec<EntryKind> {
+    let settings = plato_core::view::inoink::manage::main_menu_entries(&e.context)
+        .into_iter()
+        .find_map(|k| match k {
+            EntryKind::SubMenu(l, v) if l == "Settings" => Some(v),
+            _ => None,
+        })
+        .unwrap();
+    settings
+        .into_iter()
+        .find_map(|k| match k {
+            EntryKind::SubMenu(l, v) if l == name => Some(v),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn accounts_menu_lists_services() {
+    let e = env();
+    let accounts = settings_submenu(&e, "Accounts");
+    let names: Vec<String> = accounts
+        .iter()
+        .filter_map(|k| match k {
+            EntryKind::SubMenu(l, _) => Some(l.clone()),
+            EntryKind::Command(l, _) => Some(l.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(names, ["Inoreader", "Karakeep", "Set up from a phone..."]);
+}
+
+#[test]
+fn accounts_changed_reloads_once() {
+    use inoink::runtime::Update;
+    let mut e = env();
+    std::fs::write(e.context.inoink.data_dir.join("share.json"), r#"{"karakeep":{"url":"https://k.example","api_key":"k"}}"#).unwrap();
+    let u = Update::AccountsChanged(1, "Karakeep is set up".into());
+    assert!(e.context.inoink.apply(&u));
+    assert!(e.context.inoink.share.karakeep.is_some());
+    assert_eq!(e.context.inoink.notice.take().as_deref(), Some("Karakeep is set up"));
+    // The view's own call for the same event only asks for a redraw.
+    assert!(e.context.inoink.apply(&u));
+    assert!(e.context.inoink.notice.is_none());
+    assert!(!e.context.inoink.apply(&Update::AccountsChanged(0, "old".into())));
+}
+
+#[test]
+fn sign_out_karakeep_removes_it() {
+    let mut e = env();
+    let dir = e.context.inoink.data_dir.clone();
+    inoink::share::set_karakeep(&dir, Some(inoink::share::KarakeepConfig { url: "https://k.example".into(), api_key: "k".into() })).unwrap();
+    let mut rq = RenderQueue::new();
+    let mut home = InoInkHome::new(e.context.fb.rect(), &e.tx, &mut rq, &mut e.context);
+    send(&mut home, &mut e, Event::Select(EntryId::InoInk(InoInkEntry::ConfirmSignOut(inoink::accounts::Service::Karakeep))));
+    assert!(inoink::share::load_config(&dir).unwrap().karakeep.is_none());
+    assert!(e.context.inoink.share.karakeep.is_none());
+}
+
+#[test]
+fn offline_start_leaves_accounts_waiting() {
+    let e = env();
+    let dir = &e.context.inoink.data_dir;
+    std::fs::create_dir_all(dir.join("provision")).unwrap();
+    std::fs::write(dir.join("provision/accounts.json"), r#"{"karakeep":{"url":"https://k","api_key":"k"}}"#).unwrap();
+    let again = InoInk::open(&e.context.settings.inoink, e.tx.clone(), false).unwrap();
+    assert!(again.share.karakeep.is_none());
+    assert!(dir.join("provision/accounts.json").exists());
+}
+
+#[test]
+fn share_message_confirms_sends() {
+    use inoink::sync::{CycleReport, ShareResult};
+    let ok = |t: &str| ShareResult { target: "karakeep".into(), title: t.into(), error: None };
+    assert_eq!(share_message(&CycleReport::default()), None);
+    let mut rep = CycleReport { shares: vec![ok("A")], ..Default::default() };
+    assert_eq!(share_message(&rep).as_deref(), Some("Sent to Karakeep"));
+    rep.shares.push(ok("B"));
+    assert_eq!(share_message(&rep).as_deref(), Some("Sent 2 links to Karakeep"));
+    rep.shares.push(ShareResult { error: Some("refused".into()), ..ok("C") });
+    assert_eq!(share_message(&rep).as_deref(), Some("Karakeep: refused"));
 }

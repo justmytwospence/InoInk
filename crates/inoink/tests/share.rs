@@ -69,19 +69,42 @@ fn karakeep_status_mapping() {
 }
 
 #[test]
-fn share_config_round_trip_encrypted() {
+fn set_karakeep_round_trip() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(dir.path().join("provision")).unwrap();
-    let recipient = inoink::credentials::ensure_device_key(dir.path()).unwrap();
-    let enc = encrypt_for(&recipient, &cfg()).unwrap();
-    assert!(!String::from_utf8_lossy(&enc).contains("secret-key"));
-    write_transfer(dir.path(), &enc).unwrap();
-    assert!(import_provisioned(dir.path()).unwrap());
+    set_karakeep(dir.path(), cfg().karakeep).unwrap();
     assert_eq!(load_config(dir.path()).unwrap(), cfg());
-    assert!(!dir.path().join("provision/share.age").exists(), "the transfer file is deleted");
-    assert!(!import_provisioned(dir.path()).unwrap());
+    set_karakeep(dir.path(), None).unwrap();
+    assert_eq!(load_config(dir.path()).unwrap(), ShareConfig::default());
     let shown = format!("{:?}", cfg());
     assert!(!shown.contains("secret-key"), "the key never shows in debug output");
+}
+
+#[test]
+fn check_karakeep_maps_status() {
+    let k = cfg().karakeep.unwrap();
+    let go = |reply: common::Reply| {
+        let mock = Mock::new();
+        mock.push(reply);
+        let r = check_karakeep(&k, mock.as_ref());
+        assert_eq!(mock.last().url, "https://keep.example/api/v1/users/me");
+        r
+    };
+    assert_eq!(go(Ok(resp(200, "{}"))), KarakeepCheck::Accepted);
+    assert_eq!(go(Ok(resp(401, ""))), KarakeepCheck::Refused);
+    assert_eq!(go(Ok(resp(403, ""))), KarakeepCheck::Refused);
+    assert!(matches!(go(Ok(resp(500, ""))), KarakeepCheck::Unverified(m) if m.contains("500")));
+    assert!(matches!(go(Err(Error::Offline)), KarakeepCheck::Unverified(_)));
+}
+
+#[test]
+fn karakeep_base_validates_and_trims() {
+    assert_eq!(karakeep_base("https://k.example/").unwrap(), "https://k.example");
+    assert_eq!(karakeep_base(" http://a ").unwrap(), "http://a");
+    assert_eq!(karakeep_base("karakeep.example.com").unwrap(), "https://karakeep.example.com");
+    assert_eq!(karakeep_base("keep.example:3000/").unwrap(), "https://keep.example:3000");
+    assert!(karakeep_base("ftp://x").is_err());
+    assert!(karakeep_base("").is_err());
+    assert!(karakeep_base("https://").is_err());
 }
 
 struct Scripted(Mutex<Vec<ShareOutcome>>, Mutex<Vec<String>>);
