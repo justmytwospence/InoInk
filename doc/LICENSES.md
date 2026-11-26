@@ -84,10 +84,7 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | Crate | Version | License |
 |---|---|---|
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
-| aead | 0.5.2 | MIT OR Apache-2.0 |
 | aes | 0.8.4 | MIT OR Apache-2.0 |
-| age | 0.11.5 | MIT OR Apache-2.0 |
-| age-core | 0.11.0 | MIT OR Apache-2.0 |
 | ahash | 0.7.8 | MIT OR Apache-2.0 |
 | aho-corasick | 1.1.4 | Unlicense OR MIT |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
@@ -96,17 +93,13 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | approx | 0.5.1 | Apache-2.0 |
 | ar_archive_writer | 0.5.5 | Apache-2.0 WITH LLVM-exception |
 | arbitrary | 1.4.2 | MIT OR Apache-2.0 |
-| arc-swap | 1.9.5 | MIT OR Apache-2.0 |
 | arrayref | 0.3.9 | BSD-2-Clause |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 |
 | atlatl | 0.1.2 | Apache-2.0/MIT |
 | autocfg | 1.5.0 | Apache-2.0 OR MIT |
 | az | 1.3.0 | MIT/Apache-2.0 |
-| base64 | 0.21.7 | MIT OR Apache-2.0 |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 |
-| basic-toml | 0.1.10 | MIT OR Apache-2.0 |
-| bech32 | 0.9.1 | MIT |
 | beef | 0.5.2 | MIT OR Apache-2.0 |
 | biblatex | 0.12.0 | MIT OR Apache-2.0 |
 | bincode | 1.3.3 | MIT |
@@ -131,8 +124,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | cc | 1.2.52 | MIT OR Apache-2.0 |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 |
 | cfg_aliases | 0.2.1 | MIT |
-| chacha20 | 0.9.1 | Apache-2.0 OR MIT |
-| chacha20poly1305 | 0.10.1 | Apache-2.0 OR MIT |
 | chinese-number | 0.7.8 | MIT |
 | chinese-variant | 1.1.6 | MIT |
 | chrono | 0.4.42 | MIT OR Apache-2.0 |
@@ -149,7 +140,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | comemo-macros | 0.5.1 | MIT OR Apache-2.0 |
 | const-oid | 0.10.3 | Apache-2.0 OR MIT |
 | constant_time_eq | 0.3.1 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
-| cookie-factory | 0.3.3 | MIT |
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 |
 | core_maths | 0.1.1 | MIT |
 | countme | 3.0.1 | MIT OR Apache-2.0 |
@@ -166,8 +156,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | crypto-common | 0.2.2 | MIT OR Apache-2.0 |
 | csv | 1.4.0 | Unlicense/MIT |
 | csv-core | 0.1.13 | Unlicense/MIT |
-| curve25519-dalek | 4.1.3 | BSD-3-Clause |
-| curve25519-dalek-derive | 0.1.1 | MIT/Apache-2.0 |
 | data-url | 0.3.2 | MIT OR Apache-2.0 |
 | deflate64 | 0.1.10 | MIT |
 | deranged | 0.5.5 | MIT OR Apache-2.0 |
@@ -192,15 +180,9 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | fdeflate | 0.3.7 | MIT OR Apache-2.0 |
 | fearless_simd | 0.4.1 | Apache-2.0 OR MIT |
 | fearless_simd | 1.2.0 | Apache-2.0 OR MIT |
-| fiat-crypto | 0.2.9 | MIT OR Apache-2.0 OR BSD-1-Clause |
-| find-crate | 0.6.3 | Apache-2.0 OR MIT |
 | find-msvc-tools | 0.1.7 | MIT OR Apache-2.0 |
 | flate2 | 1.1.5 | MIT OR Apache-2.0 |
 | float-cmp | 0.9.0 | MIT |
-| fluent | 0.16.1 | Apache-2.0 OR MIT |
-| fluent-bundle | 0.15.3 | Apache-2.0 OR MIT |
-| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT |
-| fluent-syntax | 0.11.1 | Apache-2.0 OR MIT |
 | fnv | 1.0.7 | Apache-2.0 / MIT |
 | foldhash | 0.1.5 | Zlib |
 | foldhash | 0.2.0 | Zlib |
@@ -208,15 +190,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | fontdb | 0.23.0 | MIT |
 | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 |
 | funty | 2.0.0 | MIT |
-| futures | 0.3.31 | MIT OR Apache-2.0 |
-| futures-channel | 0.3.31 | MIT OR Apache-2.0 |
-| futures-core | 0.3.31 | MIT OR Apache-2.0 |
-| futures-executor | 0.3.31 | MIT OR Apache-2.0 |
-| futures-io | 0.3.31 | MIT OR Apache-2.0 |
-| futures-macro | 0.3.31 | MIT OR Apache-2.0 |
-| futures-sink | 0.3.31 | MIT OR Apache-2.0 |
-| futures-task | 0.3.31 | MIT OR Apache-2.0 |
-| futures-util | 0.3.31 | MIT OR Apache-2.0 |
 | fxhash | 0.2.1 | Apache-2.0/MIT |
 | generic-array | 0.14.7 | MIT |
 | getrandom | 0.2.16 | MIT OR Apache-2.0 |
@@ -245,7 +218,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | hayro-svg | 0.7.0 | Apache-2.0 OR MIT |
 | hayro-syntax | 0.7.2 | Apache-2.0 OR MIT |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
-| hkdf | 0.12.4 | MIT OR Apache-2.0 |
 | hmac | 0.12.1 | MIT OR Apache-2.0 |
 | home | 0.5.12 | MIT OR Apache-2.0 |
 | html5ever | 0.40.1 | MIT OR Apache-2.0 |
@@ -253,10 +225,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | httparse | 1.10.1 | MIT OR Apache-2.0 |
 | hybrid-array | 0.4.10 | MIT OR Apache-2.0 |
 | hypher | 0.1.8 | MIT OR Apache-2.0 |
-| i18n-config | 0.4.8 | MIT |
-| i18n-embed | 0.15.4 | MIT |
-| i18n-embed-fl | 0.9.4 | MIT |
-| i18n-embed-impl | 0.8.4 | MIT |
 | iana-time-zone | 0.1.64 | MIT OR Apache-2.0 |
 | iana-time-zone-haiku | 0.1.2 | MIT OR Apache-2.0 |
 | icu_collator | 2.4.0 | Unicode-3.0 |
@@ -282,9 +250,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | imagesize | 0.14.0 | MIT |
 | indexmap | 2.13.0 | Apache-2.0 OR MIT |
 | inout | 0.1.4 | MIT OR Apache-2.0 |
-| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT |
-| intl_pluralrules | 7.0.2 | Apache-2.0/MIT |
-| io_tee | 0.1.1 | MIT OR Apache-2.0 |
 | itoa | 1.0.17 | MIT OR Apache-2.0 |
 | jobserver | 0.1.34 | MIT OR Apache-2.0 |
 | js-sys | 0.3.83 | MIT OR Apache-2.0 |
@@ -315,9 +280,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | markup5ever_rcdom | 0.40.1+unofficial | MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | memoffset | 0.9.1 | MIT |
-| mime | 0.3.18 | MIT OR Apache-2.0 |
-| mime_guess | 2.0.5 | MIT |
-| minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mitex | 0.2.7 | Apache-2.0 |
 | mitex-glob | 0.2.7 | Apache-2.0 |
@@ -329,14 +291,12 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | mutate_once | 0.1.2 | BSD-2-Clause |
 | new_debug_unreachable | 1.0.6 | MIT |
 | nix | 0.30.1 | MIT |
-| nom | 7.1.3 | MIT |
 | num-bigint | 0.4.8 | MIT OR Apache-2.0 |
 | num-conv | 0.1.0 | MIT OR Apache-2.0 |
 | num-integer | 0.1.47 | MIT OR Apache-2.0 |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 |
 | object | 0.39.1 | Apache-2.0 OR MIT |
 | once_cell | 1.21.3 | MIT OR Apache-2.0 |
-| opaque-debug | 0.3.1 | MIT OR Apache-2.0 |
 | palette | 0.7.7 | MIT OR Apache-2.0 |
 | palette_derive | 0.7.7 | MIT OR Apache-2.0 |
 | palette_math | 0.7.7 | MIT OR Apache-2.0 |
@@ -357,15 +317,10 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | phf_shared | 0.14.0 | MIT |
 | pic-scale | 0.7.12 | BSD-3-Clause OR Apache-2.0 |
 | pico-args | 0.5.0 | MIT |
-| pin-project | 1.1.13 | Apache-2.0 OR MIT |
-| pin-project-internal | 1.1.13 | Apache-2.0 OR MIT |
-| pin-project-lite | 0.2.16 | Apache-2.0 OR MIT |
-| pin-utils | 0.1.0 | MIT OR Apache-2.0 |
 | pixglyph | 0.6.1 | Apache-2.0 |
 | pkg-config | 0.3.32 | MIT OR Apache-2.0 |
 | plist | 1.8.0 | MIT |
 | png | 0.18.1 | MIT OR Apache-2.0 |
-| poly1305 | 0.8.0 | Apache-2.0 OR MIT |
 | polycool | 0.4.0 | MIT OR Apache-2.0 |
 | portable-atomic | 1.15.0 | Apache-2.0 OR MIT |
 | postcard | 1.1.3 | MIT OR Apache-2.0 |
@@ -374,8 +329,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | ppmd-rust | 1.3.0 | CC0-1.0 |
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 |
 | precomputed-hash | 0.1.1 | MIT |
-| proc-macro-error-attr2 | 2.0.0 | MIT OR Apache-2.0 |
-| proc-macro-error2 | 2.0.1 | MIT OR Apache-2.0 |
 | proc-macro-hack | 0.5.20+deprecated | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.105 | MIT OR Apache-2.0 |
 | psm | 0.1.32 | MIT OR Apache-2.0 |
@@ -411,13 +364,9 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | roxmltree | 0.21.2 | MIT OR Apache-2.0 |
 | rsqlite-vfs | 0.2.0 | MIT |
 | rusqlite | 0.42.0 | MIT |
-| rust-embed | 8.14.0 | MIT |
-| rust-embed-impl | 8.14.0 | MIT |
-| rust-embed-utils | 8.14.0 | MIT |
 | rust_decimal | 1.43.0 | MIT |
 | rustc-hash | 1.1.0 | Apache-2.0/MIT |
 | rustc-hash | 2.1.1 | Apache-2.0 OR MIT |
-| rustc_version | 0.4.1 | MIT OR Apache-2.0 |
 | rustix | 0.38.44 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT |
@@ -426,16 +375,11 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | rustversion | 1.0.22 | MIT OR Apache-2.0 |
 | rustybuzz | 0.20.1 | MIT |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 |
-| salsa20 | 0.10.2 | MIT OR Apache-2.0 |
 | same-file | 1.0.6 | Unlicense/MIT |
 | scopeguard | 1.2.0 | MIT OR Apache-2.0 |
-| scrypt | 0.11.0 | MIT OR Apache-2.0 |
 | sdl2 | 0.38.0 | MIT |
 | sdl2-sys | 0.38.0 | MIT AND Zlib |
 | seahash | 4.1.0 | MIT |
-| secrecy | 0.10.3 | Apache-2.0 OR MIT |
-| self_cell | 0.10.3 | Apache-2.0 |
-| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only |
 | semver | 1.0.28 | MIT OR Apache-2.0 |
 | septem | 1.1.0 | MIT |
 | serde | 1.0.228 | MIT OR Apache-2.0 |
@@ -467,7 +411,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | strict-num | 0.1.1 | MIT |
 | string_cache | 0.11.0 | MIT OR Apache-2.0 |
 | string_cache_codegen | 0.11.2 | MIT OR Apache-2.0 |
-| strsim | 0.11.1 | MIT |
 | strum | 0.27.2 | MIT |
 | strum_macros | 0.27.2 | MIT |
 | subtle | 2.6.1 | BSD-3-Clause |
@@ -483,9 +426,7 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | tendril | 0.5.1 | MIT OR Apache-2.0 |
 | text-size | 1.1.1 | MIT OR Apache-2.0 |
 | thin-vec | 0.2.21 | MIT OR Apache-2.0 |
-| thiserror | 1.0.69 | MIT OR Apache-2.0 |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 |
-| thiserror-impl | 1.0.69 | MIT OR Apache-2.0 |
 | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 |
 | time | 0.3.44 | MIT OR Apache-2.0 |
 | time-core | 0.1.6 | MIT OR Apache-2.0 |
@@ -496,7 +437,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | tinyvec | 1.10.0 | Zlib OR Apache-2.0 OR MIT |
 | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | titlecase | 3.6.0 | MIT |
-| toml | 0.5.11 | MIT/Apache-2.0 |
 | toml | 0.8.23 | MIT OR Apache-2.0 |
 | toml | 0.9.11+spec-1.1.0 | MIT OR Apache-2.0 |
 | toml_datetime | 0.6.11 | MIT OR Apache-2.0 |
@@ -507,7 +447,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | toml_writer | 1.0.6+spec-1.1.0 | MIT OR Apache-2.0 |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 |
 | two-face | 0.4.5 | MIT OR Apache-2.0 |
-| type-map | 0.5.1 | MIT/Apache-2.0 |
 | typed-arena | 2.0.2 | MIT |
 | typenum | 1.19.0 | MIT OR Apache-2.0 |
 | typst | 0.15.1 | Apache-2.0 |
@@ -527,7 +466,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | unic-langid-impl | 0.9.6 | MIT OR Apache-2.0 |
 | unic-langid-macros | 0.9.6 | MIT OR Apache-2.0 |
 | unic-langid-macros-impl | 0.9.6 | MIT OR Apache-2.0 |
-| unicase | 2.10.0 | MIT OR Apache-2.0 |
 | unicode-bidi | 0.3.18 | MIT OR Apache-2.0 |
 | unicode-bidi-mirroring | 0.4.0 | MIT/Apache-2.0 |
 | unicode-ccc | 0.4.0 | MIT/Apache-2.0 |
@@ -538,7 +476,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | unicode-script | 0.5.9 | MIT OR Apache-2.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
 | unicode-vo | 0.1.0 | MIT/Apache-2.0 |
-| universal-hash | 0.5.1 | MIT OR Apache-2.0 |
 | unsafe-libyaml | 0.2.11 | MIT |
 | unscanny | 0.1.0 | MIT OR Apache-2.0 |
 | untrusted | 0.9.0 | ISC |
@@ -598,7 +535,6 @@ Bitter, Jost and Literata by their project authors. The choice follows Kobalt
 | write16 | 1.0.0 | Apache-2.0 OR MIT |
 | writeable | 0.6.4 | Unicode-3.0 |
 | wyz | 0.5.1 | MIT |
-| x25519-dalek | 2.0.1 | BSD-3-Clause |
 | xi-unicode | 0.3.0 | Apache-2.0 |
 | xml5ever | 0.40.0 | MIT OR Apache-2.0 |
 | xmlwriter | 0.1.0 | MIT |

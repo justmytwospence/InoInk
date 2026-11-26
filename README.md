@@ -135,64 +135,51 @@ runs, the normal Kobo interface is stopped; it comes back when you quit.
    **New application** and fill in:
    - **Name:** `InoInk` (anything you like)
    - **Platform:** Other
-   - **Redirect URI:** `http://localhost:8080/callback`
+   - **Redirect URI:** `https://justmytwospence.github.io/InoInk/callback.html` (a page on the
+     project site that only hands Inoreader's answer back to your computer or Kobo)
    - **OAuth scope:** Read and write
 
    Save, and keep the **App ID** and **App key** it shows at hand. If New application is greyed
    out, your account already has an application: you can use that one instead (InoInk then shares
-   its daily request budget), with its own redirect URI in step 4 below.
-4. A computer: Chrome or Edge to install from the project page (or macOS or Linux for the install
-   script), and macOS or Linux for signing in.
+   its daily request budget); when its redirect URI is something else, you paste the address the
+   browser ends on into the terminal after approving.
+4. A Mac or Linux computer with a terminal, or Chrome or Edge for the browser installer.
 
 ## Install
 
-Download from the [latest release](https://github.com/justmytwospence/InoInk/releases/latest):
+Connect the Kobo by USB, tap **Connect** on the Kobo, and run in a terminal:
 
-- `inoink-<version>-kobo.tar.gz`: the app
-- `install-inoink.sh`: the installer (not needed with the browser installer)
-- `inoink-cli-<platform>`: the sign-in helper (or build it yourself, below)
+```sh
+curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh
+```
 
-Then:
+It downloads the latest release and checks it against the published checksums, installs it on the
+Kobo with the NickelMenu entry, asks for your App ID and App key, opens Inoreader for you to
+approve, offers to set up [Karakeep](doc/INOINK-SETUP.md#karakeep) (Enter skips it) and ejects the
+Kobo. Unplug it and open **InoInk** from NickelMenu: it finishes installing, picks up your accounts
+and syncs.
 
-1. Connect the Kobo by USB and tap **Connect** on the Kobo.
-2. Install, with the menu entry, in one of two ways:
+- To read the script first: download `install.sh` from the [project page](https://justmytwospence.github.io/InoInk/),
+  read it, then run `sh install.sh`.
+- Options go after `sh -s --`: `--device /path/to/KOBOeReader`, `--version X.Y.Z`,
+  `--accounts-only` (skip the install: sign in again or change accounts) and `--service karakeep`
+  (only that service).
+- **In Chrome or Edge instead:** on the [project page](https://justmytwospence.github.io/InoInk/#installer),
+  choose **Install or remove on Kobo**, then the KOBOeReader drive. The page shows your model,
+  firmware and what is installed, downloads the package from the project site, checks it against
+  its checksum and writes the same files as the script; it can also save your Karakeep address and
+  key. Then sign in on the Kobo: Main menu > Settings > Accounts > **Set up from a phone** shows a
+  QR code for a page the Kobo serves on your Wi-Fi. Without NickelMenu, install it first with
+  [KoboPatch Web UI](https://kp.nicoverbruggen.be).
+- **By hand:** download `install-inoink.sh`, the Kobo package and `inoink-cli-<platform>` from the
+  [latest release](https://github.com/justmytwospence/InoInk/releases/latest), then
+  `sh install-inoink.sh inoink-<version>-kobo.tar.gz /Volumes/KOBOeReader --menu` and
+  `./inoink-cli-macos-arm64 setup --device /Volumes/KOBOeReader` (on macOS clear the quarantine
+  flag of a browser-downloaded binary first: `xattr -d com.apple.quarantine inoink-cli-macos-arm64`).
 
-   - **In Chrome or Edge:** on the [project page](https://justmytwospence.github.io/InoInk/#installer),
-     choose **Install or remove on Kobo**, then the KOBOeReader drive. The page shows your model,
-     firmware and what is installed, checks the package against the checksum GitHub publishes,
-     and writes the same files as the script. GitHub does not let pages download release files
-     themselves, so the page asks you to download the package and choose it. Without NickelMenu,
-     install it first with [KoboPatch Web UI](https://kp.nicoverbruggen.be).
-   - **With the script** (macOS or Linux):
-
-     ```sh
-     sh install-inoink.sh inoink-<version>-kobo.tar.gz /Volumes/KOBOeReader --menu
-     ```
-
-     Use your Kobo's mount point on Linux. The installer verifies every copied file and, on macOS,
-     ejects the Kobo when it is done.
-3. Unplug the Kobo, open the NickelMenu and choose **InoInk**. The first start creates the Kobo's
-   own encryption key and shows "Sign in required". Quit InoInk from its main menu (≡, Quit).
-4. Connect the Kobo again (tap **Connect**) and sign in on the computer:
-
-   ```sh
-   chmod +x inoink-cli-macos-arm64
-   xattr -d com.apple.quarantine inoink-cli-macos-arm64   # macOS only, see below
-   ./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID \
-       --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader
-   ```
-
-   On Linux use `inoink-cli-linux-x86_64` and your Kobo's mount point (often
-   `/media/$USER/KOBOeReader`). On macOS the `xattr` line is needed because the helper is not
-   signed by Apple: without it macOS refuses to open a downloaded binary ("Apple could not
-   verify..."). It asks for your App key at a hidden prompt, opens Inoreader in your browser for
-   you to approve, and writes the sign-in to the Kobo **encrypted to that Kobo's key**. If you
-   used an existing application whose redirect URI is not `localhost`, pass that URI instead;
-   after approving, paste the address your browser ends on into the terminal. Signing in cannot
-   move to the project page: Inoreader's token endpoint sends no CORS headers, so a page cannot
-   read its answer without a server in between that would see your App key and tokens.
-5. Eject the Kobo and open InoInk again. It picks up the sign-in, connects using the Kobo's
-   saved Wi-Fi network, and syncs.
+Signing in cannot happen on the project page itself: Inoreader's token endpoint sends no CORS
+headers, so a page cannot read its answer without a server in between that would see your App key
+and tokens.
 
 ### First five minutes
 
@@ -209,7 +196,7 @@ Then:
 - Changes go to Inoreader on their own when Wi-Fi is on. To quit, use the main menu (≡ > Quit),
   and always quit before plugging the Kobo into a computer.
 
-To update, run step 2 again with the new package. Your data, sign-in and settings are kept, and
+To update, run the same command again. Your data, sign-in and settings are kept, and
 the previous version stays installed for rollback. Installing also brings an existing menu entry up
 to date. To remove InoInk, use **Remove InoInk** in the
 browser installer, or run `scripts/remove-inoink.sh /Volumes/KOBOeReader` from this repository.
@@ -244,8 +231,12 @@ More detail, including security notes and everyday use: [doc/INOINK-SETUP.md](do
 - **Light:** the bulb icon opens a panel for brightness and warmth; sliding along the left edge
   also changes brightness.
 - **Wi-Fi:** the icon in the top bar shows off, connecting or online; tap it to switch Wi-Fi.
-- **Karakeep:** `inoink-cli karakeep --url https://your-karakeep --device /Volumes/KOBOeReader`
-  sets it up (or answer the prompt during `authorize`); see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
+- **Accounts:** Main menu > Settings > Accounts shows Inoreader and Karakeep with Test and Sign out
+  (Remove for Karakeep), and **Set up from a phone** shows a QR code for a page on the Kobo that
+  signs in from a phone on the same Wi-Fi. See [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#accounts-on-the-kobo).
+- **Karakeep:** set it up while installing, in Settings > Accounts, or later with
+  `curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh -s -- --accounts-only --service karakeep`;
+  see [doc/INOINK-SETUP.md](doc/INOINK-SETUP.md#karakeep).
 - **Messages:** short notes appear one at a time, centred below the top bar. Archive and bulk
   changes update the list without one; Main menu > Undo last change reverts them.
 - **USB:** quit InoInk before connecting to a computer.
@@ -368,7 +359,7 @@ development tools alone release nothing. `scripts/version.sh next` shows what me
 
 - `crates/inoink`: the Inoreader library (database, API client, content pipeline, cache, sync).
   It has no user-interface dependency.
-- `crates/inoink-cli`: the computer-side helper (`authorize`, `karakeep`,
+- `crates/inoink-cli`: the computer-side helper (`setup`, `authorize`, `karakeep`,
   `highlights`, `provision`, `fixtures`, `verify-cache`, `acceptance`, and `snapshot-login` /
   `snapshot` for the desktop preview).
 - `crates/core`, `crates/plato`, `crates/emulator`: Plato's renderer, device layer and app,

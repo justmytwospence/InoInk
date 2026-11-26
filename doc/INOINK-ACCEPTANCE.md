@@ -14,6 +14,11 @@ document tests inside the build container, and the install/launcher tests).
 
 | Area | Where | Result |
 |---|---|---|
+| Accounts: the transfer file (merge, unknown services, damaged and older `.age` files), sign-in, sign-out, state lines, the account guard on token saves | `crates/inoink/tests/accounts.rs` (9) | PASS |
+| Phone setup page: token, secrets never shown, Karakeep check, Inoreader sign-in through the redirect and by pasted address, wrong state, oversized bodies, lifetime | `crates/inoink/tests/setup_server.rs` (9) | PASS |
+| `site/install.sh` with a fake release: install then sign-in, accounts only, named version, tampered package, not a Kobo, bad service name | `tests/site-install.sh` (6) | PASS |
+| Pages build: `release.json` and the checksummed package | `tests/pages-site.sh` (7) | PASS |
+| Sign-in redirect page: only loopback and private addresses are forwarded | `tests/relay.test.mjs` (2) | PASS |
 | Local store: entity decoding of titles (ingest and migration), durable intent, Done vs Mark read, undo before/after acknowledgement, toggles, generation racing acknowledgement, independent tags, frozen bulk scope, stale snapshots, reconciliation, migrations, disk full, accounts, seen and new, bulk undo, highlight styles and colours (incl. older highlights staying gray shading) | `crates/inoink/tests/store_intent.rs` (43) | PASS |
 | API: every supported request shape, IDs (signed/hex), pagination parameters, encoding, Active Search incl. HTTP 202 and destructive GET, token refresh once, revocation, malformed/oversized responses, quota zones, reserve, 429 and persistence | `crates/inoink/tests/api_contract.rs` (24) | PASS |
 | Sync faults: first sync incl. old starred, old star elsewhere, remote unstar, Done offline then restart, lost response, partial failure, crash in flight, toggles, tags, pending-wins-then-remote-wins, partial/failed/looping/capped listings, second-listing confirmation, silent unread boundary, token rotation/revocation, quota pause and resume, zone independence, interval, organization changes incl. lost responses, storage pressure, history paging, skipping unchanged listings, organization refresh on change, downloads on save | `crates/inoink/tests/sync_faults.rs` (39) | PASS |
@@ -68,8 +73,10 @@ drive was not used.
 | Installing from the chosen 0.11.0 package: `INSTALL.TGZ` byte-identical, `INSTALL.SUM` equal to `cksum`, launcher and NickelMenu entry written, no swap files left; about 2 s | PASS |
 | A modified package is refused | PASS |
 | Remove, keeping data, then everything | PASS |
-| Inoreader's token endpoint and API send no CORS headers (`curl` with an `Origin` header, preflight and POST), so sign-in stays in `inoink-cli` | PASS (checked 2026-11-23) |
+| Inoreader's token endpoint and API send no CORS headers (`curl` with an `Origin` header, preflight and POST), so sign-in stays in the terminal installer or on the Kobo | PASS (checked 2026-11-23) |
 | Install and remove on a real KOBOeReader drive from Chrome or Edge (folder picker, permission prompt, FAT writes) | NOT RUN |
+| The package downloads from the project site (`release.json`) with no manual download | NOT RUN |
+| The Karakeep fields write `provision/accounts.json`, which InoInk imports | NOT RUN |
 
 ## Emulator
 
@@ -173,6 +180,10 @@ that was merged.
 
 | Case | Result |
 |---|---|
+| `install.sh` one-liner on macOS: installs, signs in through `callback.html` back to the terminal, offers Karakeep, ejects; InoInk imports `accounts.json` and syncs | NOT RUN |
+| Settings > Accounts: state lines, Test for both services, Sign out of Inoreader and Remove Karakeep | NOT RUN |
+| Set up from a phone: the QR code opens the page on a phone on the same Wi-Fi; Karakeep saves; Inoreader sign-in through `callback.html` returns to the Kobo (iOS Safari, Android Chrome); the paste fallback works with `http://localhost:8080/callback` | NOT RUN |
+| Signing in as a different Inoreader account through the phone page opens that account's lists | NOT RUN |
 | Launch from NickelMenu; quit restores Nickel (normal exit and after a forced error) | NOT RUN |
 | Start-up check from the NickelMenu entry (`--check`, then start): no visible delay before "Opening InoInk" | NOT RUN |
 | A file removed from the active release: InoInk starts the previous release and shows "InoInk <v> is damaged" | NOT RUN |
@@ -324,8 +335,7 @@ date, the number of runs and the table.
   the first live run may reveal differences (for example whether `categories` omit state tags
   under `includeAllDirectStreamIds=false`, which InoInk deliberately never sends on `contents`).
 - Feed ordering (`preference/stream/set`) is implemented in the sync layer and tested, but the
-  interface has no reordering control yet. There is no "sign out" control; delete
-  `.adds/inoink/data/credentials.json` to sign out.
+  interface has no reordering control yet.
 - The Atom representation of streams is not implemented (JSON only, as Inoreader advises).
 - `inoink-cli acceptance --live` makes read-only checks only.
 - Hyphenation patterns and dictionaries are not shipped (license audit pending), so hyphenation is off.
