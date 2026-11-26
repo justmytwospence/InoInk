@@ -8,7 +8,11 @@ cd "$(dirname "$0")/.."
 if [ -z "${INOINK_IN_CONTAINER:-}" ]; then
 	[ -x target/kobo/arm-unknown-linux-gnueabihf/release/inoink ] || { echo "error: run scripts/build-inoink.sh --target kobo first" >&2; exit 1; }
 	: "${INOINK_VERSION:=$(scripts/version.sh dev)}"
-	exec docker run --rm -v "$PWD":/src -e INOINK_IN_CONTAINER=1 -e INOINK_VERSION="$INOINK_VERSION" \
+	# In a git worktree, .git points into the main checkout's repository: mount it at the same path.
+	GITDIR=$(git rev-parse --path-format=absolute --git-common-dir)
+	set --
+	case $GITDIR in "$PWD"/*) ;; *) set -- -v "$GITDIR":"$GITDIR" ;; esac
+	exec docker run --rm -v "$PWD":/src "$@" -e INOINK_IN_CONTAINER=1 -e INOINK_VERSION="$INOINK_VERSION" \
 		-e SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)" -w /src inoink-kobo-rust:local /src/scripts/package-inoink.sh
 fi
 
