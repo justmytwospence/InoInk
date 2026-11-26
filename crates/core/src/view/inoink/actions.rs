@@ -433,8 +433,15 @@ pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String
     Ok("Sending to Karakeep".into())
 }
 
-/// What a sync pass reports about shares: the first refusal, if any. Successful sends are
-/// silent (the message would arrive later, over whatever happens to be on screen).
+/// What a sync pass reports about shares: the first refusal, else that the links were sent. It
+/// replaces the "Sending to Karakeep" message. A link still waiting (offline) reports nothing.
 pub fn share_message(rep: &inoink::sync::CycleReport) -> Option<String> {
-    rep.shares.iter().find_map(|s| s.error.as_ref()).map(|e| format!("Karakeep: {e}"))
+    if let Some(e) = rep.shares.iter().find_map(|s| s.error.as_ref()) {
+        return Some(format!("Karakeep: {e}"));
+    }
+    match rep.shares.len() {
+        0 => None,
+        1 => Some("Sent to Karakeep".into()),
+        n => Some(format!("Sent {n} links to Karakeep")),
+    }
 }

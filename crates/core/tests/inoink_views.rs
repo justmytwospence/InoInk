@@ -1634,3 +1634,16 @@ fn offline_start_leaves_accounts_waiting() {
     assert!(again.share.karakeep.is_none());
     assert!(dir.join("provision/accounts.json").exists());
 }
+
+#[test]
+fn share_message_confirms_sends() {
+    use inoink::sync::{CycleReport, ShareResult};
+    let ok = |t: &str| ShareResult { target: "karakeep".into(), title: t.into(), error: None };
+    assert_eq!(share_message(&CycleReport::default()), None);
+    let mut rep = CycleReport { shares: vec![ok("A")], ..Default::default() };
+    assert_eq!(share_message(&rep).as_deref(), Some("Sent to Karakeep"));
+    rep.shares.push(ok("B"));
+    assert_eq!(share_message(&rep).as_deref(), Some("Sent 2 links to Karakeep"));
+    rep.shares.push(ShareResult { error: Some("refused".into()), ..ok("C") });
+    assert_eq!(share_message(&rep).as_deref(), Some("Karakeep: refused"));
+}

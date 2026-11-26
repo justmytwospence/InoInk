@@ -480,7 +480,8 @@ from the page. The choice is saved in `Settings.toml` as
 ## Karakeep
 
 Links and articles can be sent to [Karakeep](https://karakeep.app) (More menu, or by holding a
-link). They wait in a local queue and are sent as soon as the network allows. Set Karakeep up in
+link). They wait in a local queue and are sent as soon as the network allows: "Sending to
+Karakeep" turns into "Sent to Karakeep" (or the reason Karakeep refused) once it is. Set Karakeep up in
 any of three ways: while installing (`install.sh` offers it), later from the computer,
 
 ```sh
