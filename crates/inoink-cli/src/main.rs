@@ -3,15 +3,18 @@
 
 mod snapshot;
 
-use inoink::api::auth::{authorize_url, exchange_code, parse_callback, AppConfig};
+use inoink::accounts::{self, Service, Transfer, RELAY_REDIRECT_URI};
+use inoink::api::auth::{authorize_url, parse_callback, AppConfig};
 use inoink::api::{ApiClient, Clock, SystemClock, UreqTransport};
 use inoink::cache::{Cache, CacheConfig, Control};
 use inoink::content::images::{Fetched, Fetcher};
-use inoink::credentials::{encrypt_for, read_device_recipient, write_transfer, Credentials};
+use inoink::credentials::{Credentials, FileCredentials};
 use inoink::error::{Error, Result};
 use inoink::model::*;
+use inoink::share::{self, KarakeepCheck, KarakeepConfig};
 use inoink::store::{ArticleRecord, Store, Subscription};
-use std::io::{BufRead, Cursor, IsTerminal, Read, Write};
+use inoink::util::random_hex;
+use std::io::{BufRead, Cursor, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -19,22 +22,23 @@ use std::sync::Arc;
 
 const USAGE: &str = "inoink-cli <command>
 
+  setup --device MOUNT [--service inoreader|karakeep]... [--client-id ID] [--redirect-uri URI]
+        [--karakeep-url URL]
+      Sign in to Inoreader (and optionally Karakeep) and write the accounts to the mounted Kobo,
+      which imports them the next time InoInk starts. Asks for what is missing. Secrets come from
+      INOINK_CLIENT_SECRET and INOINK_KARAKEEP_KEY or hidden prompts, never from arguments.
+      Without --service it goes through every service and asks before replacing one that is set up.
   authorize --client-id ID --redirect-uri URI [--scope 'read write'] (--device MOUNT | --out FILE)
-            [--karakeep-url URL]
-      Sign in with Inoreader on this computer. The client secret is read from the
-      INOINK_CLIENT_SECRET environment variable or a hidden prompt. With --device the encrypted
-      credentials are written to the mounted Kobo; with --out they are written to FILE
-      (plaintext: delete it after provisioning). With --device it also offers to set up
-      Karakeep (the key is read as for `karakeep`).
+      --device MOUNT: the same as `setup --service inoreader`. --out FILE: sign in and write the
+      credentials to FILE (plaintext: delete it after use; the desktop preview uses it).
   snapshot-login --auth DIR
       Authorize a separate read-only account for offline snapshots.
   snapshot --auth DIR --output DIR
       Download a bounded offline snapshot using separate read-only credentials.
   provision --credentials FILE --device MOUNT
-      Encrypt previously authorized credentials for the Kobo's key.
+      Write previously authorized credentials (from `authorize --out`) to the Kobo.
   karakeep --url URL --device MOUNT
-      Set up sending links to Karakeep. The API key is read from INOINK_KARAKEEP_KEY or a hidden
-      prompt, checked against your Karakeep, then written encrypted to the mounted Kobo.
+      The same as `setup --service karakeep --karakeep-url URL`.
   fixtures --output DIR
       Build deterministic offline sample data (articles, images, tables, code).
   verify-cache --data DIR [--account ID]
@@ -57,12 +61,6 @@ fn flag(args: &[String], name: &str) -> bool {
 
 fn data_dir_of(mount: &Path) -> PathBuf {
     mount.join(".adds").join("inoink").join("data")
-}
-
-fn random_hex(n: usize) -> Result<String> {
-    let mut buf = vec![0u8; n];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
-    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn read_secret() -> Result<String> {
@@ -116,12 +114,17 @@ fn read_secret_from(env: &str, what: &str, prompt: &str) -> Result<String> {
 
 /// Waits for the browser redirect on a loopback address and, at the same time, accepts the
 /// redirected address pasted into the terminal. Whichever arrives first wins.
-fn receive_callback(redirect_uri: &str) -> Result<String> {
+fn receive_callback(redirect_uri: &str, listener: Option<TcpListener>) -> Result<String> {
     let url = url::Url::parse(redirect_uri).map_err(|_| Error::InvalidRequest("bad redirect URI".into()))?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let loopback = matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port().is_some();
-    if loopback {
-        match TcpListener::bind(("127.0.0.1", url.port().unwrap())) {
+    let bound = match listener {
+        Some(l) => Some(Ok(l)),
+        None if loopback => Some(TcpListener::bind(("127.0.0.1", url.port().unwrap()))),
+        None => None,
+    };
+    if let Some(bound) = bound {
+        match bound {
             Ok(listener) => {
                 let tx = tx.clone();
                 let base = format!("{}://{}", url.scheme(), url.host_str().unwrap_or("localhost"));
@@ -142,7 +145,7 @@ fn receive_callback(redirect_uri: &str) -> Result<String> {
                             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
                             continue;
                         }
-                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is authorized. You can close this tab.\r\n");
+                        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInoInk is signed in. You can close this tab.\r\n");
                         let _ = tx.send(format!("{base}{path}"));
                         break;
                     }
@@ -178,74 +181,175 @@ fn receive_callback(redirect_uri: &str) -> Result<String> {
     rx.recv().map_err(|_| Error::InvalidRequest("no authorization was received".into()))
 }
 
+fn args_all(args: &[String], name: &str) -> Vec<String> {
+    args.windows(2).filter(|w| w[0] == name).map(|w| w[1].clone()).collect()
+}
+
+/// A line from the terminal, with a default shown in brackets.
+fn prompt_line(prompt: &str, default: Option<&str>) -> Result<String> {
+    match default.filter(|d| !d.is_empty()) {
+        Some(d) => eprint!("{prompt} [{d}]: "),
+        None => eprint!("{prompt}: "),
+    }
+    let mut line = String::new();
+    if std::io::stdin().lock().read_line(&mut line)? == 0 {
+        return Err(Error::InvalidRequest("no answer (setup needs a terminal)".into()));
+    }
+    let line = line.trim();
+    Ok(if line.is_empty() { default.unwrap_or("").to_string() } else { line.to_string() })
+}
+
+fn yes(prompt: &str) -> Result<bool> {
+    Ok(prompt_line(&format!("{prompt} [y/N]"), None)?.to_lowercase().starts_with('y'))
+}
+
+/// Signs in with Inoreader in the browser. With the project's redirect page the browser comes
+/// back to a listener on this computer; any other redirect URI is received by address.
+fn browser_sign_in(cfg: &AppConfig, scope: &str) -> Result<Credentials> {
+    let nonce = random_hex(16)?;
+    let (state, listener) = if cfg.redirect_uri == RELAY_REDIRECT_URI {
+        let l = TcpListener::bind("127.0.0.1:0")?;
+        let port = l.local_addr()?.port();
+        (accounts::relay_state(&nonce, "127.0.0.1", port), Some(l))
+    } else {
+        (nonce, None)
+    };
+    let consent = authorize_url(cfg, &state, scope);
+    println!("Approve access in the browser. If it does not open, open this address:\n\n  {consent}\n");
+    let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(&consent).status();
+    let callback = receive_callback(&cfg.redirect_uri, listener)?;
+    let code = parse_callback(&callback, &state)?;
+    accounts::sign_in_inoreader(cfg, Arc::new(UreqTransport::new()), Arc::new(SystemClock), &code)
+}
+
+fn kobo_data_dir(mount: &Path) -> Result<PathBuf> {
+    if !mount.join(".kobo").join("version").is_file() {
+        return Err(Error::InvalidRequest(format!("{} does not look like a Kobo (no .kobo/version)", mount.display())));
+    }
+    let dir = data_dir_of(mount);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+fn setup(args: &[String]) -> Result<()> {
+    let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
+    let dir = kobo_data_dir(Path::new(&device))?;
+    let named = args_all(args, "--service");
+    let explicit = !named.is_empty();
+    let mut services = Vec::new();
+    for n in &named {
+        services.push(Service::parse(n).ok_or_else(|| Error::InvalidRequest(format!("unknown service {n} (inoreader, karakeep)")))?);
+    }
+    if !explicit {
+        services = Service::ALL.to_vec();
+    }
+    println!("InoInk keeps these settings on the Kobo's drive, where anyone holding the Kobo can read them. Use keys you can revoke.");
+    let mut transfer = Transfer::default();
+    if services.contains(&Service::Inoreader) {
+        let existing = FileCredentials::new(&dir)
+            .load_credentials()
+            .ok()
+            .flatten()
+            .or_else(|| accounts::read_transfer(&dir).ok().flatten().and_then(|t| t.inoreader));
+        let skip = !explicit
+            && existing.is_some()
+            && !yes(&format!(
+                "Inoreader: {}. Sign in again?",
+                accounts::describe(&dir, Service::Inoreader).unwrap_or_else(|| "a sign-in is waiting".into())
+            ))?;
+        if !skip {
+            let client_id = match arg(args, "--client-id").or_else(|| std::env::var("INOINK_CLIENT_ID").ok().filter(|v| !v.is_empty())) {
+                Some(v) => v,
+                None => prompt_line("Inoreader App ID", existing.as_ref().map(|c| c.client_id.as_str()))?,
+            };
+            if client_id.is_empty() {
+                return Err(Error::InvalidRequest("the App ID is required".into()));
+            }
+            let redirect = match arg(args, "--redirect-uri").or_else(|| std::env::var("INOINK_REDIRECT_URI").ok().filter(|v| !v.is_empty()))
+            {
+                Some(v) => v,
+                None => prompt_line(
+                    "Redirect URI as registered in Inoreader",
+                    Some(existing.as_ref().map(|c| c.redirect_uri.as_str()).unwrap_or(RELAY_REDIRECT_URI)),
+                )?,
+            };
+            let secret = read_secret()?;
+            let creds = browser_sign_in(&AppConfig::new(&client_id, &secret, &redirect), "read write")?;
+            println!("Signed in as {}.", if creds.user_name.is_empty() { &creds.user_id } else { &creds.user_name });
+            transfer.inoreader = Some(creds);
+        }
+    }
+    if services.contains(&Service::Karakeep) {
+        let existing = share::load_config(&dir).ok().and_then(|c| c.karakeep);
+        let skip =
+            !explicit && existing.as_ref().is_some_and(|k| !yes(&format!("Karakeep: sends to {}. Change it?", k.url)).unwrap_or(false));
+        if !skip {
+            let url = match arg(args, "--karakeep-url") {
+                Some(u) => u,
+                None => prompt_line("Karakeep address (https://...), or Enter to skip", None)?,
+            };
+            if url.trim().is_empty() {
+                if explicit {
+                    return Err(Error::InvalidRequest("the Karakeep address is required".into()));
+                }
+            } else {
+                let url = share::karakeep_base(&url)?;
+                let key = read_secret_from(
+                    "INOINK_KARAKEEP_KEY",
+                    "the Karakeep API key",
+                    "Paste the Karakeep API key, then press Enter. Nothing is shown while you type: ",
+                )?;
+                let k = KarakeepConfig { url, api_key: key };
+                match share::check_karakeep(&k, &UreqTransport::new()) {
+                    KarakeepCheck::Accepted => {
+                        println!("Karakeep accepted the key.");
+                        transfer.karakeep = Some(k);
+                    }
+                    KarakeepCheck::Refused => {
+                        println!("Karakeep refused the API key; it was not saved. Run this again with --service karakeep.");
+                    }
+                    KarakeepCheck::Unverified(e) => {
+                        println!("Could not check the key ({e}); saving it anyway.");
+                        transfer.karakeep = Some(k);
+                    }
+                }
+            }
+        }
+    }
+    if transfer.is_empty() {
+        println!("Nothing to save.");
+    } else {
+        accounts::write_transfer(&dir, &transfer)?;
+        println!("Saved to the Kobo. Eject it and open InoInk: it picks up the accounts as it starts.");
+    }
+    Ok(())
+}
+
 fn authorize(args: &[String]) -> Result<()> {
-    let client_id = arg(args, "--client-id").ok_or_else(|| Error::InvalidRequest("--client-id is required".into()))?;
-    let redirect = arg(args, "--redirect-uri").ok_or_else(|| Error::InvalidRequest("--redirect-uri is required".into()))?;
-    let scope = arg(args, "--scope").unwrap_or_else(|| "read write".into());
-    let device = arg(args, "--device").map(PathBuf::from);
+    let client_id = arg(args, "--client-id");
+    let redirect = arg(args, "--redirect-uri");
+    let device = arg(args, "--device");
     let out = arg(args, "--out").map(PathBuf::from);
     if device.is_none() && out.is_none() {
         return Err(Error::InvalidRequest("give --device MOUNT or --out FILE".into()));
     }
-    let recipient = match &device {
-        Some(m) => Some(read_device_recipient(&data_dir_of(m))?),
-        None => None,
-    };
-    let secret = read_secret()?;
-    let cfg = AppConfig::new(&client_id, &secret, &redirect);
-    let state = random_hex(16)?;
-    let consent = authorize_url(&cfg, &state, &scope);
-    println!("Approve access in the browser. If it does not open, open this address:\n\n  {consent}\n");
-    let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(&consent).status();
-    let callback = receive_callback(&redirect)?;
-    let code = parse_callback(&callback, &state)?;
-    let transport = UreqTransport::new();
-    let tokens = exchange_code(&cfg, &transport, &SystemClock, &code)?;
-    // Learn the account id with a throwaway in-memory token store.
-    struct Mem(std::sync::Mutex<Option<inoink::api::Tokens>>);
-    impl inoink::api::TokenStore for Mem {
-        fn load(&self) -> Result<Option<inoink::api::Tokens>> {
-            Ok(self.0.lock().unwrap().clone())
-        }
-        fn save(&self, t: &inoink::api::Tokens) -> Result<()> {
-            *self.0.lock().unwrap() = Some(t.clone());
-            Ok(())
-        }
-    }
-    let api = ApiClient::new(
-        cfg.clone(),
-        Arc::new(UreqTransport::new()),
-        Arc::new(SystemClock),
-        Arc::new(Mem(std::sync::Mutex::new(Some(tokens.clone())))),
-    )?;
-    let info = api.user_info()?;
-    let mut creds = Credentials::new(&cfg, &tokens);
-    creds.user_id = info.user_id.clone();
-    println!("Signed in as {}.", info.user_name);
-    if let Some(r) = recipient {
-        let enc = encrypt_for(&r, &creds)?;
-        let dir = data_dir_of(device.as_ref().unwrap());
-        write_transfer(&dir, &enc)?;
-        println!("Credentials were encrypted for this Kobo and written to {}.", dir.join("provision/credentials.age").display());
-        let karakeep_url = arg(args, "--karakeep-url").or_else(|| {
-            if !std::io::stdin().is_terminal() {
-                return None;
-            }
-            eprint!("Karakeep address to send links to (https://...), or press Enter to skip: ");
-            let mut line = String::new();
-            std::io::stdin().lock().read_line(&mut line).ok()?;
-            Some(line.trim().to_string())
-        });
-        if let Some(url) = karakeep_url.filter(|u| !u.trim().is_empty()) {
-            if let Err(e) = setup_karakeep(&dir, &r, &url) {
-                println!(
-                    "Karakeep was not set up: {e}. The Inoreader sign-in is saved; run inoink-cli karakeep --url URL --device MOUNT later."
-                );
+    if let Some(m) = &device {
+        let mut a = vec!["--device".to_string(), m.clone(), "--service".into(), "inoreader".into()];
+        for (flag, v) in [("--client-id", &client_id), ("--redirect-uri", &redirect)] {
+            if let Some(v) = v {
+                a.push(flag.into());
+                a.push(v.clone());
             }
         }
-        println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
+        setup(&a)?;
     }
     if let Some(o) = out {
+        let client_id = client_id.ok_or_else(|| Error::InvalidRequest("--client-id is required".into()))?;
+        let redirect = redirect.ok_or_else(|| Error::InvalidRequest("--redirect-uri is required".into()))?;
+        let scope = arg(args, "--scope").unwrap_or_else(|| "read write".into());
+        let secret = read_secret()?;
+        let creds = browser_sign_in(&AppConfig::new(&client_id, &secret, &redirect), &scope)?;
+        println!("Signed in as {}.", creds.user_name);
         if let Some(dir) = o.parent().filter(|d| !d.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
@@ -263,61 +367,16 @@ fn provision(args: &[String]) -> Result<()> {
     let file = arg(args, "--credentials").ok_or_else(|| Error::InvalidRequest("--credentials is required".into()))?;
     let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
     let creds: Credentials = serde_json::from_slice(&std::fs::read(&file)?).map_err(|_| Error::Data("not a credentials file".into()))?;
-    let dir = data_dir_of(Path::new(&device));
-    let enc = encrypt_for(&read_device_recipient(&dir)?, &creds)?;
-    write_transfer(&dir, &enc)?;
-    println!("Encrypted credentials written for the Kobo at {}.", dir.display());
+    let dir = kobo_data_dir(Path::new(&device))?;
+    accounts::write_transfer(&dir, &Transfer { inoreader: Some(creds), ..Default::default() })?;
+    println!("Credentials written to the Kobo; InoInk imports them as it starts.");
     Ok(())
 }
 
-/// A Karakeep address without its trailing slash. Only web addresses are accepted.
-fn karakeep_base(url: &str) -> Result<String> {
-    let url = url.trim();
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err(Error::InvalidRequest("--url must start with https:// (or http://)".into()));
-    }
-    Ok(url.trim_end_matches('/').to_string())
-}
-
-/// Sets up Karakeep: checks the key, then writes the encrypted settings for the Kobo to import.
 fn karakeep(args: &[String]) -> Result<()> {
     let url = arg(args, "--url").ok_or_else(|| Error::InvalidRequest("--url is required".into()))?;
     let device = arg(args, "--device").ok_or_else(|| Error::InvalidRequest("--device is required".into()))?;
-    karakeep_base(&url)?;
-    let dir = data_dir_of(Path::new(&device));
-    let recipient = read_device_recipient(&dir)?;
-    setup_karakeep(&dir, &recipient, &url)?;
-    println!("Eject the Kobo and open InoInk; it imports and deletes the file.");
-    Ok(())
-}
-
-/// Reads and checks the API key for the Karakeep at `url`, then writes the settings encrypted
-/// for the Kobo whose data directory is `dir`.
-fn setup_karakeep(dir: &Path, recipient: &str, url: &str) -> Result<()> {
-    use inoink::api::{HttpRequest, Method, Transport};
-    let url = karakeep_base(url)?;
-    let key = read_secret_from(
-        "INOINK_KARAKEEP_KEY",
-        "the Karakeep API key",
-        "Paste the Karakeep API key, then press Enter. Nothing is shown while you type: ",
-    )?;
-    let probe = HttpRequest {
-        method: Method::Get,
-        url: format!("{url}/api/v1/users/me"),
-        headers: vec![("Authorization".into(), format!("Bearer {key}")), ("Accept".into(), "application/json".into())],
-        body: None,
-    };
-    match UreqTransport::new().send(&probe) {
-        Ok(r) if r.status == 200 => println!("Karakeep accepted the key."),
-        Ok(r) if r.status == 401 || r.status == 403 => return Err(Error::InvalidRequest("Karakeep refused the API key".into())),
-        Ok(r) => println!("Could not verify the key (HTTP {}); saving it anyway.", r.status),
-        Err(e) => println!("Could not verify the key ({e}); saving it anyway."),
-    }
-    let cfg = inoink::share::ShareConfig { karakeep: Some(inoink::share::KarakeepConfig { url, api_key: key }) };
-    let enc = inoink::share::encrypt_for(recipient, &cfg)?;
-    inoink::share::write_transfer(dir, &enc)?;
-    println!("The Karakeep settings were encrypted for this Kobo and written to {}.", dir.join("provision/share.age").display());
-    Ok(())
+    setup(&["--device".into(), device, "--service".into(), "karakeep".into(), "--karakeep-url".into(), url])
 }
 
 // ---- fixtures ---------------------------------------------------------------------------------
@@ -649,6 +708,7 @@ fn main() {
         Some("snapshot") => snapshot::run(&args[1..]),
         Some("provision") => provision(&args[1..]),
         Some("karakeep") => karakeep(&args[1..]),
+        Some("setup") => setup(&args[1..]),
         Some("fixtures") => fixtures(&args[1..]),
         Some("verify-cache") => verify_cache(&args[1..]),
         Some("highlights") => highlights(&args[1..]),
@@ -666,12 +726,23 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::karakeep_base;
+    use super::*;
 
     #[test]
-    fn karakeep_base_validates_and_trims() {
-        assert_eq!(karakeep_base("https://k.example/").unwrap(), "https://k.example");
-        assert_eq!(karakeep_base(" http://a ").unwrap(), "http://a");
-        assert!(karakeep_base("ftp://x").is_err());
+    fn args_all_collects_repeats() {
+        let a: Vec<String> = ["--service", "a", "--x", "1", "--service", "b"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(args_all(&a, "--service"), vec!["a", "b"]);
+        assert!(args_all(&a, "--none").is_empty());
+    }
+
+    #[test]
+    fn kobo_data_dir_requires_version_file() {
+        let t = std::env::temp_dir().join(format!("inoink-cli-test-{}", std::process::id()));
+        std::fs::create_dir_all(&t).unwrap();
+        assert!(kobo_data_dir(&t).is_err());
+        std::fs::create_dir_all(t.join(".kobo")).unwrap();
+        std::fs::write(t.join(".kobo/version"), "x").unwrap();
+        assert!(kobo_data_dir(&t).unwrap().ends_with(".adds/inoink/data"));
+        let _ = std::fs::remove_dir_all(&t);
     }
 }
