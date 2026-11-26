@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 # One release at a time, in order: a queued run sees the tag the previous one created.
 concurrency:
@@ -114,3 +115,5 @@ jobs:
           chmod +x out/inoink-cli-*
           (cd out && sha256sum * > SHA256SUMS)
           gh release create "v$V" out/* --target "$SHA" --title "InoInk $V" --generate-notes --latest
+          # Publish the new package on the project site too (a release made with the workflow token starts no other workflow).
+          gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY"

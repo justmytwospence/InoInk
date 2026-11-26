@@ -329,16 +329,55 @@ export async function releaseFor(version, fetchFn = fetch) {
   return releaseInfo(await getJson(`https://api.github.com/repos/${REPO}/releases/tags/${tag}`, fetchFn));
 }
 
+/**
+ * The package published with this site (release.json, written by scripts/pages-site.sh), which
+ * the browser can download because it comes from the same site. Null when there is none.
+ */
+export async function siteRelease(fetchFn = fetch, base = new URL(".", import.meta.url)) {
+  try {
+    const res = await fetchFn(new URL("release.json", base), { cache: "no-store" });
+    if (!res.ok) return null;
+    const j = await res.json();
+    if (
+      !VALID_NAME.test(String(j.version)) ||
+      j.name !== packageName(j.version) ||
+      !/^[0-9a-f]{64}$/.test(String(j.sha256)) ||
+      !Number.isInteger(j.size) ||
+      !String(j.file).startsWith("downloads/") ||
+      String(j.file).includes("..")
+    ) {
+      return null;
+    }
+    return {
+      version: j.version,
+      url: `https://github.com/${REPO}/releases/tag/v${j.version}`,
+      asset: {
+        name: j.name,
+        size: j.size,
+        sha256: j.sha256,
+        siteUrl: new URL(j.file, base).href,
+        apiUrl: null,
+        downloadUrl: `https://github.com/${REPO}/releases/download/v${j.version}/${j.name}`,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export class DownloadBlocked extends Error {}
 
 /**
- * Downloads a release package in the browser. GitHub's asset storage sends no CORS headers today,
- * so this usually throws DownloadBlocked and the page asks for the downloaded file instead.
+ * Downloads a release package in the browser: from this site when it hosts the package
+ * (asset.siteUrl), else from GitHub, whose asset storage sends no CORS headers today, so that
+ * usually throws DownloadBlocked and the page asks for the downloaded file instead.
  */
 export async function downloadPackage(asset, { onProgress, fetchFn = fetch } = {}) {
   let res;
   try {
-    res = await fetchFn(asset.apiUrl, { headers: { Accept: "application/octet-stream" } });
+    res = asset.siteUrl
+      ? await fetchFn(asset.siteUrl)
+      : await fetchFn(asset.apiUrl, { headers: { Accept: "application/octet-stream" } });
   } catch (e) {
     throw new DownloadBlocked(e.message);
   }
@@ -468,6 +507,7 @@ export async function inspect(root) {
     launcher: !!base && (await exists(await tryDir(base, ["current"]), "inoink.sh")),
     pending: !!base && (await exists(base, "INSTALL.TGZ")),
     signedIn: await exists(data, "credentials.json"),
+    accountsPending: await exists(data && (await tryDir(data, ["provision"])), "accounts.json"),
     hasData: await exists(data, "inoink.db"),
     nickelMenu: !!nm,
     menuEntry: await exists(nm, "inoink"),
@@ -506,6 +546,28 @@ export async function install(root, bytes, pkg, { menu = true, onProgress } = {}
     } else entry = "no-nickelmenu";
   }
   return { version: pkg.version, menu: entry };
+}
+
+/**
+ * Saves the Karakeep address and key for the Kobo to import when InoInk starts
+ * (.adds/inoink/data/provision/accounts.json), keeping any other waiting entry.
+ */
+export async function saveKarakeep(root, url, apiKey) {
+  url = String(url || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\/\S+$/.test(url)) throw new Error("The Karakeep address must start with https:// (or http://).");
+  apiKey = String(apiKey || "").trim();
+  if (!apiKey) throw new Error("Enter the Karakeep API key.");
+  const data = await dir(root, [".adds", "inoink", "data"], true);
+  const provision = await dir(data, ["provision"], true);
+  let obj = {};
+  try {
+    const old = await readFile(provision, "accounts.json");
+    if (old) obj = JSON.parse(text(old)) || {};
+  } catch {
+    obj = {};
+  }
+  obj.karakeep = { url, api_key: apiKey };
+  await writeFile(provision, "accounts.json", new TextEncoder().encode(`${JSON.stringify(obj, null, 2)}\n`));
 }
 
 export const REMOVE_LEVELS = ["keep", "settings", "all"];

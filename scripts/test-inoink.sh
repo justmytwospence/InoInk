@@ -1,7 +1,8 @@
 #!/bin/sh
 # Runs every automated check: formatting, library and CLI tests, lints, the development tools'
 # tests (device benchmark, screen review), the native view and document tests (in the build
-# container), the install/launcher tests and the browser installer's.
+# container), the install/launcher tests, the site's install script and Pages build, and the
+# browser installer's and sign-in redirect page's.
 set -eu
 cd "$(dirname "$0")/.."
 sh tests/preview-macos.sh
@@ -18,5 +19,7 @@ node --test scripts/review/review.test.mjs
 scripts/container-run.sh cargo test --locked -p plato-core --tests
 scripts/container-run.sh cargo test --locked -p emulator -- --test-threads=1
 sh tests/package.sh "$@"
-node --test tests/web-installer.test.mjs
+sh tests/site-install.sh
+sh tests/pages-site.sh
+node --test tests/web-installer.test.mjs tests/relay.test.mjs
 echo "All checks passed."

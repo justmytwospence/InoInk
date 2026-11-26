@@ -106,7 +106,7 @@
     <article>
       <h3>Organise from the couch</h3>
       <p>Tags, following feeds, folder management, monitoring searches and
-        Send to Karakeep (set up while you sign in), as far as Inoreader's public API allows.</p>
+        Send to Karakeep (set up at install, on the Kobo, or from a phone), as far as Inoreader's public API allows.</p>
     </article>
   </div>
 </section>
@@ -141,10 +141,10 @@
         <li>An <strong>Inoreader plan with API access</strong> and your own app registration:
           in <a href="https://www.inoreader.com/preferences/other">Preferences &gt; Developer API</a>,
           click New application, choose Platform Other, Redirect URI
-          <code>http://localhost:8080/callback</code> and scope Read and write, and note the App ID
-          and App key.</li>
-        <li>A computer: <strong>Chrome or Edge</strong> installs from this page (or a Mac or Linux
-          computer runs the install script), and a <strong>Mac or Linux</strong> computer signs in.</li>
+          <code>https://justmytwospence.github.io/InoInk/callback.html</code> and scope Read and write, and note the App ID
+          and App key. (An existing app with another redirect URI works too: you paste one address by hand.)</li>
+        <li>A <strong>Mac or Linux</strong> terminal for the one-line install, or <strong>Chrome or Edge</strong>
+          for the installer below.</li>
       </ul>
       <h3>First five minutes</h3>
       <ul>
@@ -160,23 +160,14 @@
     <div>
       <h3>Install</h3>
       <ol>
-        <li>Connect the Kobo by USB, tap <strong>Connect</strong> on it, and install InoInk with the
-          <a href="#installer">installer below</a> in Chrome or Edge.
-          In another browser, download the Kobo package and <code>install-inoink.sh</code> from the
-          <a href="https://github.com/justmytwospence/InoInk/releases/latest">latest release</a> and run<br>
-          <code>sh install-inoink.sh inoink-&lt;version&gt;-kobo.tar.gz /Volumes/KOBOeReader --menu</code></li>
-        <li>Eject, open InoInk once from NickelMenu (it creates its own key and asks you to sign in),
-          then quit it from its main menu.</li>
-        <li>Connect the Kobo again and sign in from the computer with <code>inoink-cli</code> from the
-          same release. On a Mac, first run
-          <code>chmod +x inoink-cli-macos-arm64</code> and
-          <code>xattr -d com.apple.quarantine inoink-cli-macos-arm64</code> (the helper is not signed
-          by Apple), then<br>
-          <code>./inoink-cli-macos-arm64 authorize --client-id YOUR_APP_ID --redirect-uri http://localhost:8080/callback --device /Volumes/KOBOeReader</code><br>
-          It asks for your App key and opens Inoreader in your browser to approve.
-          It then offers to set up Karakeep too (press Enter to skip).
-          <a href="#faq-signin">Why not on this page?</a></li>
-        <li>Eject and open InoInk again. It syncs, and you are reading.</li>
+        <li>Connect the Kobo by USB and tap <strong>Connect</strong> on it.</li>
+        <li>In a terminal, run<br>
+          <code>curl -fsSL https://justmytwospence.github.io/InoInk/install.sh | sh</code><br>
+          It downloads the latest release, checks it, installs it with the NickelMenu entry, asks for your App ID
+          and App key, opens Inoreader to approve, offers to set up Karakeep, and ejects the Kobo.</li>
+        <li>Open InoInk from NickelMenu: it finishes installing and syncs.</li>
+        <li>No terminal? Use the <a href="#installer">installer below</a> in Chrome or Edge, then sign in on the
+          Kobo: Main menu &gt; Settings &gt; Accounts &gt; Set up from a phone.</li>
       </ol>
       <p>The <a href="https://github.com/justmytwospence/InoInk/blob/main/doc/INOINK-SETUP.md">setup guide</a>
         covers every step, updates and removal.</p>
@@ -188,7 +179,7 @@
 
     <div data-step="intro">
       <p>This page copies InoInk to your Kobo, updates it, or removes it, right in your browser:
-        nothing from your Kobo is uploaded, and the only download is the InoInk release from GitHub.</p>
+        nothing from your Kobo is uploaded, and the only download is the InoInk release, from this site.</p>
       <ol class="steps">
         <li>If InoInk is open on the Kobo, quit it from its main menu.</li>
         <li>Connect the Kobo by USB and tap <strong>Connect</strong> on it.</li>
@@ -214,6 +205,12 @@
         menu entry. <a href="https://kp.nicoverbruggen.be">KoboPatch Web UI</a> installs NickelMenu from your
         browser; install it first, or start <code>.adds/inoink/current/inoink.sh</code> with another launcher.</p>
       <label class="check" data-show="menu-option"><input type="checkbox" data-field="menu" checked> Add InoInk to NickelMenu</label>
+      <details class="accounts"><summary>Send links to Karakeep (optional)</summary>
+        <label>Address <input data-field="karakeep-url" type="url" placeholder="https://karakeep.example.com" autocomplete="off"></label>
+        <label>API key <input data-field="karakeep-key" type="password" autocomplete="off"></label>
+        <p class="actions"><button type="button" class="button ghost" data-action="karakeep-save">Save to Kobo</button></p>
+        <p class="fine" data-field="karakeep-status"></p>
+      </details>
       <p class="actions">
         <button type="button" class="button" data-action="install" disabled>Install InoInk</button>
         <button type="button" class="button ghost" data-action="remove" hidden>Remove InoInk</button>
@@ -222,8 +219,8 @@
     </div>
 
     <div data-step="package" hidden>
-      <p>GitHub does not let web pages download release files directly, so download the package yourself,
-        then choose it here. The page checks it against the checksum GitHub publishes before copying it.</p>
+      <p>The package could not be downloaded here, so download it yourself, then choose it. The page checks it
+        against the published checksum before copying it.</p>
       <ol class="steps">
         <li><a class="button ghost" data-field="download" href="https://github.com/justmytwospence/InoInk/releases/latest">Download the package</a></li>
         <li><label class="button" for="package-file">Choose the downloaded file</label>
@@ -298,12 +295,12 @@
       computer instead; it writes the same files.</p>
   </details>
   <details id="faq-signin">
-    <summary>Why do I still sign in with <code>inoink-cli</code>?</summary>
+    <summary>Why can't this page sign in to Inoreader?</summary>
     <p>Signing in ends with a request to Inoreader's token endpoint, and Inoreader does not let web pages read
-      its answer (it sends no CORS headers; checked in November 2026). A page could only sign in through a
-      server in between, which would see your App key and tokens, and InoInk has no server. So
-      <code>inoink-cli authorize</code> signs in on your computer and writes the sign-in to the Kobo
-      encrypted to the Kobo's own key.</p>
+      its answer (it sends no CORS headers; checked in November 2026). So sign-in happens either in the terminal
+      installer or on the Kobo itself (Settings &gt; Accounts &gt; Set up from a phone). Both send you through
+      <code>callback.html</code> on this site, which only passes Inoreader's answer back to your computer or your
+      Kobo and stores nothing.</p>
   </details>
   <details>
     <summary>Do I need NickelMenu?</summary>
@@ -314,9 +311,9 @@
   <details>
     <summary>What does the page do with my Kobo?</summary>
     <p>It reads <code>.kobo/version</code> (model and firmware) and InoInk's own folder, and writes only
-      <code>.adds/inoink</code> and the menu entry <code>.adds/nm/inoink</code>: the package as
+      <code>.adds/inoink</code> (including, if you fill it in, <code>data/provision/accounts.json</code> with your Karakeep address and key) and the menu entry <code>.adds/nm/inoink</code>: the package as
       <code>INSTALL.TGZ</code>, its checksum, and a small launcher. The Kobo unpacks the package itself the
-      next time InoInk starts. Nothing is uploaded; the page only asks GitHub for the release.</p>
+      next time InoInk starts. Nothing is uploaded; the page only downloads the release package from this site.</p>
   </details>
 
   <h3>Updates and firmware</h3>
@@ -378,7 +375,7 @@
     <summary>What does InoInk keep on the Kobo?</summary>
     <p>Everything is in <code>.adds/inoink/data</code>: the database (article states, changes waiting to be
       sent, highlights and notes), downloaded articles and images, settings, the sign-in
-      (<code>credentials.json</code>, with your App key and tokens), the Kobo's own key, the Karakeep setup
+      (<code>credentials.json</code>, with your App key and tokens), the Karakeep setup
       and a log. The Kobo's storage has no file permissions, so anyone with the device can read them: use an
       app registration you can revoke.</p>
   </details>
