@@ -110,6 +110,13 @@ pub enum InoInkEntry {
     ShareLink(String, String),
     /// Send the open article's address to Karakeep.
     ShareArticle,
+    /// Settings > Accounts: sign out of a service (asks first).
+    SignOut(inoink::accounts::Service),
+    ConfirmSignOut(inoink::accounts::Service),
+    /// Check a service's sign-in now (Inoreader: a sync; Karakeep: a request).
+    TestAccount(inoink::accounts::Service),
+    /// Serve the setup page on the Wi-Fi and show its address as a QR code.
+    PhoneSetup,
     /// A choice in the end-of-article popup.
     ArticleEnd(EndChoice),
 }
@@ -415,7 +422,7 @@ pub fn export_highlights(context: &Context, format: inoink::highlight::ExportFor
 /// Queues a link for Karakeep. It is sent as soon as the network allows.
 pub fn share_url(context: &mut Context, url: &str, title: &str) -> Result<String, String> {
     if context.inoink.share.karakeep.is_none() {
-        return Err("Karakeep is not set up. See the setup guide.".into());
+        return Err("Karakeep is not set up. Main menu > Settings > Accounts.".into());
     }
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("Only web addresses can be shared".into());

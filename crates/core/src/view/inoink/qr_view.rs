@@ -17,15 +17,22 @@ pub struct QrView {
     url: String,
     width: usize,
     dark: Vec<bool>,
+    caption: Vec<String>,
 }
 
 impl QrView {
     /// `None` when the address is too long for a QR code.
+    pub fn with_caption(rect: Rectangle, url: &str, caption: &[&str]) -> Option<QrView> {
+        let mut q = QrView::new(rect, url)?;
+        q.caption = caption.iter().map(|c| c.to_string()).collect();
+        Some(q)
+    }
+
     pub fn new(rect: Rectangle, url: &str) -> Option<QrView> {
         let code = QrCode::new(url.as_bytes()).ok()?;
         let width = code.width();
         let dark = code.to_colors().into_iter().map(|c| c == Color::Dark).collect();
-        Some(QrView { id: ID_FEEDER.next(), rect, children: Vec::new(), url: url.to_string(), width, dark })
+        Some(QrView { id: ID_FEEDER.next(), rect, children: Vec::new(), url: url.to_string(), width, dark, caption: Vec::new() })
     }
 }
 
@@ -68,7 +75,11 @@ impl View for QrView {
         };
         let below = y0 + side + 3 * module;
         line(fonts, true, &self.url, below, fb);
-        line(fonts, false, "Tap to close", below + h / 12, fb);
+        for (i, c) in self.caption.iter().enumerate() {
+            line(fonts, true, c, below + (i as i32 + 1) * h / 20, fb);
+        }
+        let close = if self.caption.is_empty() { below + h / 12 } else { below + (self.caption.len() as i32 + 1) * h / 20 + h / 24 };
+        line(fonts, false, "Tap to close", close, fb);
     }
 
     fn rect(&self) -> &Rectangle {

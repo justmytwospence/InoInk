@@ -8,7 +8,8 @@ use crate::view::Event;
 use inoink::api::{ApiClient, SystemClock, UreqTransport};
 use inoink::cache::{Cache, CacheConfig};
 use inoink::content::images::UreqFetcher;
-use inoink::credentials::{ensure_device_key, import_provisioned, FileCredentials};
+use inoink::accounts;
+use inoink::credentials::FileCredentials;
 use inoink::model::*;
 use inoink::runtime::{self, Handle, Lifecycle, SyncStatus, Update};
 use inoink::store::Store;
@@ -146,6 +147,14 @@ pub struct InoInk {
     /// The document an article was just switched from (article or comments): the one opened
     /// next shows Return to it.
     pub doc_return: Option<(ArticleId, crate::view::inoink::actions::DocKind)>,
+    hub: Sender<Event>,
+    /// Whether this run syncs at all (false for the emulator's offline fixtures).
+    pub sync_enabled: bool,
+    /// The phone setup page, while it is served.
+    pub setup: Option<inoink::setup_server::SetupServer>,
+    /// Numbers account changes; `apply` runs twice per event, so each id is acted on once.
+    accounts_ids: Arc<std::sync::atomic::AtomicU64>,
+    accounts_seen: u64,
 }
 
 fn cache_config(s: &InoInkSettings) -> CacheConfig {
@@ -173,12 +182,8 @@ impl InoInk {
         std::fs::create_dir_all(&dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
         let mut provision_error = None;
         if online {
-            let _ = ensure_device_key(&dir);
-            if let Err(e) = import_provisioned(&dir) {
+            if let Err(e) = accounts::import_provisioned(&dir) {
                 provision_error = Some(e.to_string());
-            }
-            if let Err(e) = inoink::share::import_provisioned(&dir) {
-                provision_error = Some(format!("Karakeep setup failed: {e}"));
             }
         }
         let share = if sandbox { Default::default() } else { inoink::share::load_config(&dir).unwrap_or_default() };
@@ -216,20 +221,25 @@ impl InoInk {
             provision_error,
             image_zoom: std::collections::HashMap::new(),
             doc_return: None,
+            hub: hub.clone(),
+            sync_enabled: online,
+            setup: None,
+            accounts_ids: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            accounts_seen: 0,
         };
         me.load_ui_state();
         if let (true, Some(creds)) = (online, creds) {
-            me.start_sync(creds.app_config(), creds_store, &db, hub, network_up)?;
+            me.start_sync(creds.app_config(), &db, hub, network_up)?;
         } else if online {
             me.status = SyncStatus::NeedsSignIn;
         }
         Ok(me)
     }
 
-    fn start_sync(&mut self, cfg: inoink::api::AppConfig, creds: FileCredentials, db: &Path, hub: Sender<Event>, network_up: bool) -> Result<(), String> {
+    fn start_sync(&mut self, cfg: inoink::api::AppConfig, db: &Path, hub: Sender<Event>, network_up: bool) -> Result<(), String> {
         let transport = Arc::new(UreqTransport::new());
         let clock = Arc::new(SystemClock);
-        let api = ApiClient::new(cfg.clone(), transport, clock.clone(), Arc::new(creds)).map_err(|e| e.to_string())?;
+        let api = ApiClient::new(cfg.clone(), transport, clock.clone(), Arc::new(FileCredentials::for_account(&self.data_dir, &self.account))).map_err(|e| e.to_string())?;
         let engine_store = Store::open(db, &self.account).map_err(|e| e.to_string())?;
         let cache = Cache::new(&self.data_dir.join("cache"), &self.account, cache_config(&self.settings));
         let fetcher = Arc::new(UreqFetcher::new(inoink::content::images::BROWSER_USER_AGENT));
@@ -257,6 +267,69 @@ impl InoInk {
             .map_err(|e| e.to_string())?;
         self.handle = Some(handle);
         Ok(())
+    }
+
+    /// Reads the accounts again after they changed (a sign-in, a sign-out, the setup page): the
+    /// old sync worker stops, the other account's data opens when the account differs, and a
+    /// new worker starts when there is a sign-in.
+    pub fn reload_accounts(&mut self, network_up: bool) -> Result<(), String> {
+        if self.sandbox {
+            return Ok(());
+        }
+        if let Some(h) = self.handle.take() {
+            std::thread::spawn(move || h.shutdown());
+        }
+        let dir = self.data_dir.clone();
+        self.share = inoink::share::load_config(&dir).unwrap_or_default();
+        let creds = FileCredentials::new(&dir).load_credentials().ok().flatten();
+        let account = creds.as_ref().map(|c| c.user_id.clone()).filter(|u| !u.is_empty()).unwrap_or_else(|| "local".to_string());
+        let db = dir.join(DB_FILE);
+        if account != self.account {
+            self.store = Some(Store::open(&db, &account).map_err(|e| format!("can't open the database: {e}"))?);
+            self.cache = Cache::new(&dir.join("cache"), &account, cache_config(&self.settings));
+            self.account = account;
+            self.queue = None;
+            self.last_undo = None;
+            self.opening = None;
+            self.opening_page = None;
+            self.prefetched.clear();
+            self.last_sync = None;
+            self.load_ui_state();
+        }
+        self.provision_error = None;
+        if self.sync_enabled {
+            match creds {
+                Some(c) => {
+                    self.status = SyncStatus::Idle { last_sync: None };
+                    self.start_sync(c.app_config(), &db, self.hub.clone(), network_up)?;
+                }
+                None => self.status = SyncStatus::NeedsSignIn,
+            }
+        }
+        Ok(())
+    }
+
+    /// Serves the setup page on the Wi-Fi and returns its address.
+    pub fn start_phone_setup(&mut self, ip: std::net::Ipv4Addr) -> Result<String, String> {
+        let hub = self.hub.clone();
+        let ids = self.accounts_ids.clone();
+        let server = inoink::setup_server::SetupServer::start(inoink::setup_server::SetupOptions {
+            data_dir: self.data_dir.clone(),
+            host: ip,
+            bind: std::net::Ipv4Addr::UNSPECIFIED,
+            transport: Arc::new(UreqTransport::new()),
+            clock: Arc::new(SystemClock),
+            lifetime: Duration::from_secs(15 * 60),
+            token: None,
+            on_change: Box::new(move |m| {
+                let id = ids.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let _ = hub.send(Event::Sync(Update::AccountsChanged(id, m)));
+            }),
+        })
+        .map_err(|e| format!("Could not start the setup page: {e}"))?;
+        let url = server.url().to_string();
+        self.setup = Some(server);
+        Ok(url)
     }
 
     fn load_ui_state(&mut self) {
@@ -451,6 +524,22 @@ impl InoInk {
                 false
             }
             Update::Cached(..) | Update::CacheFailed(..) => true,
+            Update::AccountsChanged(id, m) => {
+                // Handled when first seen; the view's own call for the same event only redraws.
+                if *id <= self.accounts_seen {
+                    return *id == self.accounts_seen;
+                }
+                self.accounts_seen = *id;
+                self.notice = Some(match self.reload_accounts(true) {
+                    Ok(()) => m.clone(),
+                    Err(e) => e,
+                });
+                true
+            }
+            Update::Notice(m) => {
+                self.notice = Some(m.clone());
+                true
+            }
             _ => false,
         }
     }

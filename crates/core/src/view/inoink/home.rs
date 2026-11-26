@@ -644,7 +644,7 @@ impl InoInkHome {
         }
         match (&context.inoink.status, context.inoink.handle.is_some()) {
             (NeedsSignIn, _) | (_, false) if context.inoink.account == "local" && context.inoink.handle.is_none() && context.inoink.provision_error.is_some() || matches!(context.inoink.status, NeedsSignIn) => {
-                ("Sign in required".into(), "Connect the Kobo to a computer and run inoink-cli authorize.".into())
+                ("Sign in required".into(), "Main menu > Settings > Accounts > Set up from a phone, or sign in from a computer (see the setup guide).".into())
             }
             (Syncing, _) => ("Syncing".into(), "Articles appear as they arrive.".into()),
             _ => {
@@ -1244,7 +1244,7 @@ impl InoInkHome {
                     // The sync button shows the progress.
                     context.inoink.submit(inoink::runtime::Command::SyncNow);
                 } else {
-                    self.notify("Sign in to sync. See the setup guide.", hub, rq, context);
+                    self.notify("Sign in to sync: Main menu > Settings > Accounts.", hub, rq, context);
                 }
             }
             InoInkEntry::UndoDone => match undo_done(context) {
@@ -1294,6 +1294,77 @@ impl InoInkHome {
             InoInkEntry::SetQueueTitles(t) => {
                 context.settings.inoink.queue_titles = *t;
                 context.inoink.settings.queue_titles = *t;
+            }
+            InoInkEntry::SignOut(svc) => {
+                let text = match svc {
+                    inoink::accounts::Service::Inoreader => "Sign out of Inoreader? Articles on the Kobo stay; syncing stops until you sign in again.",
+                    inoink::accounts::Service::Karakeep => "Remove Karakeep? Links waiting to be sent stay queued until it is set up again.",
+                };
+                self.confirm(text.into(), InoInkEntry::ConfirmSignOut(*svc), rq, context);
+            }
+            InoInkEntry::ConfirmSignOut(svc) => {
+                let dir = context.inoink.data_dir.clone();
+                match inoink::accounts::sign_out(&dir, *svc) {
+                    Err(e) => self.notify(&format!("Could not change the account: {e}"), hub, rq, context),
+                    Ok(()) => {
+                        let online = context.online;
+                        if let Err(e) = context.inoink.reload_accounts(online) {
+                            self.notify(&e, hub, rq, context);
+                        } else {
+                            let m = match svc {
+                                inoink::accounts::Service::Inoreader => "Signed out of Inoreader",
+                                inoink::accounts::Service::Karakeep => "Karakeep removed",
+                            };
+                            self.notify(m, hub, rq, context);
+                        }
+                        self.load_page(hub, rq, context);
+                    }
+                }
+            }
+            InoInkEntry::TestAccount(inoink::accounts::Service::Inoreader) => {
+                if context.inoink.handle.is_some() {
+                    context.inoink.submit(inoink::runtime::Command::SyncNow);
+                    self.notify("Syncing to check the sign-in", hub, rq, context);
+                } else {
+                    self.notify("Not signed in", hub, rq, context);
+                }
+            }
+            InoInkEntry::TestAccount(inoink::accounts::Service::Karakeep) => match context.inoink.share.karakeep.clone() {
+                Some(k) => {
+                    let hub2 = hub.clone();
+                    std::thread::spawn(move || {
+                        use inoink::share::KarakeepCheck::*;
+                        let m = match inoink::share::check_karakeep(&k, &inoink::api::UreqTransport::new()) {
+                            Accepted => "Karakeep accepted the key".to_string(),
+                            Refused => "Karakeep refused the API key".to_string(),
+                            Unverified(e) => format!("Could not reach Karakeep: {e}"),
+                        };
+                        let _ = hub2.send(Event::Sync(inoink::runtime::Update::Notice(m)));
+                    });
+                    self.notify("Checking Karakeep", hub, rq, context);
+                }
+                None => self.notify("Karakeep is not set up", hub, rq, context),
+            },
+            InoInkEntry::PhoneSetup => {
+                if context.inoink.sandbox {
+                    self.notify("Not available in the preview sandbox", hub, rq, context);
+                } else if let Some(ip) = inoink::setup_server::local_ipv4() {
+                    match context.inoink.start_phone_setup(ip) {
+                        Ok(url) => {
+                            let caption = ["Open this address on a phone or computer", "on the same Wi-Fi. It works for 15 minutes."];
+                            match crate::view::inoink::qr_view::QrView::with_caption(self.rect, &url, &caption) {
+                                Some(qr) => {
+                                    rq.add(RenderData::new(qr.id(), *qr.rect(), UpdateMode::Full));
+                                    self.children.push(Box::new(qr) as Box<dyn View>);
+                                }
+                                None => self.notify("This address is too long for a QR code", hub, rq, context),
+                            }
+                        }
+                        Err(m) => self.notify(&m, hub, rq, context),
+                    }
+                } else {
+                    self.notify("Connect to Wi-Fi first, then try again", hub, rq, context);
+                }
             }
             other => match manage::apply(context, other, None) {
                 Ok(m) => {
@@ -1535,7 +1606,7 @@ impl View for InoInkHome {
                 self.select(&entry, hub, rq, context);
                 true
             }
-            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::SortMenu | ViewId::FilterMenu | ViewId::GroupMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog)) => {
+            Event::Close(id @ (ViewId::TitleMenu | ViewId::MainMenu | ViewId::BookMenu | ViewId::ManageMenu | ViewId::SortMenu | ViewId::FilterMenu | ViewId::GroupMenu | ViewId::BatteryMenu | ViewId::ClockMenu | ViewId::ConfirmDialog | ViewId::QrView)) => {
                 remove_child(self, id, rq);
                 true
             }
