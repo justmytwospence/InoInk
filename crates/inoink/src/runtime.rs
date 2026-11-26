@@ -148,6 +148,11 @@ pub enum Update {
     PageReady(String, std::result::Result<std::path::PathBuf, String>),
     /// The worker stopped touching the database (USB) or the network (suspend).
     Quiesced,
+    /// Accounts changed outside the worker (the Kobo's setup page): reload them once per id; the
+    /// text tells the user.
+    AccountsChanged(u64, String),
+    /// A message for the user (an account check).
+    Notice(String),
     /// `true`: turn the Wi-Fi on for a sync ([`WifiPolicy::TurnOn`]). `false`: that sync is over;
     /// turn the Wi-Fi off again if InoInk turned it on.
     Wifi(bool),

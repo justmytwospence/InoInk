@@ -1,5 +1,6 @@
 //! InoInk core: a renderer-independent Inoreader client.
 
+pub mod accounts;
 pub mod api;
 pub mod cache;
 pub mod content;
@@ -9,6 +10,7 @@ pub mod error;
 pub mod highlight;
 pub mod model;
 pub mod runtime;
+pub mod setup_server;
 pub mod share;
 pub mod snapshot;
 pub mod store;

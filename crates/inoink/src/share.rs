@@ -1,21 +1,19 @@
 //! Sending links to other services (Karakeep for now). Shares wait in a local outbox and are
 //! sent whenever the network is up, independently of the Inoreader quota. The service address
-//! and key are provisioned from the computer, encrypted to the Kobo's key, like the Inoreader
-//! sign-in, and never appear in logs.
+//! and key are written to `share.json` by `accounts` (from the computer, the browser installer or
+//! the Kobo's setup page) and never appear in logs.
 
 use crate::api::{Body, HttpRequest, Method, Transport};
 use crate::cache::atomic_write;
-use crate::credentials::{decrypt_with_device_key, restrict};
+use crate::credentials::restrict;
 use crate::error::{Error, Redacted, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
-use std::str::FromStr;
 use std::sync::Arc;
 
 pub const KARAKEEP: &str = "karakeep";
 const SHARE_FILE: &str = "share.json";
-const SHARE_TRANSFER: &str = "provision/share.age";
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct KarakeepConfig {
@@ -51,37 +49,43 @@ pub fn save_config(data_dir: &Path, cfg: &ShareConfig) -> Result<()> {
     Ok(())
 }
 
-/// Computer side: encrypts the share settings for a device's public key.
-pub fn encrypt_for(recipient: &str, cfg: &ShareConfig) -> Result<Vec<u8>> {
-    let r = age::x25519::Recipient::from_str(recipient.trim()).map_err(|_| Error::InvalidRequest("not a device public key".into()))?;
-    age::encrypt(&r, &serde_json::to_vec(cfg)?).map_err(|e| Error::Data(format!("encryption failed: {e}")))
+/// A Karakeep address without its trailing slash. Only web addresses are accepted.
+pub fn karakeep_base(url: &str) -> Result<String> {
+    let url = url.trim();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(Error::InvalidRequest("the Karakeep address must start with https:// (or http://)".into()));
+    }
+    Ok(url.trim_end_matches('/').to_string())
 }
 
-/// Computer side: writes the encrypted transfer file for the device to import.
-pub fn write_transfer(data_dir: &Path, encrypted: &[u8]) -> Result<()> {
-    atomic_write(&data_dir.join(SHARE_TRANSFER), encrypted)
+/// Sets or removes the Karakeep settings, keeping the other services.
+pub fn set_karakeep(data_dir: &Path, k: Option<KarakeepConfig>) -> Result<()> {
+    let mut cfg = load_config(data_dir).unwrap_or_default();
+    cfg.karakeep = k;
+    save_config(data_dir, &cfg)
 }
 
-/// Device side: imports and deletes a pending transfer file. A service missing from the file
-/// keeps its existing settings.
-pub fn import_provisioned(data_dir: &Path) -> Result<bool> {
-    let transfer = data_dir.join(SHARE_TRANSFER);
-    let bytes = match std::fs::read(&transfer) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e.into()),
+#[derive(Debug, Clone, PartialEq)]
+pub enum KarakeepCheck {
+    Accepted,
+    Refused,
+    Unverified(String),
+}
+
+/// Asks Karakeep who the key belongs to.
+pub fn check_karakeep(k: &KarakeepConfig, transport: &dyn Transport) -> KarakeepCheck {
+    let probe = HttpRequest {
+        method: Method::Get,
+        url: format!("{}/api/v1/users/me", k.url.trim_end_matches('/')),
+        headers: vec![("Authorization".into(), format!("Bearer {}", k.api_key)), ("Accept".into(), "application/json".into())],
+        body: None,
     };
-    let result = (|| {
-        let plain = decrypt_with_device_key(data_dir, &bytes)?;
-        let incoming: ShareConfig = serde_json::from_slice(&plain).map_err(|_| Error::Data("the share transfer file is damaged".into()))?;
-        let mut cfg = load_config(data_dir).unwrap_or_default();
-        if incoming.karakeep.is_some() {
-            cfg.karakeep = incoming.karakeep;
-        }
-        save_config(data_dir, &cfg)
-    })();
-    let _ = std::fs::remove_file(&transfer);
-    result.map(|_| true)
+    match transport.send(&probe) {
+        Ok(r) if r.status == 200 => KarakeepCheck::Accepted,
+        Ok(r) if r.status == 401 || r.status == 403 => KarakeepCheck::Refused,
+        Ok(r) => KarakeepCheck::Unverified(format!("HTTP {}", r.status)),
+        Err(e) => KarakeepCheck::Unverified(e.to_string()),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
