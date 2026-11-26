@@ -100,7 +100,11 @@ fn check_karakeep_maps_status() {
 fn karakeep_base_validates_and_trims() {
     assert_eq!(karakeep_base("https://k.example/").unwrap(), "https://k.example");
     assert_eq!(karakeep_base(" http://a ").unwrap(), "http://a");
+    assert_eq!(karakeep_base("karakeep.example.com").unwrap(), "https://karakeep.example.com");
+    assert_eq!(karakeep_base("keep.example:3000/").unwrap(), "https://keep.example:3000");
     assert!(karakeep_base("ftp://x").is_err());
+    assert!(karakeep_base("").is_err());
+    assert!(karakeep_base("https://").is_err());
 }
 
 struct Scripted(Mutex<Vec<ShareOutcome>>, Mutex<Vec<String>>);

@@ -554,7 +554,8 @@ export async function install(root, bytes, pkg, { menu = true, onProgress } = {}
  */
 export async function saveKarakeep(root, url, apiKey) {
   url = String(url || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\/\S+$/.test(url)) throw new Error("The Karakeep address must start with https:// (or http://).");
+  if (url && !url.includes("://")) url = `https://${url}`;
+  if (!/^https?:\/\/[^\s/]+\S*$/.test(url)) throw new Error("The Karakeep address must be a web address, such as https://karakeep.example.com.");
   apiKey = String(apiKey || "").trim();
   if (!apiKey) throw new Error("Enter the Karakeep API key.");
   const data = await dir(root, [".adds", "inoink", "data"], true);

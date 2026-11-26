@@ -459,6 +459,9 @@ test("Karakeep settings are saved for the Kobo to import", async () => {
   const saved = JSON.parse(fs.readFileSync(file, "utf8"));
   assert.deepEqual(saved.inoreader, fixture.inoreader);
   assert.deepEqual(saved.karakeep, { url: "http://k.example", api_key: "key" });
-  await assert.rejects(kobo.saveKarakeep(root, "ftp://x", "key"), /must start with https/);
+  await kobo.saveKarakeep(root, "keep.example.com", "key");
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).karakeep.url, "https://keep.example.com");
+  await assert.rejects(kobo.saveKarakeep(root, "ftp://x", "key"), /must be a web address/);
+  await assert.rejects(kobo.saveKarakeep(root, "", "key"), /must be a web address/);
   await assert.rejects(kobo.saveKarakeep(root, "https://k.example", "  "), /Enter the Karakeep API key/);
 });

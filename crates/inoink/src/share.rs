@@ -49,11 +49,15 @@ pub fn save_config(data_dir: &Path, cfg: &ShareConfig) -> Result<()> {
     Ok(())
 }
 
-/// A Karakeep address without its trailing slash. Only web addresses are accepted.
+/// A Karakeep address without its trailing slash. A bare host name means https; other schemes
+/// are refused.
 pub fn karakeep_base(url: &str) -> Result<String> {
     let url = url.trim();
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err(Error::InvalidRequest("the Karakeep address must start with https:// (or http://)".into()));
+    let url = if url.contains("://") { url.to_string() } else { format!("https://{url}") };
+    let ok = (url.starts_with("https://") || url.starts_with("http://"))
+        && url::Url::parse(&url).is_ok_and(|u| u.host_str().is_some_and(|h| !h.is_empty()));
+    if !ok {
+        return Err(Error::InvalidRequest("the Karakeep address must be a web address, such as https://karakeep.example.com".into()));
     }
     Ok(url.trim_end_matches('/').to_string())
 }
