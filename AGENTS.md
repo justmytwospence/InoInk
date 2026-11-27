@@ -27,10 +27,12 @@ derived from [Plato](https://github.com/baskerville/plato) (AGPL-3.0-or-later).
   title is the conventional-commit message. Never push to `main` directly.
 - `gh` targets `justmytwospence/InoInk` (`gh repo set-default`). Never open a PR against
   `baskerville/plato`.
-- Dev loop: test a branch on the owner's Kobo before merging. With the Kobo mounted,
-  `scripts/kobo-dev.sh` builds the working tree as a dev version (`<last release>-dev.N.<sha>[.dirty]`)
-  and installs it (`--ci` installs CI's package for the pushed HEAD instead). Record device evidence
-  in the PR (template) and, for acceptance cases, in `doc/INOINK-ACCEPTANCE.md`.
+- Dev loop: test a branch on the owner's Kobo before merging. For a clean pushed HEAD with a green
+  `kobo` job, prefer `scripts/kobo-dev.sh --ci` to install CI's package on the mounted Kobo.
+  `--ci` cannot include untracked inputs. Use a direct `scripts/kobo-dev.sh` build when deliberately
+  testing unpushed or dirty source; it builds a dev version (`<last release>-dev.N.<sha>[.dirty]`).
+  A CI package build is not physical device acceptance: record device evidence in the PR (template)
+  and, for acceptance cases, in `doc/INOINK-ACCEPTANCE.md`.
 - Releases are automatic: merging to `main` is deploying to everyone. After CI passes on `main`, the
   Release workflow computes the version from the conventional-commit titles since the last `v*` tag
   (`scripts/version.sh next`: `feat` minor, `type!`/`BREAKING CHANGE` major, else patch; doc, CI and
