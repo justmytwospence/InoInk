@@ -6,7 +6,9 @@ type!: major; docs:, ci: and test-only changes release nothing. Merging publishe
 
 ## Tested on a device
 
-<!-- scripts/kobo-dev.sh installs this branch on a mounted Kobo. Say what you checked, on what. -->
+<!-- For a clean pushed HEAD with a green kobo job, prefer scripts/kobo-dev.sh --ci on a mounted Kobo;
+     it cannot include untracked inputs. Build locally with scripts/kobo-dev.sh to test unpushed or dirty source.
+     A CI package build is not device acceptance. Say what you checked, on what; mark unperformed checks NOT RUN. -->
 
 - Device and firmware:
 - Build (Main menu > Status > Version):
